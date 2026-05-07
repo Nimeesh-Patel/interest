@@ -5,7 +5,7 @@ import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/storage_service.dart';
-import 'boards_screen.dart';
+import 'board_detail_screen.dart';
 import 'entity_screen.dart';
 import 'export_screen.dart';
 
@@ -29,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortOrder = 'latest';
   bool _isLoading = true;
   bool _isAddingCategory = false;
+  int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addController = TextEditingController();
@@ -89,6 +90,8 @@ class _HomeScreenState extends State<HomeScreen> {
       boardEntities: _boardEntities,
     );
   }
+
+  // ── Entity operations ─────────────────────────────────────────────────────
 
   List<Entity> get _filtered {
     var list = _entities;
@@ -173,20 +176,15 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reloadData();
   }
 
-  Future<void> _openBoards() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => BoardsScreen(storage: _storage)),
-    );
-    await _reloadData();
-  }
-
   Future<void> _openExport() async {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ExportScreen(storage: _storage)),
     );
+    await _reloadData();
   }
+
+  // ── Category operations ───────────────────────────────────────────────────
 
   void _addCategory(String name) {
     final trimmed = name.trim();
@@ -283,6 +281,136 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _save();
   }
+
+  // ── Board operations ──────────────────────────────────────────────────────
+
+  int _entityCountForBoard(String boardId) =>
+      _boardEntities.where((be) => be.boardId == boardId).length;
+
+  void _showCreateBoard() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New board'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Board name'),
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: (v) {
+            Navigator.pop(ctx);
+            _createBoard(v);
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _createBoard(ctrl.text);
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _createBoard(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final id = StorageService.generateBoardId(trimmed, _boards);
+    setState(() => _boards.add(Board(id: id, name: trimmed)));
+    _save();
+  }
+
+  void _showBoardOptions(Board board) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showRenameBoard(board);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Delete', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteBoard(board);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRenameBoard(Board board) {
+    final ctrl = TextEditingController(text: board.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename board'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          onSubmitted: (v) {
+            Navigator.pop(ctx);
+            final trimmed = v.trim();
+            if (trimmed.isEmpty) return;
+            setState(() => board.name = trimmed);
+            _save();
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final trimmed = ctrl.text.trim();
+              if (trimmed.isEmpty) return;
+              setState(() => board.name = trimmed);
+              _save();
+            },
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteBoard(Board board) {
+    setState(() {
+      _boards.removeWhere((b) => b.id == board.id);
+      _boardEntities.removeWhere((be) => be.boardId == board.id);
+    });
+    _save();
+  }
+
+  Future<void> _openBoardDetail(Board board) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BoardDetailScreen(
+          storage: _storage,
+          boardId: board.id,
+          boardName: board.name,
+        ),
+      ),
+    );
+    await _reloadData();
+  }
+
+  // ── Entities tab UI ───────────────────────────────────────────────────────
 
   Widget _buildCategoryFilter() {
     return SizedBox(
@@ -431,7 +559,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildList() {
+  Widget _buildEntityList() {
     final items = _filtered;
     if (items.isEmpty) {
       return Center(
@@ -466,11 +594,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+  Widget _buildEntitiesTab() {
     return GestureDetector(
       onTap: () {
         if (_isAddingCategory) {
@@ -480,33 +604,97 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Entities'),
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.grid_view),
-              onPressed: _openBoards,
-              tooltip: 'Boards',
-            ),
-            IconButton(
-              icon: const Icon(Icons.ios_share),
-              onPressed: _openExport,
-              tooltip: 'Export',
-            ),
-          ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCategoryFilter(),
+          _buildAddBar(),
+          _buildSearchBar(),
+          _buildSortBar(),
+          Expanded(child: _buildEntityList()),
+        ],
+      ),
+    );
+  }
+
+  // ── Boards tab UI ─────────────────────────────────────────────────────────
+
+  Widget _buildBoardsTab() {
+    if (_boards.isEmpty) {
+      return const Center(
+        child: Text(
+          'No boards yet.\nTap + to create one.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
         ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildCategoryFilter(),
-            _buildAddBar(),
-            _buildSearchBar(),
-            _buildSortBar(),
-            Expanded(child: _buildList()),
-          ],
-        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: _boards.length,
+      itemBuilder: (ctx, i) {
+        final board = _boards[i];
+        final count = _entityCountForBoard(board.id);
+        return ListTile(
+          title: Text(board.name),
+          subtitle: Text(
+            '$count ${count == 1 ? 'entity' : 'entities'}',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: () => _showBoardOptions(board),
+          ),
+          onTap: () => _openBoardDetail(board),
+        );
+      },
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_currentTab == 0 ? 'Entities' : 'Boards'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          if (_currentTab == 1)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _showCreateBoard,
+              tooltip: 'New board',
+            ),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            onPressed: _openExport,
+            tooltip: 'Export / Import',
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _currentTab,
+        children: [
+          _buildEntitiesTab(),
+          _buildBoardsTab(),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentTab,
+        onTap: (i) => setState(() => _currentTab = i),
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.list_alt),
+            label: 'Entities',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.grid_view),
+            label: 'Boards',
+          ),
+        ],
       ),
     );
   }

@@ -36,7 +36,10 @@ class _EntityScreenState extends State<EntityScreen> {
   late Entity _entity;
   late List<String> _allTags;
 
-  bool _isEditingName = false;
+  bool _isEditMode = false;
+  late Entity _editSnapshot;
+
+  // edit-mode inline state
   bool _isAddingNote = false;
   bool _isAddingLink = false;
   bool _isAddingTag = false;
@@ -51,9 +54,8 @@ class _EntityScreenState extends State<EntityScreen> {
   @override
   void initState() {
     super.initState();
-    _entity = widget.entity;
+    _entity = widget.entity.copyWith();
     _allTags = List<String>.from(widget.allTags);
-    _nameController.text = _entity.name;
   }
 
   @override
@@ -64,6 +66,40 @@ class _EntityScreenState extends State<EntityScreen> {
     _tagController.dispose();
     super.dispose();
   }
+
+  // ── Edit mode lifecycle ───────────────────────────────────────────────────
+
+  void _enterEditMode() {
+    setState(() {
+      _isEditMode = true;
+      _editSnapshot = _entity.copyWith();
+      _nameController.text = _entity.name;
+      _isAddingNote = false;
+      _isAddingLink = false;
+      _isAddingTag = false;
+      _editingNoteIndex = null;
+      _editingLinkIndex = null;
+    });
+  }
+
+  void _saveEdit() {
+    final trimmed = _nameController.text.trim();
+    if (trimmed.isNotEmpty) _entity.name = trimmed;
+    _save();
+    setState(() => _isEditMode = false);
+  }
+
+  void _cancelEdit() {
+    final restored = _editSnapshot.copyWith();
+    final idx = widget.allEntities.indexWhere((e) => e.id == restored.id);
+    if (idx != -1) widget.allEntities[idx] = restored;
+    setState(() {
+      _entity = restored;
+      _isEditMode = false;
+    });
+  }
+
+  // ── Persistence ───────────────────────────────────────────────────────────
 
   void _save() {
     _entity.updatedAt = DateTime.now().millisecondsSinceEpoch;
@@ -79,20 +115,11 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  void _commitName() {
-    final trimmed = _nameController.text.trim();
-    if (trimmed.isEmpty) return;
-    setState(() {
-      _entity.name = trimmed;
-      _isEditingName = false;
-    });
-    _save();
-  }
+  // ── Core field mutations (no auto-save; committed on Save) ────────────────
 
   void _changeCategory(String? id) {
     if (id == null) return;
     setState(() => _entity.categoryId = id);
-    _save();
   }
 
   void _addTag(String raw) {
@@ -108,12 +135,10 @@ class _EntityScreenState extends State<EntityScreen> {
       _isAddingTag = false;
     });
     _tagController.clear();
-    _save();
   }
 
   void _removeTag(String tag) {
     setState(() => _entity.tags.remove(tag));
-    _save();
   }
 
   void _addNote(String text) {
@@ -124,7 +149,6 @@ class _EntityScreenState extends State<EntityScreen> {
       _isAddingNote = false;
     });
     _noteController.clear();
-    _save();
   }
 
   void _commitNoteEdit(int index, String text) {
@@ -137,7 +161,6 @@ class _EntityScreenState extends State<EntityScreen> {
       _entity.notes[index] = trimmed;
       _editingNoteIndex = null;
     });
-    _save();
   }
 
   void _deleteNote(int index) {
@@ -145,7 +168,6 @@ class _EntityScreenState extends State<EntityScreen> {
       _entity.notes.removeAt(index);
       if (_editingNoteIndex == index) _editingNoteIndex = null;
     });
-    _save();
   }
 
   void _addLink(String text) {
@@ -156,7 +178,6 @@ class _EntityScreenState extends State<EntityScreen> {
       _isAddingLink = false;
     });
     _linkController.clear();
-    _save();
   }
 
   void _commitLinkEdit(int index, String text) {
@@ -169,7 +190,6 @@ class _EntityScreenState extends State<EntityScreen> {
       _entity.links[index] = trimmed;
       _editingLinkIndex = null;
     });
-    _save();
   }
 
   void _deleteLink(int index) {
@@ -177,17 +197,13 @@ class _EntityScreenState extends State<EntityScreen> {
       _entity.links.removeAt(index);
       if (_editingLinkIndex == index) _editingLinkIndex = null;
     });
-    _save();
   }
-
-  // ── Score ─────────────────────────────────────────────────────────────────
 
   void _setScore(double value) {
-    final rounded = (value * 10).round() / 10;
-    setState(() => _entity.score = rounded);
+    setState(() => _entity.score = (value * 10).round() / 10);
   }
 
-  // ── Boards ────────────────────────────────────────────────────────────────
+  // ── Board mutations (immediate save — mutate join tables) ─────────────────
 
   List<Board> get _entityBoards => widget.allBoards
       .where((b) => widget.allBoardEntities
@@ -252,7 +268,7 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  // ── Entity linking ────────────────────────────────────────────────────────
+  // ── Entity link mutations (immediate save) ────────────────────────────────
 
   void _createEntityLink(String targetId) {
     if (targetId == _entity.id) return;
@@ -348,28 +364,224 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  // ── AppBar title ──────────────────────────────────────────────────────────
+  // ── Display body ──────────────────────────────────────────────────────────
 
-  Widget _buildTitle() {
-    if (_isEditingName) {
-      return TextField(
-        controller: _nameController,
-        autofocus: true,
-        style: const TextStyle(color: Colors.white, fontSize: 18),
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
+  Widget _buildDisplayBody() {
+    final currentCategory = widget.allCategories.firstWhere(
+      (c) => c.id == _entity.categoryId,
+      orElse: () => widget.allCategories.isNotEmpty
+          ? widget.allCategories.first
+          : Category(id: '', name: ''),
+    );
+    final boards = _entityBoards;
+    final related = StorageService.getRelatedEntities(
+        _entity.id, widget.allEntityLinks, widget.allEntities);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+      children: [
+        // Name
+        Text(
+          _entity.name,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
-        onSubmitted: (_) => _commitName(),
-      );
-    }
-    return GestureDetector(
-      onTap: () => setState(() => _isEditingName = true),
-      child: Text(_entity.name),
+        const SizedBox(height: 4),
+        // Category
+        if (currentCategory.name.isNotEmpty)
+          Text(
+            currentCategory.name,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+        const SizedBox(height: 12),
+        // Tags
+        if (_entity.tags.isEmpty)
+          Text('No tags.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: _entity.tags
+                .map((tag) => Chip(
+                      label: Text(tag, style: const TextStyle(fontSize: 12)),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ))
+                .toList(),
+          ),
+        const SizedBox(height: 12),
+        // Score
+        if (_entity.score != null)
+          Row(
+            children: [
+              Text(
+                '★ ${_entity.score!.toStringAsFixed(1)}',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.amber.shade700),
+              ),
+            ],
+          )
+        else
+          Text('No score set.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+        const SizedBox(height: 12),
+        // Boards
+        if (boards.isEmpty)
+          Text('Not in any board.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: boards
+                .map((b) => Chip(
+                      label: Text(b.name, style: const TextStyle(fontSize: 12)),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ))
+                .toList(),
+          ),
+
+        const Divider(height: 32),
+
+        // Why it matters
+        const Text('Why it matters',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 8),
+        if (_entity.notes.isEmpty)
+          Text('No notes yet.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else
+          for (final note in _entity.notes) ...[
+            Text(note, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+          ],
+
+        const Divider(height: 32),
+
+        // Sources
+        const Text('Sources',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 8),
+        if (_entity.links.isEmpty)
+          Text('No sources yet.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else
+          for (final link in _entity.links) ...[
+            Text(
+              link,
+              style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.blue,
+                  decoration: TextDecoration.underline),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 6),
+          ],
+
+        const Divider(height: 32),
+
+        // Related
+        const Text('Related',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 4),
+        if (related.isEmpty)
+          Text('No related entities.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else
+          for (final other in related)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(other.name, style: const TextStyle(fontSize: 14)),
+              trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EntityScreen(
+                    entity: other,
+                    storage: widget.storage,
+                    allEntities: widget.allEntities,
+                    allCategories: widget.allCategories,
+                    allTags: _allTags,
+                    allEntityLinks: widget.allEntityLinks,
+                    allBoards: widget.allBoards,
+                    allBoardEntities: widget.allBoardEntities,
+                  ),
+                ),
+              ).then((_) => setState(() {})),
+            ),
+      ],
     );
   }
 
-  // ── Tags ──────────────────────────────────────────────────────────────────
+  // ── Edit body ─────────────────────────────────────────────────────────────
+
+  Widget _buildEditBody() {
+    final currentCategory = widget.allCategories.firstWhere(
+      (c) => c.id == _entity.categoryId,
+      orElse: () => widget.allCategories.isNotEmpty
+          ? widget.allCategories.first
+          : Category(id: '', name: ''),
+    );
+
+    return ListView(
+      children: [
+        // Name field
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+        ),
+        // Category
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Category',
+              border: OutlineInputBorder(),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            ),
+            child: DropdownButton<String>(
+              value: currentCategory.id.isNotEmpty ? currentCategory.id : null,
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              isDense: true,
+              items: widget.allCategories
+                  .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                  .toList(),
+              onChanged: _changeCategory,
+            ),
+          ),
+        ),
+        _buildTagsSection(),
+        const Divider(height: 24),
+        _buildScoreSection(),
+        const Divider(height: 24),
+        _buildBoardsSection(),
+        const Divider(height: 24),
+        _buildNotesSection(),
+        const Divider(height: 24),
+        _buildLinksSection(),
+        const Divider(height: 24),
+        _buildRelatedSection(),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  // ── Edit section builders ─────────────────────────────────────────────────
 
   Widget _buildTagsSection() {
     final suggestions = _allTags.where((t) => !_entity.tags.contains(t)).toList();
@@ -461,8 +673,6 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  // ── Score ─────────────────────────────────────────────────────────────────
-
   Widget _buildScoreSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,7 +700,6 @@ class _EntityScreenState extends State<EntityScreen> {
                 TextButton.icon(
                   onPressed: () {
                     setState(() => _entity.score = 5.0);
-                    _save();
                   },
                   icon: const Icon(Icons.add, size: 16),
                   label: const Text('Set', style: TextStyle(fontSize: 13)),
@@ -504,7 +713,6 @@ class _EntityScreenState extends State<EntityScreen> {
                   icon: const Icon(Icons.close, size: 18, color: Colors.grey),
                   onPressed: () {
                     setState(() => _entity.score = null);
-                    _save();
                   },
                   tooltip: 'Remove score',
                 ),
@@ -521,14 +729,11 @@ class _EntityScreenState extends State<EntityScreen> {
               divisions: 100,
               label: _entity.score!.toStringAsFixed(1),
               onChanged: _setScore,
-              onChangeEnd: (_) => _save(),
             ),
           ),
       ],
     );
   }
-
-  // ── Boards ────────────────────────────────────────────────────────────────
 
   Widget _buildBoardsSection() {
     final boards = _entityBoards;
@@ -560,7 +765,7 @@ class _EntityScreenState extends State<EntityScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
               widget.allBoards.isEmpty
-                  ? 'No boards yet. Create one from the Boards screen.'
+                  ? 'No boards yet.'
                   : 'Not in any board.',
               style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
@@ -587,8 +792,6 @@ class _EntityScreenState extends State<EntityScreen> {
       ],
     );
   }
-
-  // ── Notes ─────────────────────────────────────────────────────────────────
 
   Widget _buildNotesSection() {
     return Column(
@@ -711,8 +914,6 @@ class _EntityScreenState extends State<EntityScreen> {
       ),
     );
   }
-
-  // ── Sources ───────────────────────────────────────────────────────────────
 
   Widget _buildLinksSection() {
     return Column(
@@ -842,8 +1043,6 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  // ── Related ───────────────────────────────────────────────────────────────
-
   Widget _buildRelatedSection() {
     final related = StorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
@@ -912,70 +1111,32 @@ class _EntityScreenState extends State<EntityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentCategory = widget.allCategories.firstWhere(
-      (c) => c.id == _entity.categoryId,
-      orElse: () => widget.allCategories.isNotEmpty
-          ? widget.allCategories.first
-          : Category(id: '', name: ''),
-    );
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: _buildTitle(),
-        actions: [
-          if (!_isEditingName)
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () => setState(() => _isEditingName = true),
-              tooltip: 'Rename',
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.check),
-              onPressed: _commitName,
-              tooltip: 'Save name',
-            ),
-        ],
+        title: Text(_entity.name),
+        actions: _isEditMode
+            ? [
+                TextButton(
+                  onPressed: _cancelEdit,
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Colors.white)),
+                ),
+                TextButton(
+                  onPressed: _saveEdit,
+                  child: const Text('Save',
+                      style: TextStyle(color: Colors.white)),
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: _enterEditMode,
+                  tooltip: 'Edit',
+                ),
+              ],
       ),
-      body: ListView(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(),
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              ),
-              child: DropdownButton<String>(
-                value: currentCategory.id.isNotEmpty ? currentCategory.id : null,
-                isExpanded: true,
-                underline: const SizedBox.shrink(),
-                isDense: true,
-                items: widget.allCategories
-                    .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
-                    .toList(),
-                onChanged: _changeCategory,
-              ),
-            ),
-          ),
-          _buildTagsSection(),
-          const Divider(height: 24),
-          _buildScoreSection(),
-          const Divider(height: 24),
-          _buildBoardsSection(),
-          const Divider(height: 24),
-          _buildNotesSection(),
-          const Divider(height: 24),
-          _buildLinksSection(),
-          const Divider(height: 24),
-          _buildRelatedSection(),
-          const SizedBox(height: 32),
-        ],
-      ),
+      body: _isEditMode ? _buildEditBody() : _buildDisplayBody(),
     );
   }
 }

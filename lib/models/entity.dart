@@ -39,6 +39,18 @@ class Entity {
     );
   }
 
+  Entity copyWith() => Entity(
+        id: id,
+        name: name,
+        categoryId: categoryId,
+        notes: List<String>.from(notes),
+        links: List<String>.from(links),
+        tags: List<String>.from(tags),
+        score: score,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
