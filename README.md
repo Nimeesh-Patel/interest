@@ -70,7 +70,6 @@ tags:
 created_at: 2026-05-07T12:00:00.000Z
 updated_at: 2026-05-07T12:00:00.000Z
 ---
-
 # David Deutsch
 
 ## Why Interesting
