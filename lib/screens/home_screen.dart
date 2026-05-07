@@ -4,7 +4,7 @@ import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
-import '../services/storage_service.dart';
+import '../services/markdown_storage_service.dart';
 import 'board_detail_screen.dart';
 import 'entity_screen.dart';
 import 'export_screen.dart';
@@ -17,7 +17,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final StorageService _storage = StorageService();
+  final MarkdownStorageService _storage = MarkdownStorageService();
   List<Entity> _entities = [];
   List<Category> _categories = [];
   List<String> _tags = [];
@@ -135,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     final now = DateTime.now().millisecondsSinceEpoch;
-    final id = StorageService.generateEntityId(trimmed, _entities);
+    final id = MarkdownStorageService.generateEntityId(trimmed, _entities);
     final entity = Entity(
       id: id,
       name: trimmed,
@@ -193,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _newCategoryController.clear();
       return;
     }
-    final id = StorageService.generateCategoryId(trimmed, _categories);
+    final id = MarkdownStorageService.generateCategoryId(trimmed, _categories);
     setState(() {
       _categories.add(Category(id: id, name: trimmed));
       _isAddingCategory = false;
@@ -320,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _createBoard(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final id = StorageService.generateBoardId(trimmed, _boards);
+    final id = MarkdownStorageService.generateBoardId(trimmed, _boards);
     setState(() => _boards.add(Board(id: id, name: trimmed)));
     _save();
   }

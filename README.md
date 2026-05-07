@@ -1,13 +1,13 @@
 # Entity Tracker
 
-Single-user Flutter app for tracking entities (people, ideas, solutions, products, or any user-defined category) locally. No auth, no cloud, no backend.
+Single-user Flutter app for tracking entities (people, ideas, solutions, products, or any user-defined category). Data lives as plain Markdown files in a user-chosen vault folder — readable and editable by Obsidian or any text editor. No auth, no cloud, no backend.
 
 ## What it does
 
 - Track entities across user-defined categories
 - Each entity has: notes ("Why it matters"), links ("Sources"), tags, score, and related entities
 - Entity detail has a display mode (read-only) and an edit mode (explicit Save/Cancel)
-- Entities can be linked to each other — forming a navigable graph
+- Entities are linked to each other via Obsidian-style wikilinks — forming a navigable graph
 - Entities can be grouped into boards (independent of categories; many-to-many)
 - Entities can be added to boards from inside the board detail screen
 - Board members can be sorted by date, score, name, or category
@@ -17,7 +17,8 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - Search by name; filter by category; sort by date or score
 - Export all data as JSON, Markdown, or TXT
 - Import JSON data — merge with existing or replace all
-- All data persists locally in a single JSON file
+- On first launch: choose a vault folder (Obsidian vault or any folder)
+- All data persists as `.md` files; fully readable in Obsidian
 
 ## Architecture
 
@@ -25,13 +26,15 @@ No state management libraries. Pure `setState`. No repository pattern.
 
 ```
 lib/
-  main.dart                           — entry point, MaterialApp
+  main.dart                           — async vault-path check at startup; _StoragePermissionGate (Android All Files Access, re-checks on resume); routes to VaultSetupScreen or HomeScreen
   models/entity.dart                  — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt} + copyWith()
   models/category.dart                — Category {id, name}
   models/entity_link.dart             — EntityLink {id, from, to, type}
   models/board.dart                   — Board {id, name}
-  models/board_entity.dart            — BoardEntity {boardId, entityId} (join table)
-  services/storage_service.dart       — load/save entities.json; ID generators; static helpers
+  models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
+  services/vault_service.dart         — vault path persistence (SharedPreferences); entitiesPath/boardsPath helpers; ensureVaultDirectories
+  services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; parses YAML frontmatter + wikilinks; AppData typedef; static ID/link helpers
+  screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards → saves path
   screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline
   screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related
   screens/board_detail_screen.dart    — entities in a board; 6 sort options; FAB to add entities; self-contained
@@ -39,58 +42,80 @@ lib/
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
 ```
 
+## Vault folder layout
+
+The app operates exclusively inside:
+
+```
+<vault>/
+  Interesting/
+    Entities/        ← one .md file per entity
+    Boards/          ← one .md file per board
+```
+
+All other files in the vault are ignored.
+
 ## Data
 
-Single file: `entities.json` in `getApplicationDocumentsDirectory()`.
+### Entity file: `<EntityName>.md`
 
-```json
-{
-  "entities": [
-    {
-      "id": "john-doe",
-      "name": "John Doe",
-      "category_id": "people",
-      "notes": ["string"],
-      "links": ["url string"],
-      "tags": ["active"],
-      "score": 7.5,
-      "created_at": 1234567890000,
-      "updated_at": 1234567890000
-    }
-  ],
-  "categories": [
-    { "id": "people", "name": "People" }
-  ],
-  "tags": ["active", "exploring"],
-  "entity_links": [
-    {
-      "id": "john-doe--jane-doe",
-      "from": "john-doe",
-      "to": "jane-doe",
-      "type": "related"
-    }
-  ],
-  "boards": [
-    { "id": "favourites", "name": "Favourites" }
-  ],
-  "board_entities": [
-    { "board_id": "favourites", "entity_id": "john-doe" }
-  ]
-}
+```markdown
+---
+alias: david-deutsch
+category: People
+score: 10.0
+tags:
+  - epistemology
+  - physics
+created_at: 2026-05-07T12:00:00.000Z
+updated_at: 2026-05-07T12:00:00.000Z
+---
+
+# David Deutsch
+
+## Why Interesting
+
+- Developed constructor theory and extended Popperian epistemology.
+
+## Related
+
+- [[Karl Popper]]
+- [[Alan Turing]]
+
+## Sources
+
+- https://en.wikipedia.org/wiki/David_Deutsch
+```
+
+### Board file: `<BoardName>.md`
+
+```markdown
+# Flat Hierarchy Solution
+
+- [[David Deutsch]]
+- [[Browser]]
+- [[Untidiness]]
 ```
 
 ### Field rules
 
-- `id`, `category.id`, `board.id` — immutable slugs generated at creation (collision-safe via `_generateId`). Never regenerated on rename.
-- `score` — `null` if not set; float 0.0–10.0 stored to one decimal.
-- `created_at` / `updated_at` — Unix ms. `updated_at` is stamped on every entity save inside `_save()` in `entity_screen.dart`.
-- `tags` (top-level) — union of all entity tags, recomputed on every save. Used only for autocomplete; not the source of truth.
-- `entity_links` — bidirectional in the UI (queried in both directions). `id` is `"${from}--${to}"`. Duplicate prevention enforced before creation.
-- `board_entities` — join table; dedup enforced before insertion via `boardEntryExists`. Entries are removed when the entity or board is deleted.
+- `alias` — immutable slug (maps to `Entity.id`); generated from name at creation; never regenerated on rename
+- `category` — display string in frontmatter (e.g. "People"); `entity.categoryId = slugify(category)`
+- `score` — omitted if null; float 0.0–10.0 to one decimal
+- `created_at` / `updated_at` — ISO 8601 UTC strings in frontmatter; stored as Unix ms in memory
+- `tags` — list in frontmatter; union recomputed on every save (for autocomplete)
+- `## Related` wikilinks — canonical source for entity-to-entity links; bidirectional (both entity files list each other); deduplicated on load via `linkExists`
+- Board membership — derived at load time from board `.md` wikilinks; NOT stored in entity frontmatter
+- Filename — `<entity.name>.md` (sanitized); can change on rename; `alias` is the stable identity
+- Categories — derived from distinct `category` values across entity frontmatters; no separate file
+
+### Migration
+
+- On first load with an empty vault: if `entities.json` exists in app documents dir, auto-migrates all data to Markdown files and renames the JSON file to `entities.json.migrated`
 
 ## Storage pattern
 
-`AppData` is a Dart record:
+`AppData` is a Dart record (defined in `markdown_storage_service.dart`):
 
 ```dart
 typedef AppData = ({
@@ -105,7 +130,23 @@ typedef AppData = ({
 
 Load once at app start. Every mutation → fire-and-forget `saveData(...)`. `saveData` snapshots all lists before the async gap to avoid races. All I/O is try/catch — never crashes the app.
 
-### Static helpers on StorageService
+**`loadData()` flow:**
+1. Get vault path from `VaultService` (SharedPreferences)
+2. Run JSON migration if vault is empty and `entities.json` exists
+3. Scan `Interesting/Entities/*.md` → parse YAML frontmatter + body → `Entity` objects
+4. Derive `Category` list from distinct `category` frontmatter values
+5. Resolve `## Related` wikilinks → `EntityLink` list (bidirectional dedup via `linkExists`)
+6. Scan `Interesting/Boards/*.md` → parse H1/filename + wikilinks → `Board` + `BoardEntity` lists
+7. Return `AppData`
+
+**`saveData()` flow:**
+1. Get vault path; snapshot all lists
+2. For each entity: write `<name>.md` with frontmatter + body; detect renames (alias lookup) and delete old file
+3. Cleanup: delete entity files whose `alias` is no longer in the entities list
+4. For each board: write `<name>.md` with H1 + member wikilinks
+5. Cleanup: delete board files not written in this save
+
+### Static helpers on MarkdownStorageService
 
 - `linkExists(a, b, links)` — checks both directions
 - `getRelatedEntities(entityId, links, entities)` — returns all connected entities
@@ -130,7 +171,7 @@ HomeScreen navigates via push to:
 
 **Pass-by-reference (EntityScreen):** `HomeScreen` passes its own live lists (`_entities`, `_entityLinks`, etc.) directly to `EntityScreen`. `EntityScreen` mutates them in place (`allEntities[idx] = _entity`) on save, so the home list is already updated when it pops. `HomeScreen` still calls `_reloadData()` on pop for safety.
 
-**Self-contained (BoardDetailScreen, ExportScreen):** Each screen owns its data — calls `loadData()` in `initState` and `_reloadData()` after any child navigation returns. This avoids threading the full state graph through sub-hierarchies.
+**Self-contained (BoardDetailScreen, ExportScreen):** Each screen owns its data — calls `loadData()` in `initState` and `_reloadData()` after any child navigation returns.
 
 `EntityScreen` can be pushed from either context (HomeScreen or BoardDetailScreen); it always receives the full six-list set by reference.
 
@@ -150,14 +191,6 @@ HomeScreen navigates via push to:
 - **Deferred** (only persisted on explicit Save): name, category, tags, score, notes, links
 - **Immediate** (saved right away, not undone by Cancel): board memberships and entity links — they mutate `widget.allBoardEntities` / `widget.allEntityLinks` (join tables), which the entity snapshot does not cover
 
-### Migration
-
-If `entities.json` is absent but `people.json` (old format) exists, `loadData()` auto-migrates:
-- Creates a "People" category
-- Converts each person to an entity (`categoryId = "people"`, old `status` field → tag)
-- Writes `entities.json` and leaves `people.json` untouched
-- Populates `boards` and `boardEntities` as empty lists
-
 ## Running
 
 ```
@@ -166,13 +199,16 @@ flutter run          # requires Windows Developer Mode if running on Windows des
 flutter run -d android
 ```
 
-To inspect saved data on Android:
-```
-adb shell run-as com.nimee.people_tracker cat files/entities.json
-```
+First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/` and `Interesting/Boards/` inside it.
+
+**Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. On first launch a permission gate screen appears — tap "Open Settings", enable All Files Access for this app, then return. The gate re-checks on every resume; once granted, vault reads and writes work on external storage.
 
 ## Dependencies
 
-- `path_provider: ^2.1.5` — app documents directory (export/import file paths)
-- `file_picker: ^8.1.2` — native file picker for JSON import
-- `dart:io` + `dart:convert` — file read/write and JSON
+- `path_provider: ^2.1.5` — app documents directory (export/import file paths; JSON migration check)
+- `file_picker: ^8.1.2` — vault folder picker (first launch) + JSON import file picker
+- `yaml: ^3.1.2` — YAML frontmatter parsing
+- `shared_preferences: ^2.5.0` — persist vault folder path across app restarts
+- `path: ^1.9.0` — cross-platform path manipulation
+- `permission_handler: ^11.3.0` — Android MANAGE_EXTERNAL_STORAGE gate (All Files Access)
+- `dart:io` + `dart:convert` — file read/write and JSON (export/import)

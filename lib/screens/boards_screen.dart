@@ -4,11 +4,11 @@ import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
-import '../services/storage_service.dart';
+import '../services/markdown_storage_service.dart';
 import 'board_detail_screen.dart';
 
 class BoardsScreen extends StatefulWidget {
-  final StorageService storage;
+  final MarkdownStorageService storage;
 
   const BoardsScreen({super.key, required this.storage});
 
@@ -107,7 +107,7 @@ class _BoardsScreenState extends State<BoardsScreen> {
   void _createBoard(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final id = StorageService.generateBoardId(trimmed, _boards);
+    final id = MarkdownStorageService.generateBoardId(trimmed, _boards);
     setState(() => _boards.add(Board(id: id, name: trimmed)));
     _save();
   }

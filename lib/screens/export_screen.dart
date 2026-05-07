@@ -9,10 +9,10 @@ import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
-import '../services/storage_service.dart';
+import '../services/markdown_storage_service.dart';
 
 class ExportScreen extends StatefulWidget {
-  final StorageService storage;
+  final MarkdownStorageService storage;
 
   const ExportScreen({super.key, required this.storage});
 

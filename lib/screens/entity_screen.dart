@@ -4,11 +4,11 @@ import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
-import '../services/storage_service.dart';
+import '../services/markdown_storage_service.dart';
 
 class EntityScreen extends StatefulWidget {
   final Entity entity;
-  final StorageService storage;
+  final MarkdownStorageService storage;
   final List<Entity> allEntities;
   final List<Category> allCategories;
   final List<String> allTags;
@@ -211,7 +211,7 @@ class _EntityScreenState extends State<EntityScreen> {
       .toList();
 
   void _addToBoard(String boardId) {
-    if (StorageService.boardEntryExists(boardId, _entity.id, widget.allBoardEntities)) return;
+    if (MarkdownStorageService.boardEntryExists(boardId, _entity.id, widget.allBoardEntities)) return;
     setState(() {
       widget.allBoardEntities.add(BoardEntity(boardId: boardId, entityId: _entity.id));
     });
@@ -272,9 +272,9 @@ class _EntityScreenState extends State<EntityScreen> {
 
   void _createEntityLink(String targetId) {
     if (targetId == _entity.id) return;
-    if (StorageService.linkExists(_entity.id, targetId, widget.allEntityLinks)) return;
+    if (MarkdownStorageService.linkExists(_entity.id, targetId, widget.allEntityLinks)) return;
     final link = EntityLink(
-      id: StorageService.generateLinkId(_entity.id, targetId),
+      id: MarkdownStorageService.generateLinkId(_entity.id, targetId),
       from: _entity.id,
       to: targetId,
     );
@@ -308,7 +308,7 @@ class _EntityScreenState extends State<EntityScreen> {
           builder: (ctx, setSheetState) {
             final candidates = widget.allEntities.where((e) {
               if (e.id == _entity.id) return false;
-              if (StorageService.linkExists(_entity.id, e.id, widget.allEntityLinks)) return false;
+              if (MarkdownStorageService.linkExists(_entity.id, e.id, widget.allEntityLinks)) return false;
               if (query.isEmpty) return true;
               return e.name.toLowerCase().contains(query.toLowerCase());
             }).toList();
@@ -374,7 +374,7 @@ class _EntityScreenState extends State<EntityScreen> {
           : Category(id: '', name: ''),
     );
     final boards = _entityBoards;
-    final related = StorageService.getRelatedEntities(
+    final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
     return ListView(
@@ -1044,7 +1044,7 @@ class _EntityScreenState extends State<EntityScreen> {
   }
 
   Widget _buildRelatedSection() {
-    final related = StorageService.getRelatedEntities(
+    final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
     return Column(
