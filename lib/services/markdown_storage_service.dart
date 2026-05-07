@@ -375,7 +375,6 @@ class MarkdownStorageService {
     buf.writeln('created_at: ${_msToIso(entity.createdAt)}');
     buf.writeln('updated_at: ${_msToIso(entity.updatedAt)}');
     buf.writeln('---');
-    buf.writeln();
     buf.writeln('# ${entity.name}');
 
     if (entity.notes.isNotEmpty) {
