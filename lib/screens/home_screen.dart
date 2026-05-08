@@ -7,7 +7,7 @@ import '../models/entity_link.dart';
 import '../services/markdown_storage_service.dart';
 import 'board_detail_screen.dart';
 import 'entity_screen.dart';
-import 'export_screen.dart';
+import 'templates_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -176,12 +176,11 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reloadData();
   }
 
-  Future<void> _openExport() async {
+  Future<void> _openTemplates() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ExportScreen(storage: _storage)),
+      MaterialPageRoute(builder: (_) => const TemplatesScreen()),
     );
-    await _reloadData();
   }
 
   // ── Category operations ───────────────────────────────────────────────────
@@ -669,9 +668,9 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'New board',
             ),
           IconButton(
-            icon: const Icon(Icons.ios_share),
-            onPressed: _openExport,
-            tooltip: 'Export / Import',
+            icon: const Icon(Icons.description_outlined),
+            onPressed: _openTemplates,
+            tooltip: 'Templates',
           ),
         ],
       ),

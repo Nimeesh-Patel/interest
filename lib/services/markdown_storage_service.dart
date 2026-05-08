@@ -22,6 +22,17 @@ typedef AppData = ({
   List<BoardEntity> boardEntities,
 });
 
+// ── Section type registry ────────────────────────────────────────────────────
+
+enum SectionType { wikilinks, list, generic }
+
+// Sections the app owns semantically. Everything else is user territory.
+const Map<String, SectionType> _semanticSections = {
+  'Why Interesting': SectionType.list,
+  'Related': SectionType.wikilinks,
+  'Sources': SectionType.list,
+};
+
 class MarkdownStorageService {
   static final _wikilinkRegex = RegExp(r'\[\[([^\]]+)\]\]');
   String? _vaultPath;
@@ -40,9 +51,7 @@ class MarkdownStorageService {
       final boardsDirPath = VaultService.boardsPath(vaultPath);
 
       final entities = <Entity>[];
-      // entityId → list of related entity names (from ## Related wikilinks)
       final pendingRelated = <String, List<String>>{};
-      // categoryId → display name (first encountered wins)
       final catNames = <String, String>{};
 
       final entitiesDir = Directory(entitiesDirPath);
@@ -62,12 +71,10 @@ class MarkdownStorageService {
         }
       }
 
-      // Derive categories from entity frontmatters
       final categories = catNames.isEmpty
           ? [Category(id: 'people', name: 'People')]
           : catNames.entries.map((e) => Category(id: e.key, name: e.value)).toList();
 
-      // Resolve wikilinks → EntityLinks (bidirectional dedup)
       final nameToId = {for (final e in entities) e.name: e.id};
       final entityLinks = <EntityLink>[];
       pendingRelated.forEach((fromId, relatedNames) {
@@ -84,7 +91,6 @@ class MarkdownStorageService {
         }
       });
 
-      // Parse board files
       final boards = <Board>[];
       final boardEntities = <BoardEntity>[];
 
@@ -133,7 +139,6 @@ class MarkdownStorageService {
     required List<Board> boards,
     required List<BoardEntity> boardEntities,
   }) async {
-    // Snapshot before any await to avoid races with fire-and-forget callers
     final snapEntities = List<Entity>.from(entities);
     final snapCategories = List<Category>.from(categories);
     final snapLinks = List<EntityLink>.from(entityLinks);
@@ -155,7 +160,6 @@ class MarkdownStorageService {
 
       // ── Entities ────────────────────────────────────────────────────────────
 
-      // Build alias → existing file path map (for rename detection + orphan cleanup)
       final existingAliasToPath = <String, String>{};
       final entitiesDir = Directory(entitiesDirPath);
       if (await entitiesDir.exists()) {
@@ -180,7 +184,6 @@ class MarkdownStorageService {
       for (final entity in snapEntities) {
         final categoryName = catMap[entity.categoryId] ?? entity.categoryId;
 
-        // Collect names of related entities
         final relatedNames = <String>[];
         for (final link in snapLinks) {
           String? otherId;
@@ -192,25 +195,45 @@ class MarkdownStorageService {
           }
         }
 
-        final content = _buildEntityMarkdown(
-          entity: entity,
-          categoryName: categoryName,
-          relatedEntityNames: relatedNames,
-        );
-
         final filename = '${_sanitizeFilename(entity.name)}.md';
         final newPath = p.join(entitiesDirPath, filename);
 
-        // Handle rename: delete old file if it had a different name
         final oldPath = existingAliasToPath[entity.id];
         if (oldPath != null && oldPath != newPath) {
           try { await File(oldPath).delete(); } catch (_) {}
         }
 
+        // Patch existing file or build from template for new entities
+        final existingFilePath = oldPath ?? (await File(newPath).exists() ? newPath : null);
+        String content;
+
+        if (existingFilePath != null) {
+          try {
+            final existingContent = await File(existingFilePath).readAsString();
+            content = _patchEntityContent(
+              existingContent: existingContent,
+              entity: entity,
+              categoryName: categoryName,
+              relatedEntityNames: relatedNames,
+            );
+          } catch (_) {
+            content = await _buildNewEntityContent(
+              entity: entity,
+              categoryName: categoryName,
+              relatedEntityNames: relatedNames,
+            );
+          }
+        } else {
+          content = await _buildNewEntityContent(
+            entity: entity,
+            categoryName: categoryName,
+            relatedEntityNames: relatedNames,
+          );
+        }
+
         await File(newPath).writeAsString(content);
       }
 
-      // Delete entity files whose alias is no longer in the entities list
       for (final entry in existingAliasToPath.entries) {
         if (!currentAliases.contains(entry.key)) {
           try { await File(entry.value).delete(); } catch (_) {}
@@ -219,7 +242,6 @@ class MarkdownStorageService {
 
       // ── Boards ──────────────────────────────────────────────────────────────
 
-      // Collect existing board file paths for orphan cleanup
       final existingBoardPaths = <String>{};
       final boardsDir = Directory(boardsDirPath);
       if (await boardsDir.exists()) {
@@ -249,7 +271,6 @@ class MarkdownStorageService {
         writtenBoardPaths.add(filePath);
       }
 
-      // Delete orphan board files
       for (final path in existingBoardPaths) {
         if (!writtenBoardPaths.contains(path)) {
           try { await File(path).delete(); } catch (_) {}
@@ -260,7 +281,7 @@ class MarkdownStorageService {
     }
   }
 
-  // ── Static helpers (identical API to old StorageService) ──────────────────
+  // ── Static helpers ─────────────────────────────────────────────────────────
 
   static bool linkExists(String a, String b, List<EntityLink> links) =>
       links.any((l) => (l.from == a && l.to == b) || (l.from == b && l.to == a));
@@ -328,9 +349,12 @@ class MarkdownStorageService {
     }
 
     final name = _extractH1(body) ?? basename;
-    final notes = _extractSectionItems(body, 'Why Interesting');
-    final links = _extractSectionItems(body, 'Sources');
-    final relatedNames = _extractSectionWikilinks(body, 'Related');
+
+    // Dynamic section parse — discovers ALL sections in the file
+    final rawSections = _parseSections(body);
+    final notes = _parseSectionAsList(rawSections['Why Interesting'] ?? '');
+    final links = _parseSectionAsList(rawSections['Sources'] ?? '');
+    final relatedNames = _parseSectionAsWikilinks(rawSections['Related'] ?? '');
 
     final catId = categoryName.isEmpty
         ? 'uncategorized'
@@ -346,13 +370,241 @@ class MarkdownStorageService {
       score: score,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      rawSections: rawSections,
     );
 
     return (entity: entity, relatedNames: relatedNames, categoryName: categoryName);
   }
 
-  // ── Private: write ─────────────────────────────────────────────────────────
+  // ── Private: dynamic section parsing ───────────────────────────────────────
 
+  // Returns all ## sections in the body as an ordered map (section name → raw content).
+  // ### and deeper headings are treated as content within their parent section.
+  // Never throws.
+  static Map<String, String> _parseSections(String body) {
+    final result = <String, String>{};
+    final lines = body.split('\n');
+    String? currentSection;
+    final buf = StringBuffer();
+
+    for (final line in lines) {
+      final t = line.trim();
+      if (t.startsWith('## ') && !t.startsWith('### ')) {
+        if (currentSection != null) {
+          result[currentSection] = buf.toString().trimRight();
+          buf.clear();
+        }
+        currentSection = t.substring(3).trim();
+      } else if (currentSection != null) {
+        buf.writeln(line);
+      }
+    }
+    if (currentSection != null) {
+      result[currentSection] = buf.toString().trimRight();
+    }
+    return result;
+  }
+
+  // Extracts list items from pre-parsed section content.
+  static List<String> _parseSectionAsList(String sectionContent) {
+    final result = <String>[];
+    for (final line in sectionContent.split('\n')) {
+      final t = line.trim();
+      if (t.startsWith('- ') || t.startsWith('* ')) {
+        result.add(t.substring(2).trim());
+      } else if (t.isNotEmpty) {
+        result.add(t);
+      }
+    }
+    return result;
+  }
+
+  // Extracts wikilink names from pre-parsed section content.
+  static List<String> _parseSectionAsWikilinks(String sectionContent) {
+    return _wikilinkRegex
+        .allMatches(sectionContent)
+        .map((m) => m.group(1)!)
+        .toList();
+  }
+
+  // ── Private: frontmatter builder ───────────────────────────────────────────
+
+  static String _buildFrontmatter({
+    required Entity entity,
+    required String categoryName,
+  }) {
+    final buf = StringBuffer();
+    buf.writeln('---');
+    buf.writeln('alias: ${entity.id}');
+    buf.writeln('category: $categoryName');
+    if (entity.score != null) {
+      buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
+    }
+    if (entity.tags.isNotEmpty) {
+      buf.writeln('tags:');
+      for (final tag in entity.tags) {
+        buf.writeln('  - $tag');
+      }
+    }
+    buf.writeln('created_at: ${_msToIso(entity.createdAt)}');
+    buf.writeln('updated_at: ${_msToIso(entity.updatedAt)}');
+    buf.write('---');
+    return buf.toString();
+  }
+
+  // ── Private: semantic section renderer ─────────────────────────────────────
+
+  // Renders current app state for a single known section to Markdown text.
+  static String _renderSemanticSection(
+    String sectionName,
+    Entity entity,
+    List<String> relatedEntityNames,
+  ) {
+    switch (sectionName) {
+      case 'Why Interesting':
+        return entity.notes.map((n) => '- $n').join('\n');
+      case 'Sources':
+        return entity.links.map((l) => '- $l').join('\n');
+      case 'Related':
+        return relatedEntityNames.map((n) => '- [[$n]]').join('\n');
+      default:
+        return '';
+    }
+  }
+
+  // ── Private: section-aware patch ───────────────────────────────────────────
+
+  // Patches an existing entity file: updates frontmatter and known semantic
+  // sections while preserving all other content (unknown sections, prose, etc.).
+  static String _patchEntityContent({
+    required String existingContent,
+    required Entity entity,
+    required String categoryName,
+    required List<String> relatedEntityNames,
+  }) {
+    final split = _splitFrontmatter(existingContent);
+    final body = split.body;
+    final rawSections = _parseSections(body);
+
+    final newFrontmatter = _buildFrontmatter(
+      entity: entity,
+      categoryName: categoryName,
+    );
+
+    final buf = StringBuffer();
+    buf.writeln('# ${entity.name}');
+
+    for (final sectionName in rawSections.keys) {
+      buf.writeln();
+      buf.writeln('## $sectionName');
+
+      if (_semanticSections.containsKey(sectionName)) {
+        final rendered = _renderSemanticSection(sectionName, entity, relatedEntityNames);
+        if (rendered.isNotEmpty) {
+          buf.writeln();
+          buf.write(rendered);
+        }
+      } else {
+        // Unknown section — preserve exactly as found
+        final raw = rawSections[sectionName]!;
+        if (raw.isNotEmpty) {
+          buf.writeln();
+          buf.write(raw);
+        }
+      }
+    }
+
+    // Append semantic sections that exist in app data but were absent from the file
+    for (final sectionName in _semanticSections.keys) {
+      if (!rawSections.containsKey(sectionName)) {
+        final rendered = _renderSemanticSection(sectionName, entity, relatedEntityNames);
+        if (rendered.isNotEmpty) {
+          buf.writeln();
+          buf.writeln('## $sectionName');
+          buf.writeln();
+          buf.write(rendered);
+        }
+      }
+    }
+
+    return '$newFrontmatter\n${buf.toString().trimRight()}\n';
+  }
+
+  // ── Private: template system ───────────────────────────────────────────────
+
+  // Loads a template for the given category name.
+  // Tries <slug>.md first, then default.md. Returns null if none found.
+  Future<String?> _loadTemplate(String categoryName) async {
+    try {
+      final vaultPath = _vaultPath;
+      if (vaultPath == null) return null;
+      final tdir = VaultService.templatesPath(vaultPath);
+      final slug = _slugify(categoryName);
+
+      if (slug.isNotEmpty) {
+        final catFile = File(p.join(tdir, '$slug.md'));
+        if (await catFile.exists()) {
+          final content = await catFile.readAsString();
+          if (_isTemplate(content)) return content;
+        }
+      }
+
+      final defaultFile = File(p.join(tdir, 'default.md'));
+      if (await defaultFile.exists()) {
+        final content = await defaultFile.readAsString();
+        if (_isTemplate(content)) return content;
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _isTemplate(String content) {
+    try {
+      final split = _splitFrontmatter(content);
+      if (split.frontmatter == null) return false;
+      final yaml = loadYaml(split.frontmatter!);
+      return yaml is YamlMap && yaml['template'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static String _instantiateTemplate(String templateContent, String title) =>
+      templateContent.replaceAll('{{title}}', title);
+
+  // ── Private: new entity content builder ────────────────────────────────────
+
+  // For entities with no existing file: tries template, falls back to legacy builder.
+  Future<String> _buildNewEntityContent({
+    required Entity entity,
+    required String categoryName,
+    required List<String> relatedEntityNames,
+  }) async {
+    final templateContent = await _loadTemplate(categoryName);
+    if (templateContent != null) {
+      final instantiated = _instantiateTemplate(templateContent, entity.name);
+      return _patchEntityContent(
+        existingContent: instantiated,
+        entity: entity,
+        categoryName: categoryName,
+        relatedEntityNames: relatedEntityNames,
+      );
+    }
+    // legacy-fallback
+    return _buildEntityMarkdown(
+      entity: entity,
+      categoryName: categoryName,
+      relatedEntityNames: relatedEntityNames,
+    );
+  }
+
+  // ── Private: write (legacy-fallback) ───────────────────────────────────────
+
+  // Kept as ultimate fallback for when no template is available and no existing
+  // file can be patched.
   static String _buildEntityMarkdown({
     required Entity entity,
     required String categoryName,
@@ -452,48 +704,6 @@ class MarkdownStorageService {
     return null;
   }
 
-  static List<String> _extractSectionItems(String body, String sectionName) {
-    final lines = body.split('\n');
-    final result = <String>[];
-    bool inSection = false;
-    for (final line in lines) {
-      final t = line.trim();
-      if (t == '## $sectionName') {
-        inSection = true;
-        continue;
-      }
-      if (inSection) {
-        if (t.startsWith('## ') || t.startsWith('# ')) break;
-        if (t.startsWith('- ') || t.startsWith('* ')) {
-          result.add(t.substring(2).trim());
-        } else if (t.isNotEmpty) {
-          result.add(t);
-        }
-      }
-    }
-    return result;
-  }
-
-  static List<String> _extractSectionWikilinks(String body, String sectionName) {
-    final lines = body.split('\n');
-    final result = <String>[];
-    bool inSection = false;
-    for (final line in lines) {
-      final t = line.trim();
-      if (t == '## $sectionName') {
-        inSection = true;
-        continue;
-      }
-      if (inSection) {
-        if (t.startsWith('## ') || t.startsWith('# ')) break;
-        for (final m in _wikilinkRegex.allMatches(t)) {
-          result.add(m.group(1)!);
-        }
-      }
-    }
-    return result;
-  }
-
   static List<String> _extractWikilinks(String text) =>
       _wikilinkRegex.allMatches(text).map((m) => m.group(1)!).toList();
 
@@ -545,7 +755,6 @@ class MarkdownStorageService {
   // ── Private: migration ─────────────────────────────────────────────────────
 
   Future<void> _migrateFromJson(String vaultPath) async {
-    // Only migrate if entities dir has no .md files yet
     final entitiesDir = Directory(VaultService.entitiesPath(vaultPath));
     if (await entitiesDir.exists()) {
       final all = await entitiesDir.list().toList();

@@ -8,6 +8,7 @@ class Entity {
   double? score;
   final int createdAt;
   int updatedAt;
+  Map<String, String>? rawSections;
 
   Entity({
     required this.id,
@@ -19,6 +20,7 @@ class Entity {
     this.score,
     required this.createdAt,
     int? updatedAt,
+    this.rawSections,
   })  : notes = notes ?? [],
         links = links ?? [],
         tags = tags ?? [],
@@ -49,6 +51,7 @@ class Entity {
         score: score,
         createdAt: createdAt,
         updatedAt: updatedAt,
+        rawSections: rawSections != null ? Map<String, String>.from(rawSections!) : null,
       );
 
   Map<String, dynamic> toJson() => {
