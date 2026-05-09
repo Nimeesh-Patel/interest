@@ -15,4 +15,7 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <style name="QuickCaptureTheme" parent="@android:style/Theme.Material.Light.Dialog.MinWidth">
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

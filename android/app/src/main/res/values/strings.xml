@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">Interesting</string>
+    <string name="widget_prompt">Tap to capture…</string>
+    <string name="hint_title">Entity name…</string>
+    <string name="hint_note">Quick note (optional)</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="toast_open_app">Open Interesting app first to set vault folder</string>
+    <string name="toast_empty_title">Please enter a name</string>
+    <string name="toast_saved">Saved</string>
+    <string name="toast_error">Could not write file — check storage permissions</string>
+</resources>

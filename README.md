@@ -9,7 +9,6 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - Entity detail has a display mode (read-only) and an edit mode (explicit Save/Cancel)
 - Entities are linked to each other via Obsidian-style wikilinks — forming a navigable graph
 - Entities can be grouped into boards (independent of categories; many-to-many)
-- Entities can be added to boards from inside the board detail screen
 - Board members can be sorted by date, score, name, or category
 - Score (0–10, step 0.1) is optional per entity
 - Tags are reusable and created inline with autocomplete
@@ -18,6 +17,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - Templates management: create, edit, and delete entity templates from within the app (raw Markdown editor)
 - On first launch: choose a vault folder (Obsidian vault or any folder)
 - All data persists as `.md` files; fully readable in Obsidian
+- **Android home-screen widget** in three sizes (1×1, 2×1, 2×2): instant entity capture without opening the app — title + optional quick note → Markdown file written directly to vault
 
 ## Architecture
 
@@ -40,11 +40,23 @@ lib/
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
+
+android/app/src/main/
+  kotlin/com/nimee/people_tracker/
+    MainActivity.kt                   — FlutterActivity subclass (boilerplate)
+    QuickCaptureWidget.kt             — abstract AppWidgetProvider base; onUpdate() wires tap → QuickCaptureActivity via PendingIntent
+    QuickCaptureWidget1x1.kt          — 1×1 concrete subclass (40×40dp); "+" centered
+    QuickCaptureWidget2x1.kt          — 2×1 concrete subclass (110×40dp); "+" + prompt text
+    QuickCaptureWidget2x2.kt          — 2×2 concrete subclass (110×110dp); label + prompt, centred
+    QuickCaptureActivity.kt           — dialog-style Activity; reads vault path from FlutterSharedPreferences; slugifies title → alias; loads default.md template body; builds Markdown; writes entity .md file; shows Toast; no app launch
+  res/
+    xml/                              — quick_capture_widget_{1x1,2x1,2x2}.xml — AppWidget provider metadata (minWidth, minHeight, initialLayout)
+    layout/                           — quick_capture_widget_{1x1,2x1,2x2}.xml — widget face layouts; quick_capture_activity.xml — title/note input form
+    values/strings.xml                — widget/activity string resources
+    values/styles.xml                 — QuickCaptureTheme (Theme.Material.Light.Dialog.MinWidth, no title bar)
 ```
 
 ## Vault folder layout
-
-The app operates exclusively inside:
 
 ```
 <vault>/
@@ -101,11 +113,11 @@ The parser discovers sections **dynamically** — `## Why Interesting`, `## Rela
 
 ### Template file: `<TemplateName>.md`
 
-Templates live in `Interesting/Templates/`. They are normal Markdown files identified by `template: true` in their frontmatter. The `{{title}}` placeholder is replaced with the entity name on creation.
+Templates live in `Interesting/Templates/`. They are identified by `template: true` in their frontmatter. The `{{title}}` placeholder is replaced with the entity name on creation.
 
 ```markdown
 ---
-category: People
+category: Default
 template: true
 ---
 # {{title}}
@@ -117,7 +129,11 @@ template: true
 ## Sources
 ```
 
-Four defaults are seeded on first launch: `default.md`, `person.md`, `product.md`, `idea.md`. Users can edit, delete, or create new templates from within the app. Template-to-category mapping: `slugify(categoryName).md` — e.g. category "People" → `people.md`.
+Four defaults are seeded on first launch: `default.md` (Default), `person.md` (People), `product.md` (Products), `idea.md` (Ideas). Users can edit, delete, or create new templates from within the app. Template-to-category mapping: `slugify(categoryName).md` — e.g. category "People" → `people.md`. The widget always uses `default.md`.
+
+### Default category
+
+Widget-created entities always use `category: Default`. This is a normal category — it appears in the category filter and entity list alongside any other category. It is not a temporary inbox; entities in Default are full first-class entities.
 
 ### Field rules
 
@@ -200,6 +216,33 @@ Only these sections are rewritten by the app on save. Every other `##` section i
 
 All three ID generators delegate to `_generateId(name, existing, fallback)`.
 
+## Android home-screen widget
+
+Three widget sizes appear separately in the Android widget picker. All three open `QuickCaptureActivity`, which is a dialog-style Activity (no navigation stack).
+
+**Widget capture flow:**
+1. User taps widget → `QuickCaptureActivity` opens as a floating dialog; keyboard shows immediately on title field
+2. User types title (required) + optional quick note → taps Save
+3. Activity reads vault path from `FlutterSharedPreferences` (key: `flutter.vault_path`)
+4. Slugifies title → `alias`; checks for filename collisions (`-2`, `-3` suffix)
+5. Loads `Interesting/Templates/default.md` body (strips frontmatter); falls back to hardcoded structure if missing
+6. Replaces `{{title}}`; inserts note as `- {note}` under `## Why Interesting` if provided
+7. Builds frontmatter from scratch: `alias`, `category: Default`, `created_at`, `updated_at`
+8. Writes `{title}.md` (sanitized) to `Interesting/Entities/`; shows Toast; closes
+9. App picks up the new file naturally on next `loadData()`
+
+**SharedPreferences bridge:** Flutter's `shared_preferences` plugin stores data in Android's `FlutterSharedPreferences` file with a `flutter.` key prefix. The widget reads `flutter.vault_path` directly — no Flutter runtime needed.
+
+**Widget sizes:**
+
+| Class | Size | minWidth × minHeight | Visual |
+|-------|------|----------------------|--------|
+| `QuickCaptureWidget1x1` | 1×1 | 40dp × 40dp | centered `+` |
+| `QuickCaptureWidget2x1` | 2×1 | 110dp × 40dp | `+` + "Tap to capture…" |
+| `QuickCaptureWidget2x2` | 2×2 | 110dp × 110dp | "Interesting" label + prompt |
+
+`QuickCaptureWidget` (abstract base) owns all `onUpdate` logic. Each concrete subclass declares only `layoutResId`.
+
 ## Navigation and state-passing patterns
 
 **HomeScreen** is a `BottomNavigationBar` shell with two tabs via `IndexedStack`:
@@ -216,8 +259,6 @@ HomeScreen navigates via push to:
 **Self-contained (BoardDetailScreen, TemplatesScreen):** Each screen owns its data — loads directly in `initState` and reloads after any child navigation returns.
 
 `EntityScreen` can be pushed from either context (HomeScreen or BoardDetailScreen); it always receives the full six-list set by reference.
-
-**BoardsScreen** is no longer used. Board CRUD logic lives inside `_HomeScreenState` (home_screen.dart).
 
 ## Entity display/edit mode
 
@@ -237,13 +278,12 @@ HomeScreen navigates via push to:
 
 ```
 flutter pub get
-flutter run          # requires Windows Developer Mode if running on Windows desktop
 flutter run -d android
 ```
 
 First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/`, `Interesting/Boards/`, and `Interesting/Templates/` inside it, and seeds four default templates.
 
-**Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. On first launch a permission gate screen appears — tap "Open Settings", enable All Files Access for this app, then return. The gate re-checks on every resume; once granted, vault reads and writes work on external storage.
+**Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. On first launch a permission gate screen appears — tap "Open Settings", enable All Files Access for this app, then return. The gate re-checks on every resume; once granted, vault reads and writes work on external storage. The widget also requires this permission (same app context).
 
 ## Dependencies
 

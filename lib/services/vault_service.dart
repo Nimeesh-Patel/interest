@@ -43,7 +43,7 @@ class VaultService {
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {
       final templates = {
-        'default.md': _tmpl('General'),
+        'default.md': _tmpl('Default'),
         'person.md': _tmpl('People'),
         'product.md': _tmpl('Products'),
         'idea.md': _tmpl('Ideas'),

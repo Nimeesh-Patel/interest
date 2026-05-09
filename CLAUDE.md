@@ -21,10 +21,22 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - `_semanticSections` const map in `markdown_storage_service.dart` defines which `##` sections the app owns (`Why Interesting`, `Related`, `Sources`). Only these are rewritten on save. All other `##` sections in an entity file are user territory — preserve them verbatim. Do not add new hardcoded section names outside this map.
 - Templates are used for initial file creation only — once a file exists, it is patched, never regenerated from the template again
 - Template files live in `Interesting/Templates/`; they are identified by `template: true` in frontmatter; `{{title}}` is the only supported placeholder
+- `default.md` is seeded with `category: Default` (not "General"). The other seeded templates: `person.md` → People, `product.md` → Products, `idea.md` → Ideas.
+
+## Android widget constraints
+
+- Widget reads vault path from Android `FlutterSharedPreferences` (key: `flutter.vault_path`) — this is how Flutter's `shared_preferences` plugin stores data on Android. Do NOT use VaultService or any Flutter API from widget code.
+- Widget always writes `category: Default` in frontmatter — no category selection in the widget
+- Widget builds frontmatter from scratch (alias, category, timestamps); it uses `default.md` only for the body sections structure (frontmatter stripped before use)
+- Widget filename convention: `safeFileName(title) = title.replace([/\\:*?"<>|], '_') + ".md"` — matches Dart `saveData()` which uses entity name as filename
+- Widget `alias` = `slugify(title)` with `-2`, `-3` collision suffix checked against existing files in the entities dir
+- `QuickCaptureWidget.kt` is abstract — never register it directly in the manifest. Only the three concrete subclasses (`QuickCaptureWidget1x1`, `QuickCaptureWidget2x1`, `QuickCaptureWidget2x2`) are registered as receivers.
+- Do not add more widget sizes without adding a corresponding concrete subclass, widget info XML, layout XML, and manifest receiver entry.
 
 ## Current screen map
 
 ```
+Flutter screens:
 main.dart                    — _StoragePermissionGate wraps every route; blocks on Android MANAGE_EXTERNAL_STORAGE before showing VaultSetupScreen or HomeScreen
 vault_setup_screen.dart      — first launch only; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates (seeds default templates) → navigates to HomeScreen
 home_screen.dart             — BottomNavigationBar shell (Entities tab + Boards tab via IndexedStack); owns board CRUD inline; AppBar has Templates icon (description_outlined)
@@ -33,13 +45,28 @@ board_detail_screen.dart     — board members; sort (6 options); FAB to add ent
 templates_screen.dart        — lists Interesting/Templates/*.md; create (FAB + name dialog), edit (tap → editor), delete (trailing icon); self-contained; reads/writes files directly, no MarkdownStorageService
 template_editor_screen.dart  — full-screen raw Markdown editor for a single template file; Save button (active only when dirty); back gesture shows discard-guard dialog if dirty
 boards_screen.dart           — DEAD CODE: superseded by Boards tab in home_screen.dart; do not navigate to it
+
+Android native (no Flutter runtime required):
+QuickCaptureWidget.kt        — abstract AppWidgetProvider base; onUpdate() sets PendingIntent on widget_root view → opens QuickCaptureActivity
+QuickCaptureWidget1x1.kt     — 1×1 subclass; layoutResId = R.layout.quick_capture_widget_1x1
+QuickCaptureWidget2x1.kt     — 2×1 subclass; layoutResId = R.layout.quick_capture_widget_2x1
+QuickCaptureWidget2x2.kt     — 2×2 subclass; layoutResId = R.layout.quick_capture_widget_2x2
+QuickCaptureActivity.kt      — dialog-style Activity (QuickCaptureTheme); title + note inputs; save() reads FlutterSharedPreferences → builds Markdown → writes file → Toast → finish()
 ```
 
 ## Current service map
 
 ```
-vault_service.dart              — getVaultPath/setVaultPath (SharedPreferences); entitiesPath/boardsPath/templatesPath; ensureVaultDirectories (creates all three dirs + seeds default templates via _seedDefaultTemplates)
+Flutter services:
+vault_service.dart              — getVaultPath/setVaultPath (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath; ensureVaultDirectories (creates all three dirs + seeds default templates via _seedDefaultTemplates)
 markdown_storage_service.dart   — loadData/saveData (reads/writes .md files); AppData typedef; _semanticSections registry; _parseSections() dynamic parser; _patchEntityContent() section-aware save; _buildNewEntityContent() template instantiation; all static helpers (linkExists, generateEntityId, etc.)
+
+Android native (Kotlin, no service class — logic lives in QuickCaptureActivity.kt):
+getVaultPath()           — reads FlutterSharedPreferences / flutter.vault_path
+slugify(name)            — mirrors Dart _generateId: lowercase, spaces→hyphens, strip non-[a-z0-9-]
+uniqueId(base, dir)      — checks file existence; appends -2, -3, etc.
+loadTemplateBody(path)   — reads default.md; strips --- frontmatter block; returns body only
+buildMarkdown(...)       — assembles frontmatter from scratch + template body + optional note injection
 ```
 
 ## Markdown file formats (canonical source of truth)
