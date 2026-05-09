@@ -9,6 +9,9 @@ class Entity {
   final int createdAt;
   int updatedAt;
   Map<String, String>? rawSections;
+  String? watchedDate;
+  String? letterboxdUrl;
+  String? tmdbId;
 
   Entity({
     required this.id,
@@ -21,6 +24,9 @@ class Entity {
     required this.createdAt,
     int? updatedAt,
     this.rawSections,
+    this.watchedDate,
+    this.letterboxdUrl,
+    this.tmdbId,
   })  : notes = notes ?? [],
         links = links ?? [],
         tags = tags ?? [],
@@ -52,6 +58,9 @@ class Entity {
         createdAt: createdAt,
         updatedAt: updatedAt,
         rawSections: rawSections != null ? Map<String, String>.from(rawSections!) : null,
+        watchedDate: watchedDate,
+        letterboxdUrl: letterboxdUrl,
+        tmdbId: tmdbId,
       );
 
   Map<String, dynamic> toJson() => {

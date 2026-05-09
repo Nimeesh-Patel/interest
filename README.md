@@ -18,6 +18,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - On first launch: choose a vault folder (Obsidian vault or any folder)
 - All data persists as `.md` files; fully readable in Obsidian
 - **Android home-screen widget** in three sizes (1×1, 2×1, 2×2): instant entity capture without opening the app — title + optional quick note → Markdown file written directly to vault
+- **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
 
 ## Architecture
 
@@ -26,15 +27,17 @@ No state management libraries. Pure `setState`. No repository pattern.
 ```
 lib/
   main.dart                           — async vault-path check at startup; _StoragePermissionGate (Android All Files Access, re-checks on resume); routes to VaultSetupScreen or HomeScreen
-  models/entity.dart                  — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt, rawSections} + copyWith()
+  models/entity.dart                  — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt, rawSections, watchedDate?, letterboxdUrl?, tmdbId?} + copyWith()
   models/category.dart                — Category {id, name}
   models/entity_link.dart             — EntityLink {id, from, to, type}
   models/board.dart                   — Board {id, name}
   models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
-  services/vault_service.dart         — vault path persistence (SharedPreferences); entitiesPath/boardsPath/templatesPath helpers; ensureVaultDirectories (creates all three dirs + seeds default templates)
+  services/vault_service.dart         — vault path persistence (SharedPreferences); entitiesPath/boardsPath/templatesPath helpers; ensureVaultDirectories (creates all three dirs + seeds 5 default templates)
   services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
+  services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
-  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Templates icon
+  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Settings + Templates icons
+  screens/settings_screen.dart        — Letterboxd RSS URL input (persisted); Sync Now button → LetterboxdService.fetchAndImport(); shows result counts; self-contained
   screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related
   screens/board_detail_screen.dart    — entities in a board; 6 sort options; FAB to add entities; self-contained
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
@@ -99,7 +102,39 @@ updated_at: 2026-05-07T12:00:00.000Z
 - https://en.wikipedia.org/wiki/David_Deutsch
 ```
 
-The parser discovers sections **dynamically** — `## Why Interesting`, `## Related`, and `## Sources` are semantic names the app owns, but any other `##` section the user adds (e.g. `## Background`) is preserved verbatim through every save. The app only patches sections it owns; everything else is left untouched.
+The parser discovers sections **dynamically** — `## Why Interesting`, `## Related`, and `## Sources` are semantic names the app owns, but any other `##` section the user adds (e.g. `## Background`, `## Thoughts`) is preserved verbatim through every save. The app only patches sections it owns; everything else is left untouched.
+
+### Movie entity file: `<FilmTitle>.md`
+
+Movie entities are written by `LetterboxdService` and behave like all other entities (searchable, linkable, board-compatible). They use the `Movies` category and carry additional frontmatter fields:
+
+```markdown
+---
+alias: interstellar
+category: Movies
+score: 10.0
+watched_date: 2014-11-05
+letterboxd_url: https://letterboxd.com/user/film/interstellar/
+tmdb_id: 157336
+created_at: 2026-05-09T...Z
+updated_at: 2026-05-09T...Z
+---
+# Interstellar
+
+## Thoughts
+
+An extraordinary vision of time and gravity.
+
+## Related
+
+- [[Christopher Nolan]]
+
+## Sources
+
+- https://letterboxd.com/user/film/interstellar/
+```
+
+`## Thoughts` is **not** in `_semanticSections` — it is user territory. The importer writes initial review content there; the app preserves it verbatim on every subsequent save. The three movie-specific frontmatter fields (`watched_date`, `letterboxd_url`, `tmdb_id`) are optional on all entities and are parsed by `_parseEntityFile` and written by `_buildFrontmatter` when non-null.
 
 ### Board file: `<BoardName>.md`
 
@@ -129,7 +164,7 @@ template: true
 ## Sources
 ```
 
-Four defaults are seeded on first launch: `default.md` (Default), `person.md` (People), `product.md` (Products), `idea.md` (Ideas). Users can edit, delete, or create new templates from within the app. Template-to-category mapping: `slugify(categoryName).md` — e.g. category "People" → `people.md`. The widget always uses `default.md`.
+Five defaults are seeded on first launch: `default.md` (Default), `person.md` (People), `product.md` (Products), `idea.md` (Ideas), `movie.md` (Movies). Users can edit, delete, or create new templates from within the app. Template-to-category mapping: `slugify(categoryName).md` — e.g. category "People" → `people.md`. The widget always uses `default.md`. The movie template uses `## Thoughts` / `## Related` / `## Sources` (no `## Why Interesting`).
 
 ### Default category
 
@@ -140,6 +175,9 @@ Widget-created entities always use `category: Default`. This is a normal categor
 - `alias` — immutable slug (maps to `Entity.id`); generated from name at creation; never regenerated on rename
 - `category` — display string in frontmatter (e.g. "People"); `entity.categoryId = slugify(category)`
 - `score` — omitted if null; float 0.0–10.0 to one decimal
+- `watched_date` — optional; "yyyy-MM-dd" string; written only when non-null (movie entities)
+- `letterboxd_url` — optional; Letterboxd log URL; written only when non-null
+- `tmdb_id` — optional; TMDB integer as string; primary dedup key for Letterboxd import
 - `created_at` / `updated_at` — ISO 8601 UTC strings in frontmatter; stored as Unix ms in memory
 - `tags` — list in frontmatter; union recomputed on every save (for autocomplete)
 - `## Related` wikilinks — canonical source for entity-to-entity links; bidirectional (both entity files list each other); deduplicated on load via `linkExists`
@@ -253,6 +291,7 @@ HomeScreen navigates via push to:
 - `EntityScreen` — from entity list tap; passes full six-list set by reference
 - `BoardDetailScreen` — from board tap in Boards tab; self-contained
 - `TemplatesScreen` — from AppBar templates icon; self-contained (reads/writes template files directly, no MarkdownStorageService)
+- `SettingsScreen` — from AppBar settings icon; self-contained; `_reloadData()` called on pop to pick up any newly imported entities
 
 **Pass-by-reference (EntityScreen):** `HomeScreen` passes its own live lists (`_entities`, `_entityLinks`, etc.) directly to `EntityScreen`. `EntityScreen` mutates them in place (`allEntities[idx] = _entity`) on save, so the home list is already updated when it pops. `HomeScreen` still calls `_reloadData()` on pop for safety.
 
@@ -281,7 +320,7 @@ flutter pub get
 flutter run -d android
 ```
 
-First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/`, `Interesting/Boards/`, and `Interesting/Templates/` inside it, and seeds four default templates.
+First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/`, `Interesting/Boards/`, and `Interesting/Templates/` inside it, and seeds five default templates (including `movie.md` for the Movies category).
 
 **Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. On first launch a permission gate screen appears — tap "Open Settings", enable All Files Access for this app, then return. The gate re-checks on every resume; once granted, vault reads and writes work on external storage. The widget also requires this permission (same app context).
 
@@ -290,7 +329,9 @@ First launch shows a vault folder picker. Select any folder (e.g. your Obsidian 
 - `path_provider: ^2.1.5` — app documents directory (JSON migration check)
 - `file_picker: ^8.1.2` — vault folder picker (first launch)
 - `yaml: ^3.1.2` — YAML frontmatter parsing
-- `shared_preferences: ^2.5.0` — persist vault folder path across app restarts
+- `shared_preferences: ^2.5.0` — persist vault folder path and Letterboxd RSS URL across app restarts
 - `path: ^1.9.0` — cross-platform path manipulation
 - `permission_handler: ^11.3.0` — Android MANAGE_EXTERNAL_STORAGE gate (All Files Access)
+- `http: ^1.2.0` — RSS feed fetching in LetterboxdService (user-triggered only)
+- `xml: ^6.5.0` — RSS/XML parsing in LetterboxdService
 - `dart:io` + `dart:convert` — file read/write and JSON (migration only)

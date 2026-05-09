@@ -322,6 +322,9 @@ class MarkdownStorageService {
     String categoryName = '';
     double? score;
     List<String> tags = [];
+    String? watchedDate;
+    String? letterboxdUrl;
+    String? tmdbId;
     final now = DateTime.now().millisecondsSinceEpoch;
     int createdAt = now;
     int updatedAt = now;
@@ -344,6 +347,9 @@ class MarkdownStorageService {
           }
           createdAt = _parseIsoToMs(yaml['created_at']?.toString()) ?? now;
           updatedAt = _parseIsoToMs(yaml['updated_at']?.toString()) ?? createdAt;
+          watchedDate = yaml['watched_date']?.toString();
+          letterboxdUrl = yaml['letterboxd_url']?.toString();
+          tmdbId = yaml['tmdb_id']?.toString();
         }
       } catch (_) {}
     }
@@ -371,6 +377,9 @@ class MarkdownStorageService {
       createdAt: createdAt,
       updatedAt: updatedAt,
       rawSections: rawSections,
+      watchedDate: watchedDate,
+      letterboxdUrl: letterboxdUrl,
+      tmdbId: tmdbId,
     );
 
     return (entity: entity, relatedNames: relatedNames, categoryName: categoryName);
@@ -440,6 +449,9 @@ class MarkdownStorageService {
     if (entity.score != null) {
       buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
     }
+    if (entity.watchedDate != null) buf.writeln('watched_date: ${entity.watchedDate}');
+    if (entity.letterboxdUrl != null) buf.writeln('letterboxd_url: ${entity.letterboxdUrl}');
+    if (entity.tmdbId != null) buf.writeln('tmdb_id: ${entity.tmdbId}');
     if (entity.tags.isNotEmpty) {
       buf.writeln('tags:');
       for (final tag in entity.tags) {

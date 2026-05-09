@@ -47,6 +47,7 @@ class VaultService {
         'person.md': _tmpl('People'),
         'product.md': _tmpl('Products'),
         'idea.md': _tmpl('Ideas'),
+        'movie.md': _movieTmpl(),
       };
       for (final entry in templates.entries) {
         final file = File(p.join(templatesDirPath, entry.key));
@@ -64,6 +65,19 @@ template: true
 # {{title}}
 
 ## Why Interesting
+
+## Related
+
+## Sources
+''';
+
+  static String _movieTmpl() => '''---
+category: Movies
+template: true
+---
+# {{title}}
+
+## Thoughts
 
 ## Related
 

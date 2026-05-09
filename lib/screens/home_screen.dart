@@ -7,6 +7,7 @@ import '../models/entity_link.dart';
 import '../services/markdown_storage_service.dart';
 import 'board_detail_screen.dart';
 import 'entity_screen.dart';
+import 'settings_screen.dart';
 import 'templates_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -181,6 +182,14 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => const TemplatesScreen()),
     );
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+    _reloadData();
   }
 
   // ── Category operations ───────────────────────────────────────────────────
@@ -667,6 +676,11 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _showCreateBoard,
               tooltip: 'New board',
             ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+            tooltip: 'Settings',
+          ),
           IconButton(
             icon: const Icon(Icons.description_outlined),
             onPressed: _openTemplates,
