@@ -129,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String get _effectiveCategoryId {
     if (_selectedCategoryId != null) return _selectedCategoryId!;
-    return _categories.isNotEmpty ? _categories.first.id : 'people';
+    return 'default';
   }
 
   void _addEntity(String name) {
@@ -479,12 +479,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ? _categories
             .firstWhere(
               (c) => c.id == _selectedCategoryId,
-              orElse: () => _categories.isNotEmpty
-                  ? _categories.first
-                  : Category(id: '', name: 'entity'),
+              orElse: () => Category(id: '', name: 'entity'),
             )
             .name
-        : (_categories.isNotEmpty ? _categories.first.name : 'entity');
+        : 'Default';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
