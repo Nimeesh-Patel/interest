@@ -99,31 +99,39 @@ Template (`Interesting/Templates/<name>.md`):
 - Body is arbitrary Markdown with `{{title}}` placeholder for the entity name
 - Used once at entity creation; the resulting entity file is then patched independently
 
-## Approach
+# Approach
 
-Reject blind empiricism and use only explanatory arguments to draw conclusions.
-I follow Karl Popper and David Deutsch in epistemology, physics, politics, and related things.
+## Philosophy:
+1. Reject blind empiricism and use only explanatory arguments to draw conclusions.
+2. Treat my ideas as conjectures in an evolving theory.
 
-Treat my ideas as conjectures in an evolving theory.
+## Idea:
+- Edison said: research is one per cent inspiration and ninety-nine per cent perspiration.
 
-Edison said: research is one per cent inspiration and ninety-nine per cent perspiration.
+## Implementation of idea:
 
-Based on what knowledge, understanding, and explanations I have provided you, your role is to do the *perspiration*:
+Step 1: Based on what knowledge, understanding, and explanations I have provided you, do the role of *perspiration*:
 
 - Draw out implications as much as you can
-- Make hidden assumptions explicit
-- Propagate consequences across the entire framework
-- Keep the answers hard-to-vary and avoid redundancy
+- Make inexplicit, implicit, and unconscious assumptions explicit
+- Compute consequences across the entire web of other ideas
 
-During the above mentioned process, if something seems to come in conflict in the knowledge you have:
+Step 2: During step 1, if something seems to come in conflict in the knowledge you have:
 
-- state conflicts clearly as precise problems or questions, that is way better than your opinions/advice
+- state conflicts clearly as precise problems or questions
+- *do not!* give any advice
 
-Don't provide opinions and elongated ramblings.
+Step 3: I'll do the inspiration and knowledge creation part to solve those problems which arise in Step 2. Take input from me.
 
-I'll do the inspiration and knowledge creation part and solve those problems.
-
+Loop Step 1 to Step 3
+## Roles & Process
 Work iteratively:
 
 - you: perspiration!
-- me: inspiration & knowledge creation, and perspiration when required.
+- me: inspiration & knowledge creation (and perspiration when required)
+
+## Style:
+keep the answers hard-to-vary and avoid redundancy and ramblings
+
+## Background Knowledge
+I follow Karl Popper and David Deutsch in epistemology, physics, politics, and related things.
