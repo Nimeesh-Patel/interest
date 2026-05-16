@@ -88,32 +88,12 @@ class _BoardDetailScreenState extends State<BoardDetailScreen> {
   }
 
   List<Entity> get _sortedMembers {
-    final members = List<Entity>.from(_boardMembers);
-    switch (_sortOrder) {
-      case 'latest':
-        members.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      case 'oldest':
-        members.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      case 'high_score':
-        members.sort((a, b) {
-          if (a.score == null && b.score == null) return 0;
-          if (a.score == null) return 1;
-          if (b.score == null) return -1;
-          return b.score!.compareTo(a.score!);
-        });
-      case 'low_score':
-        members.sort((a, b) {
-          if (a.score == null && b.score == null) return 0;
-          if (a.score == null) return 1;
-          if (b.score == null) return -1;
-          return a.score!.compareTo(b.score!);
-        });
-      case 'alpha':
-        members.sort((a, b) => a.name.compareTo(b.name));
-      case 'category':
-        members.sort((a, b) => a.categoryId.compareTo(b.categoryId));
+    if (_sortOrder == 'category') {
+      final members = List<Entity>.from(_boardMembers)
+        ..sort((a, b) => a.categoryId.compareTo(b.categoryId));
+      return members;
     }
-    return members;
+    return MarkdownStorageService.sortEntities(_boardMembers, _sortOrder);
   }
 
   void _removeFromBoard(String entityId) {
@@ -137,7 +117,10 @@ class _BoardDetailScreenState extends State<BoardDetailScreen> {
         .where((be) => be.boardId == widget.boardId)
         .map((be) => be.entityId)
         .toSet();
-    final candidates = _entities.where((e) => !alreadyIn.contains(e.id)).toList();
+    final candidates = _entities
+        .where((e) => !alreadyIn.contains(e.id))
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     showModalBottomSheet(
       context: context,
@@ -291,6 +274,7 @@ class _BoardDetailScreenState extends State<BoardDetailScreen> {
                     DropdownMenuItem(
                         value: 'low_score', child: Text('Lowest score')),
                     DropdownMenuItem(value: 'alpha', child: Text('A–Z')),
+                    DropdownMenuItem(value: 'alpha_rev', child: Text('Z–A')),
                     DropdownMenuItem(
                         value: 'category', child: Text('Category')),
                   ],

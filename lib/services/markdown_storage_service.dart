@@ -310,6 +310,37 @@ class MarkdownStorageService {
   static String generateBoardId(String name, List<Board> existing) =>
       _generateId(name, existing.map((b) => b.id).toSet(), fallback: 'board');
 
+  static List<Entity> sortEntities(List<Entity> entities, String sortOrder) {
+    final sorted = List<Entity>.from(entities);
+    switch (sortOrder) {
+      case 'latest':
+        sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      case 'oldest':
+        sorted.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      case 'high_score':
+        sorted.sort((a, b) {
+          if (a.score == null && b.score == null) return 0;
+          if (a.score == null) return 1;
+          if (b.score == null) return -1;
+          return b.score!.compareTo(a.score!);
+        });
+      case 'low_score':
+        sorted.sort((a, b) {
+          if (a.score == null && b.score == null) return 0;
+          if (a.score == null) return 1;
+          if (b.score == null) return -1;
+          return a.score!.compareTo(b.score!);
+        });
+      case 'alpha':
+        sorted.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      case 'alpha_rev':
+        sorted.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
+      default:
+        sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    }
+    return sorted;
+  }
+
   // ── Private: parse ─────────────────────────────────────────────────────────
 
   static ({Entity entity, List<String> relatedNames, String categoryName})
@@ -360,7 +391,10 @@ class MarkdownStorageService {
     final rawSections = _parseSections(body);
     final notes = _parseSectionAsList(rawSections['Why Interesting'] ?? '');
     final links = _parseSectionAsList(rawSections['Sources'] ?? '');
-    final relatedNames = _parseSectionAsWikilinks(rawSections['Related'] ?? '');
+    final relatedNames = {
+      ..._parseSectionAsWikilinks(rawSections['Related'] ?? ''),
+      ..._extractWikilinks(body),
+    }.toList();
 
     final catId = categoryName.isEmpty
         ? 'uncategorized'

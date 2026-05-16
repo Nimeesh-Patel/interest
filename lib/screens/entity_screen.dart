@@ -231,7 +231,10 @@ class _EntityScreenState extends State<EntityScreen> {
         .where((be) => be.entityId == _entity.id)
         .map((be) => be.boardId)
         .toSet();
-    final candidates = widget.allBoards.where((b) => !alreadyIn.contains(b.id)).toList();
+    final candidates = widget.allBoards
+        .where((b) => !alreadyIn.contains(b.id))
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     showModalBottomSheet(
       context: context,
@@ -311,7 +314,8 @@ class _EntityScreenState extends State<EntityScreen> {
               if (MarkdownStorageService.linkExists(_entity.id, e.id, widget.allEntityLinks)) return false;
               if (query.isEmpty) return true;
               return e.name.toLowerCase().contains(query.toLowerCase());
-            }).toList();
+            }).toList()
+              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
             return Padding(
               padding: EdgeInsets.only(

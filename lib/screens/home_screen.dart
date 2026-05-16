@@ -103,28 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final q = _searchQuery.toLowerCase();
       list = list.where((e) => e.name.toLowerCase().contains(q)).toList();
     }
-    list = List.from(list);
-    switch (_sortOrder) {
-      case 'latest':
-        list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      case 'oldest':
-        list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      case 'high_score':
-        list.sort((a, b) {
-          if (a.score == null && b.score == null) return 0;
-          if (a.score == null) return 1;
-          if (b.score == null) return -1;
-          return b.score!.compareTo(a.score!);
-        });
-      case 'low_score':
-        list.sort((a, b) {
-          if (a.score == null && b.score == null) return 0;
-          if (a.score == null) return 1;
-          if (b.score == null) return -1;
-          return a.score!.compareTo(b.score!);
-        });
-    }
-    return list;
+    return MarkdownStorageService.sortEntities(list, _sortOrder);
   }
 
   String get _effectiveCategoryId {
@@ -555,6 +534,8 @@ class _HomeScreenState extends State<HomeScreen> {
               DropdownMenuItem(value: 'oldest', child: Text('Oldest')),
               DropdownMenuItem(value: 'high_score', child: Text('Highest score')),
               DropdownMenuItem(value: 'low_score', child: Text('Lowest score')),
+              DropdownMenuItem(value: 'alpha', child: Text('A–Z')),
+              DropdownMenuItem(value: 'alpha_rev', child: Text('Z–A')),
             ],
             onChanged: (v) {
               if (v != null) setState(() => _sortOrder = v);

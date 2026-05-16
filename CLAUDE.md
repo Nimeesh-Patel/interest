@@ -19,6 +19,8 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - Vault path is stored in SharedPreferences via `VaultService` — never hardcode a path
 - `_StoragePermissionGate` in `main.dart` must remain the outermost widget in `EntityTrackerApp.build`; it gates all screens on Android storage permission and re-checks on app resume
 - `_semanticSections` const map in `markdown_storage_service.dart` defines which `##` sections the app owns (`Why Interesting`, `Related`, `Sources`). Only these are rewritten on save. All other `##` sections in an entity file are user territory — preserve them verbatim. Do not add new hardcoded section names outside this map.
+- Wikilink extraction scans the **entire Markdown body** (`_extractWikilinks(body)`) — not just `## Related`. This means `[[wikilinks]]` in any prose section generate graph edges. `## Related` is only the curated list written back on save; inline wikilinks remain in their prose section untouched. Do not narrow this back to section-scoped extraction.
+- All entity-list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Sort keys: `latest`, `oldest`, `high_score`, `low_score`, `alpha` (A→Z case-insensitive), `alpha_rev` (Z→A). Add new sort options there first, then add `DropdownMenuItem` entries in the relevant screens. Entity/board pickers are pre-sorted A→Z inline (not via `sortEntities`).
 - Templates are used for initial file creation only — once a file exists, it is patched, never regenerated from the template again
 - Template files live in `Interesting/Templates/`; they are identified by `template: true` in frontmatter; `{{title}}` is the only supported placeholder
 - `default.md` is seeded with `category: Default` (not "General"). The other seeded templates: `person.md` → People, `product.md` → Products, `idea.md` → Ideas, `movie.md` → Movies. The movie template uses `## Thoughts` / `## Related` / `## Sources` (not `## Why Interesting`).
@@ -41,10 +43,10 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 Flutter screens:
 main.dart                    — _StoragePermissionGate wraps every route; blocks on Android MANAGE_EXTERNAL_STORAGE before showing VaultSetupScreen or HomeScreen
 vault_setup_screen.dart      — first launch only; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates (seeds default templates) → navigates to HomeScreen
-home_screen.dart             — BottomNavigationBar shell (Entities tab + Boards tab via IndexedStack); owns board CRUD inline; AppBar has Settings icon (settings_outlined) + Templates icon (description_outlined); _openSettings() calls _reloadData() on pop
+home_screen.dart             — BottomNavigationBar shell (Entities tab + Boards tab via IndexedStack); owns board CRUD inline; AppBar has Settings icon (settings_outlined) + Templates icon (description_outlined); _openSettings() calls _reloadData() on pop; sort options: latest, oldest, high_score, low_score, alpha (A→Z), alpha_rev (Z→A)
 settings_screen.dart         — Letterboxd RSS URL text field (SharedPreferences key: 'letterboxd_rss_url'); Sync Now button → LetterboxdService.fetchAndImport(); shows result ("N created, N updated, N skipped") or error inline; self-contained
 entity_screen.dart           — display mode / edit mode; deferred save pattern; see README for detail
-board_detail_screen.dart     — board members; sort (6 options); FAB to add entities; self-contained
+board_detail_screen.dart     — board members; sort (7 options: latest, oldest, high_score, low_score, alpha, alpha_rev, category); entity picker pre-sorted A→Z; FAB to add entities; self-contained
 templates_screen.dart        — lists Interesting/Templates/*.md; create (FAB + name dialog), edit (tap → editor), delete (trailing icon); self-contained; reads/writes files directly, no MarkdownStorageService
 template_editor_screen.dart  — full-screen raw Markdown editor for a single template file; Save button (active only when dirty); back gesture shows discard-guard dialog if dirty
 boards_screen.dart           — DEAD CODE: superseded by Boards tab in home_screen.dart; do not navigate to it
@@ -62,7 +64,7 @@ QuickCaptureActivity.kt      — dialog-style Activity (QuickCaptureTheme); titl
 ```
 Flutter services:
 vault_service.dart              — getVaultPath/setVaultPath (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath; ensureVaultDirectories (creates all three dirs + seeds 5 default templates: default, person, product, idea, movie)
-markdown_storage_service.dart   — loadData/saveData (reads/writes .md files); AppData typedef; _semanticSections registry; _parseSections() dynamic parser; _patchEntityContent() section-aware save; _buildNewEntityContent() template instantiation; all static helpers (linkExists, generateEntityId, etc.); parses and writes watchedDate/letterboxdUrl/tmdbId in frontmatter
+markdown_storage_service.dart   — loadData/saveData (reads/writes .md files); AppData typedef; _semanticSections registry; _parseSections() dynamic parser; _patchEntityContent() section-aware save; _buildNewEntityContent() template instantiation; all static helpers (linkExists, generateEntityId, sortEntities, etc.); parses and writes watchedDate/letterboxdUrl/tmdbId in frontmatter; wikilink extraction uses full Markdown body scan (_extractWikilinks(body)), not just ## Related
 letterboxd_service.dart         — getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); fetchAndImport(rssUrl) → ImportResult; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter, injects Thoughts only if currently empty); bypasses saveData(), writes .md directly
 
 Android native (Kotlin, no service class — logic lives in QuickCaptureActivity.kt):
@@ -79,7 +81,7 @@ Entity (`Interesting/Entities/<EntityName>.md`):
 - YAML frontmatter: alias (stable id), category (display string), score, tags, created_at, updated_at (ISO 8601); plus optional movie fields: watched_date, letterboxd_url, tmdb_id (omitted when null)
 - H1 heading = entity name
 - `## Why Interesting` section = notes (list items) — app-owned, patched on save
-- `## Related` section = wikilinks `[[EntityName]]` → EntityLink objects (parsed bidirectionally) — app-owned, patched on save
+- `## Related` section = the curated wikilink list written back by saveData; on load, ALL `[[wikilinks]]` found anywhere in the body contribute to EntityLink objects (full-body scan via `_extractWikilinks(body)` unioned with `## Related`); dedup via `linkExists`; inline wikilinks in prose sections are preserved verbatim and also generate graph edges
 - `## Sources` section = links (list items) — app-owned, patched on save
 - `## Thoughts` section — user territory (not in _semanticSections); used by movie template and written by LetterboxdService; preserved verbatim on every app save
 - Any other `##` sections = user territory, preserved verbatim through every save

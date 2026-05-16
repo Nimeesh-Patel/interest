@@ -9,11 +9,11 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - Entity detail has a display mode (read-only) and an edit mode (explicit Save/Cancel)
 - Entities are linked to each other via Obsidian-style wikilinks — forming a navigable graph
 - Entities can be grouped into boards (independent of categories; many-to-many)
-- Board members can be sorted by date, score, name, or category
+- Board members can be sorted by date, score, name (A→Z / Z→A), or category
 - Score (0–10, step 0.1) is optional per entity
 - Tags are reusable and created inline with autocomplete
 - Categories are created, renamed, and deleted from the home screen
-- Search by name; filter by category; sort by date or score
+- Search by name; filter by category; sort by date, score, or name (A→Z / Z→A)
 - Templates management: create, edit, and delete entity templates from within the app (raw Markdown editor)
 - On first launch: choose a vault folder (Obsidian vault or any folder)
 - All data persists as `.md` files; fully readable in Obsidian
@@ -39,7 +39,7 @@ lib/
   screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Settings + Templates icons
   screens/settings_screen.dart        — Letterboxd RSS URL input (persisted); Sync Now button → LetterboxdService.fetchAndImport(); shows result counts; self-contained
   screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related
-  screens/board_detail_screen.dart    — entities in a board; 6 sort options; FAB to add entities; self-contained
+  screens/board_detail_screen.dart    — entities in a board; 7 sort options; FAB to add entities; self-contained
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
@@ -180,7 +180,7 @@ Widget-created entities always use `category: Default`. This is a normal categor
 - `tmdb_id` — optional; TMDB integer as string; primary dedup key for Letterboxd import
 - `created_at` / `updated_at` — ISO 8601 UTC strings in frontmatter; stored as Unix ms in memory
 - `tags` — list in frontmatter; union recomputed on every save (for autocomplete)
-- `## Related` wikilinks — canonical source for entity-to-entity links; bidirectional (both entity files list each other); deduplicated on load via `linkExists`
+- Entity wikilinks — `[[Name]]` patterns found anywhere in the Markdown body (all `##` sections + preamble) are extracted on load and resolved to `EntityLink` objects; `## Related` is the curated subset written back on save; inline wikilinks in other sections create the same graph edges but are preserved verbatim in their prose section
 - Board membership — derived at load time from board `.md` wikilinks; NOT stored in entity frontmatter
 - Filename — `<entity.name>.md` (sanitized); can change on rename; `alias` is the stable identity
 - Categories — derived from distinct `category` values across entity frontmatters; no separate file
@@ -228,7 +228,7 @@ Only these sections are rewritten by the app on save. Every other `##` section i
    - Body parsed via `_parseSections()` → dynamic `Map<String, String>` of all sections
    - `rawSections` stored on `Entity` for use during subsequent save
 4. Derive `Category` list from distinct `category` frontmatter values
-5. Resolve `## Related` wikilinks → `EntityLink` list (bidirectional dedup via `linkExists`)
+5. Extract all `[[wikilinks]]` from entire Markdown body (full-body scan, not just `## Related`) → resolve to `EntityLink` list (dedup via `linkExists`)
 6. Scan `Interesting/Boards/*.md` → parse H1/filename + wikilinks → `Board` + `BoardEntity` lists
 7. Return `AppData`
 
@@ -251,6 +251,7 @@ Only these sections are rewritten by the app on save. Every other `##` section i
 - `generateEntityId(name, existing)` — slug + collision suffix
 - `generateCategoryId(name, existing)` — same
 - `generateBoardId(name, existing)` — same
+- `sortEntities(entities, sortOrder)` — returns sorted copy; orders: `latest`, `oldest`, `high_score`, `low_score`, `alpha` (A→Z, case-insensitive), `alpha_rev` (Z→A); nulls sorted as worst for score; unknown order falls back to `latest`
 
 All three ID generators delegate to `_generateId(name, existing, fallback)`.
 
