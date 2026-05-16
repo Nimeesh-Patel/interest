@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/board.dart';
 import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
+import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
 
 class EntityScreen extends StatefulWidget {
@@ -39,6 +41,13 @@ class _EntityScreenState extends State<EntityScreen> {
   bool _isEditMode = false;
   late Entity _editSnapshot;
 
+  // Grokipedia external knowledge state
+  GrokipediaArticle? _grokArticle;
+  bool _grokSearched = false;
+  bool _grokSummaryExpanded = false;
+  bool _grokSummaryFetching = false;
+  String? _grokFetchedSummary;
+
   // edit-mode inline state
   bool _isAddingNote = false;
   bool _isAddingLink = false;
@@ -56,6 +65,7 @@ class _EntityScreenState extends State<EntityScreen> {
     super.initState();
     _entity = widget.entity.copyWith();
     _allTags = List<String>.from(widget.allTags);
+    _fetchGrokipedia();
   }
 
   @override
@@ -368,6 +378,128 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
+  // ── Grokipedia external knowledge ─────────────────────────────────────────
+
+  Future<void> _fetchGrokipedia() async {
+    final article = await GrokipediaService.findArticle(_entity.name);
+    if (mounted) {
+      setState(() {
+        _grokArticle = article;
+        _grokSearched = true;
+      });
+    }
+  }
+
+  Future<void> _toggleGrokSummary() async {
+    if (!_grokSummaryExpanded) {
+      setState(() => _grokSummaryExpanded = true);
+      if (_grokArticle?.snippet == null &&
+          _grokFetchedSummary == null &&
+          !_grokSummaryFetching) {
+        setState(() => _grokSummaryFetching = true);
+        final summary = await GrokipediaService.fetchPageSummary(_grokArticle!.slug);
+        if (mounted) {
+          setState(() {
+            _grokFetchedSummary = summary;
+            _grokSummaryFetching = false;
+          });
+        }
+      }
+    } else {
+      setState(() => _grokSummaryExpanded = false);
+    }
+  }
+
+  Future<void> _openGrokArticle(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open article')),
+        );
+      }
+    }
+  }
+
+  Widget _buildExternalKnowledgeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('External Knowledge',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 8),
+        if (!_grokSearched)
+          Text('Searching Grokipedia…',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else if (_grokArticle == null)
+          Text('No Grokipedia article found.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+        else ...[
+          Text(
+            _grokArticle!.title,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _openGrokArticle(_grokArticle!.webUrl),
+                icon: const Icon(Icons.open_in_new, size: 14),
+                label: const Text('Open Article', style: TextStyle(fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _toggleGrokSummary,
+                icon: Icon(
+                  _grokSummaryExpanded ? Icons.expand_less : Icons.expand_more,
+                  size: 14,
+                ),
+                label: const Text('Summary', style: TextStyle(fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+          if (_grokSummaryExpanded) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: _grokSummaryFetching
+                  ? const Row(children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Loading summary…', style: TextStyle(fontSize: 13)),
+                    ])
+                  : Text(
+                      _grokArticle!.snippet ??
+                          _grokFetchedSummary ??
+                          'No summary available.',
+                      style: const TextStyle(fontSize: 13, height: 1.5),
+                    ),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
   // ── Display body ──────────────────────────────────────────────────────────
 
   Widget _buildDisplayBody() {
@@ -518,6 +650,10 @@ class _EntityScreenState extends State<EntityScreen> {
                 ),
               ).then((_) => setState(() {})),
             ),
+
+        const Divider(height: 32),
+        _buildExternalKnowledgeSection(),
+        const SizedBox(height: 16),
       ],
     );
   }

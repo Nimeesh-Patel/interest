@@ -19,6 +19,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - All data persists as `.md` files; fully readable in Obsidian
 - **Android home-screen widget** in three sizes (1×1, 2×1, 2×2): instant entity capture without opening the app — title + optional quick note → Markdown file written directly to vault
 - **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
+- **Grokipedia External Knowledge**: on any entity screen, automatically searches Grokipedia by entity name; shows matched article title with "Open Article" (browser) and collapsible inline summary card; degrades gracefully to "No article found" on failure; never modifies Markdown files
 
 ## Architecture
 
@@ -32,13 +33,14 @@ lib/
   models/entity_link.dart             — EntityLink {id, from, to, type}
   models/board.dart                   — Board {id, name}
   models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
-  services/vault_service.dart         — vault path persistence (SharedPreferences); entitiesPath/boardsPath/templatesPath helpers; ensureVaultDirectories (creates all three dirs + seeds 5 default templates)
+  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath helpers; ensureVaultDirectories (creates all three dirs + seeds 5 default templates)
   services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
-  services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}
+  services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter; injects Thoughts only if currently empty)
+  services/grokipedia_service.dart    — Grokipedia external knowledge; GrokipediaArticle {title, slug, snippet?}; static findArticle(name) → GrokipediaArticle?; static fetchPageSummary(slug) → String?; base URL https://grokipedia.com; all paths catch-all to null — never throws
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
   screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Settings + Templates icons
   screens/settings_screen.dart        — Letterboxd RSS URL input (persisted); Sync Now button → LetterboxdService.fetchAndImport(); shows result counts; self-contained
-  screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related
+  screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related; display mode includes External Knowledge section (Grokipedia) — search triggered non-blocking in initState
   screens/board_detail_screen.dart    — entities in a board; 7 sort options; FAB to add entities; self-contained
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
@@ -282,6 +284,20 @@ Three widget sizes appear separately in the Android widget picker. All three ope
 
 `QuickCaptureWidget` (abstract base) owns all `onUpdate` logic. Each concrete subclass declares only `layoutResId`.
 
+## Grokipedia integration
+
+Optional, non-destructive external knowledge layer. No vault data is written or modified at any point.
+
+**Flow:**
+1. `EntityScreen.initState()` fires `_fetchGrokipedia()` as a non-blocking async call
+2. `GrokipediaService.findArticle(entity.name)` — `GET https://grokipedia.com/api/full-text-search?query={name}&limit=5` → first result's `{title, slug, snippet?}` or `null`
+3. Display mode "External Knowledge" section shows: matched article title + "Open Article" button + "Summary" toggle
+4. "Open Article" → `url_launcher` opens `https://grokipedia.com/page/{slug}` in external browser (no native Grokipedia app exists)
+5. "Summary" expand → shows `snippet` from search result if present; otherwise fetches `GET https://grokipedia.com/api/page?slug={slug}&includeContent=true` → `data['page']['content']` truncated to 600 chars
+6. Any failure (network, timeout, 4xx, malformed JSON) → `GrokipediaService` returns `null` → shows "No Grokipedia article found." — no crash, no blocked UI
+
+**Boundaries:** no caching, no vault writes, no background polling, no article-to-notes injection.
+
 ## Navigation and state-passing patterns
 
 **HomeScreen** is a `BottomNavigationBar` shell with two tabs via `IndexedStack`:
@@ -336,3 +352,4 @@ First launch shows a vault folder picker. Select any folder (e.g. your Obsidian 
 - `http: ^1.2.0` — RSS feed fetching in LetterboxdService (user-triggered only)
 - `xml: ^6.5.0` — RSS/XML parsing in LetterboxdService
 - `dart:io` + `dart:convert` — file read/write and JSON (migration only)
+- `url_launcher: ^6.2.0` — opens Grokipedia article URLs in external browser (Grokipedia integration)

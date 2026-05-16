@@ -7,7 +7,7 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - No state management libraries (`setState` only)
 - No database — Markdown files in `<vault>/Interesting/Entities/` and `<vault>/Interesting/Boards/` are the source of truth
 - No parallel JSON state persistence — `saveData()` writes `.md` files only
-- No auth, no cloud, no backend. Network access is limited to `LetterboxdService.fetchAndImport()` — one user-triggered HTTP GET to a Letterboxd RSS URL. No background polling, no auth, no other network calls.
+- No auth, no cloud, no backend. Network calls: (1) `LetterboxdService.fetchAndImport()` — user-triggered HTTP GET to Letterboxd RSS URL; (2) `GrokipediaService` — non-blocking HTTP GETs triggered by entity screen open. Both fail silently on any error. No background polling, no auth.
 - `entity.id` = `alias` in YAML frontmatter — immutable after creation; never regenerate on rename
 - `board.id` = `slugify(board.name)` — derived at load time; stable within a session
 - `updated_at` must be stamped on every entity mutation — done inside `_save()` in `entity_screen.dart`
@@ -37,69 +37,14 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - `QuickCaptureWidget.kt` is abstract — never register it directly in the manifest. Only the three concrete subclasses (`QuickCaptureWidget1x1`, `QuickCaptureWidget2x1`, `QuickCaptureWidget2x2`) are registered as receivers.
 - Do not add more widget sizes without adding a corresponding concrete subclass, widget info XML, layout XML, and manifest receiver entry.
 
-## Current screen map
+## Grokipedia integration constraints
 
-```
-Flutter screens:
-main.dart                    — _StoragePermissionGate wraps every route; blocks on Android MANAGE_EXTERNAL_STORAGE before showing VaultSetupScreen or HomeScreen
-vault_setup_screen.dart      — first launch only; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates (seeds default templates) → navigates to HomeScreen
-home_screen.dart             — BottomNavigationBar shell (Entities tab + Boards tab via IndexedStack); owns board CRUD inline; AppBar has Settings icon (settings_outlined) + Templates icon (description_outlined); _openSettings() calls _reloadData() on pop; sort options: latest, oldest, high_score, low_score, alpha (A→Z), alpha_rev (Z→A)
-settings_screen.dart         — Letterboxd RSS URL text field (SharedPreferences key: 'letterboxd_rss_url'); Sync Now button → LetterboxdService.fetchAndImport(); shows result ("N created, N updated, N skipped") or error inline; self-contained
-entity_screen.dart           — display mode / edit mode; deferred save pattern; see README for detail
-board_detail_screen.dart     — board members; sort (7 options: latest, oldest, high_score, low_score, alpha, alpha_rev, category); entity picker pre-sorted A→Z; FAB to add entities; self-contained
-templates_screen.dart        — lists Interesting/Templates/*.md; create (FAB + name dialog), edit (tap → editor), delete (trailing icon); self-contained; reads/writes files directly, no MarkdownStorageService
-template_editor_screen.dart  — full-screen raw Markdown editor for a single template file; Save button (active only when dirty); back gesture shows discard-guard dialog if dirty
-boards_screen.dart           — DEAD CODE: superseded by Boards tab in home_screen.dart; do not navigate to it
-
-Android native (no Flutter runtime required):
-QuickCaptureWidget.kt        — abstract AppWidgetProvider base; onUpdate() sets PendingIntent on widget_root view → opens QuickCaptureActivity
-QuickCaptureWidget1x1.kt     — 1×1 subclass; layoutResId = R.layout.quick_capture_widget_1x1
-QuickCaptureWidget2x1.kt     — 2×1 subclass; layoutResId = R.layout.quick_capture_widget_2x1
-QuickCaptureWidget2x2.kt     — 2×2 subclass; layoutResId = R.layout.quick_capture_widget_2x2
-QuickCaptureActivity.kt      — dialog-style Activity (QuickCaptureTheme); title + note inputs; save() reads FlutterSharedPreferences → builds Markdown → writes file → Toast → finish()
-```
-
-## Current service map
-
-```
-Flutter services:
-vault_service.dart              — getVaultPath/setVaultPath (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath; ensureVaultDirectories (creates all three dirs + seeds 5 default templates: default, person, product, idea, movie)
-markdown_storage_service.dart   — loadData/saveData (reads/writes .md files); AppData typedef; _semanticSections registry; _parseSections() dynamic parser; _patchEntityContent() section-aware save; _buildNewEntityContent() template instantiation; all static helpers (linkExists, generateEntityId, sortEntities, etc.); parses and writes watchedDate/letterboxdUrl/tmdbId in frontmatter; wikilink extraction uses full Markdown body scan (_extractWikilinks(body)), not just ## Related
-letterboxd_service.dart         — getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); fetchAndImport(rssUrl) → ImportResult; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter, injects Thoughts only if currently empty); bypasses saveData(), writes .md directly
-
-Android native (Kotlin, no service class — logic lives in QuickCaptureActivity.kt):
-getVaultPath()           — reads FlutterSharedPreferences / flutter.vault_path
-slugify(name)            — mirrors Dart _generateId: lowercase, spaces→hyphens, strip non-[a-z0-9-]
-uniqueId(base, dir)      — checks file existence; appends -2, -3, etc.
-loadTemplateBody(path)   — reads default.md; strips --- frontmatter block; returns body only
-buildMarkdown(...)       — assembles frontmatter from scratch + template body + optional note injection
-```
-
-## Markdown file formats (canonical source of truth)
-
-Entity (`Interesting/Entities/<EntityName>.md`):
-- YAML frontmatter: alias (stable id), category (display string), score, tags, created_at, updated_at (ISO 8601); plus optional movie fields: watched_date, letterboxd_url, tmdb_id (omitted when null)
-- H1 heading = entity name
-- `## Why Interesting` section = notes (list items) — app-owned, patched on save
-- `## Related` section = the curated wikilink list written back by saveData; on load, ALL `[[wikilinks]]` found anywhere in the body contribute to EntityLink objects (full-body scan via `_extractWikilinks(body)` unioned with `## Related`); dedup via `linkExists`; inline wikilinks in prose sections are preserved verbatim and also generate graph edges
-- `## Sources` section = links (list items) — app-owned, patched on save
-- `## Thoughts` section — user territory (not in _semanticSections); used by movie template and written by LetterboxdService; preserved verbatim on every app save
-- Any other `##` sections = user territory, preserved verbatim through every save
-
-Movie entity (`Interesting/Entities/<FilmTitle>.md`) — written by LetterboxdService, not saveData:
-- Frontmatter includes watched_date, letterboxd_url, tmdb_id when available
-- Sections: `## Thoughts` (review prose, user-owned), `## Related`, `## Sources`
-- Deduplication: tmdb_id match first, then normalized title match within Movies category
-- Update policy: frontmatter fields updated on re-sync; Thoughts injected only if currently empty (never overwrites user edits)
-
-Board (`Interesting/Boards/<BoardName>.md`):
-- H1 heading = board name (no frontmatter)
-- Body wikilinks `[[EntityName]]` = board members → BoardEntity objects
-
-Template (`Interesting/Templates/<name>.md`):
-- YAML frontmatter: category (display string), `template: true`
-- Body is arbitrary Markdown with `{{title}}` placeholder for the entity name
-- Used once at entity creation; the resulting entity file is then patched independently
+- `GrokipediaService` is stateless (all-static); base `https://grokipedia.com`; search: `/api/full-text-search?query=…&limit=5`; page: `/api/page?slug=…&includeContent=true`
+- Never writes to vault or Markdown files — external knowledge only; user adds notes manually if they want to persist anything
+- Every code path in `GrokipediaService` must catch all exceptions and return `null` — the `catch (_) { return null; }` pattern is intentional and must be preserved
+- `url_launcher` opens `https://grokipedia.com/page/{slug}` in external browser — no native Grokipedia app exists (PWA only); do not add "Open in App" without verifying a real URL scheme exists
+- Grokipedia state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState` — no persistence, no propagation to other screens
+- Do not cache results, inject article content into notes, or auto-populate any Markdown field
 
 # Approach
 
