@@ -7,6 +7,7 @@ import '../models/entity_link.dart';
 import '../services/markdown_storage_service.dart';
 import 'board_detail_screen.dart';
 import 'entity_screen.dart';
+import 'anki_screen.dart';
 import 'settings_screen.dart';
 import 'templates_screen.dart';
 
@@ -169,6 +170,13 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
     _reloadData();
+  }
+
+  Future<void> _openAnki() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AnkiScreen()),
+    );
   }
 
   // ── Category operations ───────────────────────────────────────────────────
@@ -655,6 +663,11 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _showCreateBoard,
               tooltip: 'New board',
             ),
+          IconButton(
+            icon: const Icon(Icons.style_outlined),
+            onPressed: _openAnki,
+            tooltip: 'Anki cards',
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,

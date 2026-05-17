@@ -20,6 +20,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - **Android home-screen widget** in three sizes (1×1, 2×1, 2×2): instant entity capture without opening the app — title + optional quick note → Markdown file written directly to vault
 - **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
 - **Grokipedia External Knowledge**: on any entity screen, automatically searches Grokipedia by entity name; shows matched article title with "Open Article" (browser) and collapsible inline summary card; degrades gracefully to "No article found" on failure; never modifies Markdown files
+- **Anki bidirectional sync**: Markdown cards in `Interesting/Anki/` sync bidirectionally with Anki via AnkiConnect; Basic and Cloze note types; last-modified-wins conflict resolution; manual sync only; safe deletion via `.trash/`; see [docs/anki.md](docs/anki.md)
 
 ## Architecture
 
@@ -29,17 +30,23 @@ No state management libraries. Pure `setState`. No repository pattern.
 lib/
   main.dart                           — async vault-path check at startup; _StoragePermissionGate (Android All Files Access, re-checks on resume); routes to VaultSetupScreen or HomeScreen
   models/entity.dart                  — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt, rawSections, watchedDate?, letterboxdUrl?, tmdbId?} + copyWith()
+  models/anki_card.dart               — AnkiCard {ankiId?, filePath, noteType, deck, tags, updatedAt, front, back, text, extraSections} + copyWith(); AnkiNoteType enum (basic, cloze)
   models/category.dart                — Category {id, name}
   models/entity_link.dart             — EntityLink {id, from, to, type}
   models/board.dart                   — Board {id, name}
   models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
-  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath helpers; ensureVaultDirectories (creates all three dirs + seeds 5 default templates)
+  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath helpers; ensureVaultDirectories (creates Entities + Boards + Templates + Anki + Anki/.trash + seeds 5 default templates)
   services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
   services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter; injects Thoughts only if currently empty)
   services/grokipedia_service.dart    — Grokipedia external knowledge; GrokipediaArticle {title, slug, snippet?}; static findArticle(name) → GrokipediaArticle?; static fetchPageSummary(slug) → String?; base URL https://grokipedia.com; all paths catch-all to null — never throws
+  services/anki_connect_service.dart  — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
+  services/anki_storage_service.dart  — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
+  services/anki_sync_service.dart     — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; see docs/anki.md
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
-  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Settings + Templates icons
-  screens/settings_screen.dart        — Letterboxd RSS URL input (persisted); Sync Now button → LetterboxdService.fetchAndImport(); shows result counts; self-contained
+  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Anki + Settings + Templates icons
+  screens/settings_screen.dart        — Letterboxd RSS URL input + Sync Now; AnkiConnect URL input + Test Connection; all persisted in SharedPreferences; self-contained
+  screens/anki_screen.dart            — card browser; AppBar Sync → AnkiSyncService.sync() → SnackBar; FAB → AnkiCardEditorScreen; see docs/anki.md
+  screens/anki_card_editor_screen.dart — Basic/Cloze editor; deck Autocomplete from deckNames(); discard guard (PopScope); Save → AnkiStorageService; see docs/anki.md
   screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related; display mode includes External Knowledge section (Grokipedia) — search triggered non-blocking in initState
   screens/board_detail_screen.dart    — entities in a board; 7 sort options; FAB to add entities; self-contained
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
@@ -69,6 +76,8 @@ android/app/src/main/
     Entities/        ← one .md file per entity
     Boards/          ← one .md file per board
     Templates/       ← one .md file per template; seeded on first launch; user-editable
+    Anki/            ← one .md file per Anki card (Basic or Cloze)
+      .trash/        ← soft-deleted cards; never auto-purged
 ```
 
 All other files in the vault are ignored.
@@ -298,6 +307,14 @@ Optional, non-destructive external knowledge layer. No vault data is written or 
 
 **Boundaries:** no caching, no vault writes, no background polling, no article-to-notes injection.
 
+## Anki integration
+
+Bidirectional sync between `Interesting/Anki/*.md` and Anki notes via AnkiConnect. Manual sync only (Sync button in AnkiScreen). Supports Basic and Cloze note types. `anki_id` in frontmatter is the stable identity anchor. Review metadata (intervals, ease, due dates) is never written to Markdown — only semantic content (front/back/text, tags, deck) syncs.
+
+**Requires one-time setup:** Desktop Anki + AnkiConnect add-on (code `2055492159`) + bind address set to `0.0.0.0` in AnkiConnect config. Phone and desktop must be on the same WiFi. Configure the desktop's LAN IP in Settings → AnkiConnect URL.
+
+Full details: **[docs/anki.md](docs/anki.md)** — setup walkthrough, file format, services, sync algorithm, conflict resolution.
+
 ## Navigation and state-passing patterns
 
 **HomeScreen** is a `BottomNavigationBar` shell with two tabs via `IndexedStack`:
@@ -349,7 +366,7 @@ First launch shows a vault folder picker. Select any folder (e.g. your Obsidian 
 - `shared_preferences: ^2.5.0` — persist vault folder path and Letterboxd RSS URL across app restarts
 - `path: ^1.9.0` — cross-platform path manipulation
 - `permission_handler: ^11.3.0` — Android MANAGE_EXTERNAL_STORAGE gate (All Files Access)
-- `http: ^1.2.0` — RSS feed fetching in LetterboxdService (user-triggered only)
+- `http: ^1.2.0` — RSS feed fetching in LetterboxdService; AnkiConnect HTTP calls in AnkiConnectService; Grokipedia HTTP calls in GrokipediaService (all user-triggered or non-blocking; no background polling)
 - `xml: ^6.5.0` — RSS/XML parsing in LetterboxdService
 - `dart:io` + `dart:convert` — file read/write and JSON (migration only)
 - `url_launcher: ^6.2.0` — opens Grokipedia article URLs in external browser (Grokipedia integration)

@@ -25,9 +25,13 @@ class VaultService {
     final edir = Directory(entitiesPath(vaultPath));
     final bdir = Directory(boardsPath(vaultPath));
     final tdir = Directory(templatesPath(vaultPath));
+    final adir = Directory(ankiPath(vaultPath));
+    final atdir = Directory(ankiTrashPath(vaultPath));
     if (!await edir.exists()) await edir.create(recursive: true);
     if (!await bdir.exists()) await bdir.create(recursive: true);
     if (!await tdir.exists()) await tdir.create(recursive: true);
+    if (!await adir.exists()) await adir.create(recursive: true);
+    if (!await atdir.exists()) await atdir.create(recursive: true);
     await _seedDefaultTemplates(tdir.path);
   }
 
@@ -39,6 +43,12 @@ class VaultService {
 
   static String templatesPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Templates');
+
+  static String ankiPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Anki');
+
+  static String ankiTrashPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Anki', '.trash');
 
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {

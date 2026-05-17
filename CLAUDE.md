@@ -7,7 +7,7 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - No state management libraries (`setState` only)
 - No database — Markdown files in `<vault>/Interesting/Entities/` and `<vault>/Interesting/Boards/` are the source of truth
 - No parallel JSON state persistence — `saveData()` writes `.md` files only
-- No auth, no cloud, no backend. Network calls: (1) `LetterboxdService.fetchAndImport()` — user-triggered HTTP GET to Letterboxd RSS URL; (2) `GrokipediaService` — non-blocking HTTP GETs triggered by entity screen open. Both fail silently on any error. No background polling, no auth.
+- No auth, no cloud, no backend. Network calls: (1) `LetterboxdService.fetchAndImport()` — user-triggered HTTP GET to Letterboxd RSS URL; (2) `GrokipediaService` — non-blocking HTTP GETs triggered by entity screen open; (3) `AnkiConnectService` — user-triggered HTTP POSTs to local AnkiConnect. All fail silently on any error. No background polling, no auth.
 - `entity.id` = `alias` in YAML frontmatter — immutable after creation; never regenerate on rename
 - `board.id` = `slugify(board.name)` — derived at load time; stable within a session
 - `updated_at` must be stamped on every entity mutation — done inside `_save()` in `entity_screen.dart`
@@ -36,6 +36,22 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - Widget `alias` = `slugify(title)` with `-2`, `-3` collision suffix checked against existing files in the entities dir
 - `QuickCaptureWidget.kt` is abstract — never register it directly in the manifest. Only the three concrete subclasses (`QuickCaptureWidget1x1`, `QuickCaptureWidget2x1`, `QuickCaptureWidget2x2`) are registered as receivers.
 - Do not add more widget sizes without adding a corresponding concrete subclass, widget info XML, layout XML, and manifest receiver entry.
+
+## Anki subsystem constraints
+
+- `anki_id` in card frontmatter is the stable cross-system identity — immutable after first write; never regenerate on rename or file move
+- `AnkiConnectService` is all-static; every code path must `catch (_) { return null; }` — same pattern as `GrokipediaService`; never throws
+- `AnkiStorageService` writes directly to `Interesting/Anki/` — does NOT call `saveData()`; same as `LetterboxdService` writing to `Interesting/Entities/`
+- Semantic sections for Basic: `Front`, `Back` (H1 `#`, not H2 `##`). For Cloze: `Text`. All other `#`/`##` sections are user territory — preserved verbatim on every save
+- Deletion is always soft: move to `Interesting/Anki/.trash/` via `trashCard()`; never hard-delete
+- Sync is manual only (triggered by Sync button in AnkiScreen) — no filesystem watchers, no background polling, no auto-sync
+- Never write Anki review metadata (intervals, ease, due dates, review history) into Markdown — only semantic content (front/back/text, tags, deck) syncs
+- `VaultService.ankiPath(vaultPath)` and `ankiTrashPath(vaultPath)` take a `String` arg — same signature as `entitiesPath()` / `boardsPath()` / `templatesPath()`
+- `updated_at` in card frontmatter must be stamped on every mutation — done inside `AnkiStorageService.saveCard()` and `createNewCard()`
+- Conflict resolution: compare `card.updatedAt.millisecondsSinceEpoch` vs `ankiNote['mod'] * 1000`; 5-second tolerance; winner overwrites the other side
+- `AnkiSyncService.sync()` fetches Anki note details in batches of 50 via `notesInfo` — do not fetch all at once
+- AnkiConnect URL stored in SharedPreferences (key: `'anki_connect_url'`); default `'http://localhost:8765'`; on Android the user must set the desktop's LAN IP
+- Full subsystem docs (file format, sync algorithm, UI): [docs/anki.md](docs/anki.md)
 
 ## Grokipedia integration constraints
 
