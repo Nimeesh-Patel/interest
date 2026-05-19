@@ -21,6 +21,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
 - **Grokipedia External Knowledge**: on any entity screen, automatically searches Grokipedia by entity name; shows matched article title with "Open Article" (browser) and collapsible inline summary card; degrades gracefully to "No article found" on failure; never modifies Markdown files
 - **Anki bidirectional sync**: Markdown cards in `Interesting/Anki/` sync bidirectionally with Anki via AnkiConnect; Basic and Cloze note types; last-modified-wins conflict resolution; manual sync only; safe deletion via `.trash/`; see [docs/anki.md](docs/anki.md)
+- **Markdown-native ToDo layer**: task collections in `Interesting/Tasks/` using standard `- [ ]` / `- [x]` syntax; one `.md` file per topic, many tasks per file; `[[wikilinks]]` supported and preserved verbatim; no YAML frontmatter — pure Markdown, fully Obsidian-compatible
 
 ## Architecture
 
@@ -35,15 +36,17 @@ lib/
   models/entity_link.dart             — EntityLink {id, from, to, type}
   models/board.dart                   — Board {id, name}
   models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
-  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath helpers; ensureVaultDirectories (creates Entities + Boards + Templates + Anki + Anki/.trash + seeds 5 default templates)
+  models/task.dart                    — TaskFile {filePath, name, totalTasks, completedTasks, progress}; summary only — tasks are never reified as in-memory objects
+  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath/tasksPath helpers; ensureVaultDirectories (creates Entities + Boards + Templates + Anki + Anki/.trash + Tasks + seeds 5 default templates)
   services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
   services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter; injects Thoughts only if currently empty)
   services/grokipedia_service.dart    — Grokipedia external knowledge; GrokipediaArticle {title, slug, snippet?}; static findArticle(name) → GrokipediaArticle?; static fetchPageSummary(slug) → String?; base URL https://grokipedia.com; all paths catch-all to null — never throws
   services/anki_connect_service.dart  — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
   services/anki_storage_service.dart  — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
   services/anki_sync_service.dart     — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; see docs/anki.md
+  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile; line-based patching (readAsLines → mutate → join('\n'))
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
-  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab (IndexedStack); owns full board CRUD inline; AppBar has Anki + Settings + Templates icons
+  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab + ToDos tab (IndexedStack); owns full board CRUD and task-file CRUD inline; AppBar has Anki + Settings + Templates icons
   screens/settings_screen.dart        — Letterboxd RSS URL input + Sync Now; AnkiConnect URL input + Test Connection; all persisted in SharedPreferences; self-contained
   screens/anki_screen.dart            — card browser; AppBar Sync → AnkiSyncService.sync() → SnackBar; FAB → AnkiCardEditorScreen; see docs/anki.md
   screens/anki_card_editor_screen.dart — Basic/Cloze editor; deck Autocomplete from deckNames(); discard guard (PopScope); Save → AnkiStorageService; see docs/anki.md
@@ -52,6 +55,7 @@ lib/
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
+  screens/task_file_screen.dart       — per-file task view; loads raw lines; renders line-by-line (task → CheckboxListTile, ## → section header, prose → Text); bottom-bar quick-add; tap task text → edit dialog; long-press → delete; [[wikilinks]] styled blue but not navigable
 
 android/app/src/main/
   kotlin/com/nimee/people_tracker/
@@ -78,6 +82,7 @@ android/app/src/main/
     Templates/       ← one .md file per template; seeded on first launch; user-editable
     Anki/            ← one .md file per Anki card (Basic or Cloze)
       .trash/        ← soft-deleted cards; never auto-purged
+    Tasks/           ← one .md file per task topic; pure Markdown, no frontmatter
 ```
 
 All other files in the vault are ignored.
@@ -307,6 +312,41 @@ Optional, non-destructive external knowledge layer. No vault data is written or 
 
 **Boundaries:** no caching, no vault writes, no background polling, no article-to-notes injection.
 
+## Tasks subsystem
+
+Lightweight Markdown-native task layer. No YAML frontmatter — pure `.md` files, one per topic.
+
+**Task file format:**
+
+```markdown
+# Build
+
+## Goals
+
+- [ ] Improve [[Anki Integration]]
+- [ ] Explore [[Readwise]]
+
+## Done
+
+- [x] Fix widget UX
+```
+
+**Storage:** `Interesting/Tasks/`; one file per topic (`Reading.md`, `Build.md`, …); many tasks per file. Task regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Standard Markdown/Obsidian syntax.
+
+**`TaskStorageService` (all-static, all-catch):**
+- `loadTaskFiles()` — scans `Interesting/Tasks/*.md`; first `# ` line → display name (fallback: filename stem); counts total/completed tasks → `List<TaskFile>`
+- `loadLines(filePath)` — `readAsLines()` → `List<String>`
+- `toggleTask(filePath, lineIndex)` — flips `[ ]` ↔ `[x]` at line index; writes back with `lines.join('\n')`
+- `addTask(filePath, text)` — appends `- [ ] text` to end of file
+- `deleteTask(filePath, lineIndex)` — removes line at index; writes back
+- `updateTaskText(filePath, lineIndex, newText)` — preserves completion state + leading indent, replaces text portion
+- `createTaskFile(name)` → writes `# name\n\n`; returns `null` on collision or I/O error
+- `deleteTaskFile(filePath)` — hard delete (no trash; task files are not identity-bearing)
+
+**UI:** ToDos tab (tab 2 in HomeScreen) lists task files as cards with `LinearProgressIndicator`; tap → `TaskFileScreen`; long-press → delete confirm; AppBar `+` → create dialog. `TaskFileScreen` is self-contained (no entity lists needed).
+
+**Boundaries:** no task-level IDs; no due dates, reminders, priorities, or sync; wikilinks in task text are Markdown-native and Obsidian-compatible but are not integrated into the in-app `EntityLink` graph (task files have no `alias` and cannot be graph nodes).
+
 ## Anki integration
 
 Bidirectional sync between `Interesting/Anki/*.md` and Anki notes via AnkiConnect. Manual sync only (Sync button in AnkiScreen). Supports Basic and Cloze note types. `anki_id` in frontmatter is the stable identity anchor. Review metadata (intervals, ease, due dates) is never written to Markdown — only semantic content (front/back/text, tags, deck) syncs.
@@ -317,13 +357,15 @@ Full details: **[docs/anki.md](docs/anki.md)** — setup walkthrough, file forma
 
 ## Navigation and state-passing patterns
 
-**HomeScreen** is a `BottomNavigationBar` shell with two tabs via `IndexedStack`:
+**HomeScreen** is a `BottomNavigationBar` shell with three tabs via `IndexedStack`:
 - Tab 0 (Entities): entity list, category filter, add bar, search, sort
 - Tab 1 (Boards): board list with full CRUD — inline, no separate screen push
+- Tab 2 (ToDos): task file list with progress bars; full CRUD inline; tap → `TaskFileScreen`
 
 HomeScreen navigates via push to:
 - `EntityScreen` — from entity list tap; passes full six-list set by reference
 - `BoardDetailScreen` — from board tap in Boards tab; self-contained
+- `TaskFileScreen` — from task file tap in ToDos tab; self-contained (no entity lists needed)
 - `TemplatesScreen` — from AppBar templates icon; self-contained (reads/writes template files directly, no MarkdownStorageService)
 - `SettingsScreen` — from AppBar settings icon; self-contained; `_reloadData()` called on pop to pick up any newly imported entities
 
@@ -354,7 +396,7 @@ flutter pub get
 flutter run -d android
 ```
 
-First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/`, `Interesting/Boards/`, and `Interesting/Templates/` inside it, and seeds five default templates (including `movie.md` for the Movies category).
+First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates `Interesting/Entities/`, `Interesting/Boards/`, `Interesting/Templates/`, `Interesting/Anki/`, and `Interesting/Tasks/` inside it, and seeds five default templates (including `movie.md` for the Movies category).
 
 **Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. On first launch a permission gate screen appears — tap "Open Settings", enable All Files Access for this app, then return. The gate re-checks on every resume; once granted, vault reads and writes work on external storage. The widget also requires this permission (same app context).
 

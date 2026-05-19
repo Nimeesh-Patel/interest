@@ -4,11 +4,14 @@ import '../models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
+import '../models/task.dart';
 import '../services/markdown_storage_service.dart';
+import '../services/task_storage_service.dart';
 import 'board_detail_screen.dart';
 import 'entity_screen.dart';
 import 'anki_screen.dart';
 import 'settings_screen.dart';
+import 'task_file_screen.dart';
 import 'templates_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -26,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<EntityLink> _entityLinks = [];
   List<Board> _boards = [];
   List<BoardEntity> _boardEntities = [];
+  List<TaskFile> _taskFiles = [];
   String? _selectedCategoryId;
   String _searchQuery = '';
   String _sortOrder = 'latest';
@@ -66,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoading = false;
       });
     }
+    final taskFiles = await TaskStorageService.loadTaskFiles();
+    if (mounted) setState(() => _taskFiles = taskFiles);
   }
 
   Future<void> _reloadData() async {
@@ -80,6 +86,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _boardEntities = data.boardEntities;
       });
     }
+  }
+
+  Future<void> _reloadTaskFiles() async {
+    final taskFiles = await TaskStorageService.loadTaskFiles();
+    if (mounted) setState(() => _taskFiles = taskFiles);
   }
 
   void _save() {
@@ -612,6 +623,122 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ── ToDos tab operations ──────────────────────────────────────────────────
+
+  void _showCreateTaskFile() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New task file'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Name'),
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: (v) {
+            Navigator.pop(ctx);
+            _createTaskFile(v);
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _createTaskFile(ctrl.text);
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createTaskFile(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    await TaskStorageService.createTaskFile(trimmed);
+    await _reloadTaskFiles();
+  }
+
+  void _showDeleteTaskFileConfirm(TaskFile tf) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete task file?'),
+        content: Text('Delete "${tf.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await TaskStorageService.deleteTaskFile(tf.filePath);
+              await _reloadTaskFiles();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── ToDos tab UI ──────────────────────────────────────────────────────────
+
+  Widget _buildTodosTab() {
+    if (_taskFiles.isEmpty) {
+      return const Center(
+        child: Text(
+          'No task files yet.\nTap + to create one.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: _taskFiles.length,
+      itemBuilder: (ctx, i) {
+        final tf = _taskFiles[i];
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: ListTile(
+            title: Text(tf.name),
+            subtitle: tf.totalTasks == 0
+                ? const Text('No tasks', style: TextStyle(fontSize: 12))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      LinearProgressIndicator(
+                        value: tf.progress,
+                        minHeight: 4,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${tf.completedTasks} / ${tf.totalTasks} done',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TaskFileScreen(
+                    filePath: tf.filePath,
+                    title: tf.name,
+                  ),
+                ),
+              );
+              await _reloadTaskFiles();
+            },
+            onLongPress: () => _showDeleteTaskFileConfirm(tf),
+          ),
+        );
+      },
+    );
+  }
+
   // ── Boards tab UI ─────────────────────────────────────────────────────────
 
   Widget _buildBoardsTab() {
@@ -654,7 +781,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentTab == 0 ? 'Entities' : 'Boards'),
+        title: Text(_currentTab == 0 ? 'Entities' : _currentTab == 1 ? 'Boards' : 'ToDos'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (_currentTab == 1)
@@ -662,6 +789,12 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.add),
               onPressed: _showCreateBoard,
               tooltip: 'New board',
+            ),
+          if (_currentTab == 2)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _showCreateTaskFile,
+              tooltip: 'New task file',
             ),
           IconButton(
             icon: const Icon(Icons.style_outlined),
@@ -685,6 +818,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _buildEntitiesTab(),
           _buildBoardsTab(),
+          _buildTodosTab(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -698,6 +832,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.grid_view),
             label: 'Boards',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.check_box_outline_blank),
+            label: 'ToDos',
           ),
         ],
       ),

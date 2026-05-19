@@ -53,6 +53,20 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 - AnkiConnect URL stored in SharedPreferences (key: `'anki_connect_url'`); default `'http://localhost:8765'`; on Android the user must set the desktop's LAN IP
 - Full subsystem docs (file format, sync algorithm, UI): [docs/anki.md](docs/anki.md)
 
+## Tasks subsystem constraints
+
+- Task files live in `Interesting/Tasks/`; **no YAML frontmatter** — pure Markdown. `VaultService.tasksPath(vaultPath)` returns the path; directory is created in `ensureVaultDirectories`.
+- Task syntax: `- [ ] text` (uncompleted) and `- [x] text` (completed). Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Standard Markdown/Obsidian — do not deviate.
+- Storage model: one `.md` file per topic, many tasks per file. Do NOT store one task per file.
+- `TaskStorageService` is all-static; every public method wraps in `try/catch`, never throws — same pattern as `GrokipediaService`/`AnkiConnectService`.
+- Patching is line-based: `readAsLines()` → mutate at index → `lines.join('\n')`. Never regenerate the entire file. All other lines preserved exactly.
+- Deletions are hard-delete (no trash). Task files have no `alias` and are not identity-bearing.
+- `TaskFile` objects are always reconstructed from disk on reload — no `copyWith()` needed; they are summary-only.
+- `HomeScreen` owns `_taskFiles` state and task-file CRUD (`_showCreateTaskFile`, `_showDeleteTaskFileConfirm`, `_reloadTaskFiles`) — same pattern as boards inline in HomeScreen.
+- `TaskFileScreen` is self-contained; receives only `filePath` and `title` — no entity lists. Wikilinks are styled but not clickable in v1.
+- Do NOT integrate task wikilinks into the `EntityLink` graph — task files have no `alias` and cannot be `from`/`to` in `EntityLink`. Wikilinks are Obsidian-compatible via the filesystem without in-app graph wiring.
+- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, drag-to-reorder, or calendar integration to this subsystem.
+
 ## Grokipedia integration constraints
 
 - `GrokipediaService` is stateless (all-static); base `https://grokipedia.com`; search: `/api/full-text-search?query=…&limit=5`; page: `/api/page?slug=…&includeContent=true`
