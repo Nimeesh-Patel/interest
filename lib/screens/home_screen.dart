@@ -683,6 +683,79 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showTaskFileOptions(TaskFile tf) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(context);
+                _showRenameTaskFile(tf);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete'),
+              onTap: () {
+                Navigator.pop(context);
+                _showDeleteTaskFileConfirm(tf);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRenameTaskFile(TaskFile tf) {
+    final ctrl = TextEditingController(text: tf.name);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename task file'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(hintText: 'Name'),
+          onSubmitted: (v) {
+            Navigator.pop(ctx);
+            _renameTaskFile(tf, v);
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _renameTaskFile(tf, ctrl.text);
+            },
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    ).then((_) => ctrl.dispose());
+  }
+
+  Future<void> _renameTaskFile(TaskFile tf, String newName) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty || trimmed == tf.name) return;
+    final result = await TaskStorageService.renameTaskFile(tf.filePath, trimmed);
+    if (!mounted) return;
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rename failed — name already in use.')),
+      );
+      return;
+    }
+    await _reloadTaskFiles();
+  }
+
   // ── ToDos tab UI ──────────────────────────────────────────────────────────
 
   Widget _buildTodosTab() {
@@ -727,12 +800,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (_) => TaskFileScreen(
                     filePath: tf.filePath,
                     title: tf.name,
+                    onRenamed: (newPath, newTitle) => _reloadTaskFiles(),
                   ),
                 ),
               );
               await _reloadTaskFiles();
             },
-            onLongPress: () => _showDeleteTaskFileConfirm(tf),
+            onLongPress: () => _showTaskFileOptions(tf),
           ),
         );
       },

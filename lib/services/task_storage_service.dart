@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/task.dart';
+import '../models/task_block.dart';
 import 'vault_service.dart';
 
 class TaskStorageService {
@@ -142,5 +143,176 @@ class TaskStorageService {
       totalTasks: total,
       completedTasks: completed,
     );
+  }
+
+  // ── Hierarchical block parser ──────────────────────────────────────────────
+
+  // Parse a flat list of file lines into a tree of TaskNodes.
+  // Pure function — no I/O. Call after loadLines().
+  static List<TaskNode> parseNodes(List<String> lines) {
+    final nodes = <TaskNode>[];
+    int i = 0;
+    while (i < lines.length) {
+      final line = lines[i];
+
+      // Skip H1 (file title — shown in AppBar)
+      if (line.startsWith('# ') && !line.startsWith('## ')) {
+        i++;
+        continue;
+      }
+
+      if (line.startsWith('### ')) {
+        nodes.add(TaskHeaderNode(lineIndex: i, headingLevel: 3, text: line.substring(4).trim()));
+        i++;
+        continue;
+      }
+
+      if (line.startsWith('## ')) {
+        nodes.add(TaskHeaderNode(lineIndex: i, headingLevel: 2, text: line.substring(3).trim()));
+        i++;
+        continue;
+      }
+
+      final m = _taskRegex.firstMatch(line);
+      if (m != null) {
+        final indentSpaces = line.indexOf('-');
+        final block = TaskBlock(
+          text: m.group(2)!,
+          completed: m.group(1)!.toLowerCase() == 'x',
+          indentSpaces: indentSpaces < 0 ? 0 : indentSpaces,
+          startLine: i,
+          noteLineIndices: [],
+          children: [],
+        );
+        i = _collectBlockContent(lines, i + 1, block);
+        nodes.add(block);
+        continue;
+      }
+
+      nodes.add(TaskProseNode(lineIndex: i, raw: line));
+      i++;
+    }
+    return nodes;
+  }
+
+  // Collect notes and children for [parent], starting at line [start].
+  // Returns the next unconsumed line index.
+  static int _collectBlockContent(List<String> lines, int start, TaskBlock parent) {
+    int i = start;
+    while (i < lines.length) {
+      final line = lines[i];
+
+      // Headers always terminate the block
+      if (line.startsWith('#')) break;
+
+      final trimmed = line.trimLeft();
+
+      if (trimmed.isEmpty) {
+        // Blank line: look ahead to decide if it belongs to this block
+        final next = _nextNonBlankLine(lines, i + 1);
+        if (next == null || next.startsWith('#')) break;
+        final nextIndent = next.length - next.trimLeft().length;
+        if (nextIndent <= parent.indentSpaces) break;
+        parent.noteLineIndices.add(i);
+        i++;
+        continue;
+      }
+
+      final indent = line.length - trimmed.length;
+      if (indent <= parent.indentSpaces) break;
+
+      final m = _taskRegex.firstMatch(line);
+      if (m != null) {
+        final child = TaskBlock(
+          text: m.group(2)!,
+          completed: m.group(1)!.toLowerCase() == 'x',
+          indentSpaces: indent,
+          startLine: i,
+          noteLineIndices: [],
+          children: [],
+        );
+        i = _collectBlockContent(lines, i + 1, child);
+        parent.children.add(child);
+      } else {
+        parent.noteLineIndices.add(i);
+        i++;
+      }
+    }
+    return i;
+  }
+
+  static String? _nextNonBlankLine(List<String> lines, int from) {
+    for (int i = from; i < lines.length; i++) {
+      if (lines[i].trim().isNotEmpty) return lines[i];
+    }
+    return null;
+  }
+
+  // ── Block-level mutations ──────────────────────────────────────────────────
+
+  // Insert a subtask as the last child of [parent].
+  static Future<void> addSubtask(
+      String filePath, TaskBlock parent, String text) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      final indent = ' ' * (parent.indentSpaces + 2);
+      lines.insert(parent.endLine + 1, '$indent- [ ] $text');
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
+  // Delete a block and its entire subtree (notes + children).
+  static Future<void> deleteBlock(String filePath, TaskBlock block) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      final end = block.endLine;
+      if (block.startLine < 0 || end >= lines.length) return;
+      lines.removeRange(block.startLine, end + 1);
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
+  // Update the text of a task block (thin wrapper over updateTaskText).
+  static Future<void> updateBlockText(
+      String filePath, TaskBlock block, String newText) async {
+    await updateTaskText(filePath, block.startLine, newText);
+  }
+
+  // Replace a single arbitrary line (used for inline note editing).
+  static Future<void> updateLine(
+      String filePath, int lineIndex, String newText) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      if (lineIndex < 0 || lineIndex >= lines.length) return;
+      lines[lineIndex] = newText;
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
+  // Rename a task file: update the # heading and rename the file on disk.
+  // Returns the new file path, or null on failure / name collision.
+  static Future<String?> renameTaskFile(
+      String filePath, String newName) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+      final lines = await file.readAsLines();
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
+          lines[i] = '# $newName';
+          break;
+        }
+      }
+      await file.writeAsString(lines.join('\n'));
+      final dir = p.dirname(filePath);
+      final safeName = newName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final newPath = p.join(dir, '$safeName.md');
+      if (newPath == filePath) return filePath;
+      if (await File(newPath).exists()) return null;
+      final renamed = await file.rename(newPath);
+      return renamed.path;
+    } catch (_) {
+      return null;
+    }
   }
 }

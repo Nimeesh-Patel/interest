@@ -21,7 +21,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
 - **Grokipedia External Knowledge**: on any entity screen, automatically searches Grokipedia by entity name; shows matched article title with "Open Article" (browser) and collapsible inline summary card; degrades gracefully to "No article found" on failure; never modifies Markdown files
 - **Anki bidirectional sync**: Markdown cards in `Interesting/Anki/` sync bidirectionally with Anki via AnkiConnect; Basic and Cloze note types; last-modified-wins conflict resolution; manual sync only; safe deletion via `.trash/`; see [docs/anki.md](docs/anki.md)
-- **Markdown-native ToDo layer**: task collections in `Interesting/Tasks/` using standard `- [ ]` / `- [x]` syntax; one `.md` file per topic, many tasks per file; `[[wikilinks]]` supported and preserved verbatim; no YAML frontmatter — pure Markdown, fully Obsidian-compatible
+- **Markdown-native ToDo layer**: hierarchical task blocks in `Interesting/Tasks/`; standard `- [ ]` / `- [x]` syntax; nested subtasks and inline notes via Markdown indentation; collapsible task trees; inline task/note editing; task-file rename; `[[wikilinks]]` preserved; no YAML frontmatter — fully Obsidian-compatible; see [docs/tasks.md](docs/tasks.md)
 
 ## Architecture
 
@@ -37,6 +37,7 @@ lib/
   models/board.dart                   — Board {id, name}
   models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
   models/task.dart                    — TaskFile {filePath, name, totalTasks, completedTasks, progress}; summary only — tasks are never reified as in-memory objects
+  models/task_block.dart              — TaskNode abstract; TaskHeaderNode {lineIndex, headingLevel, text}; TaskProseNode {lineIndex, raw}; TaskBlock {text, completed, indentSpaces, startLine, noteLineIndices[], children[], endLine (computed)}; in-memory only — never persisted; see docs/tasks.md
   services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath/tasksPath helpers; ensureVaultDirectories (creates Entities + Boards + Templates + Anki + Anki/.trash + Tasks + seeds 5 default templates)
   services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
   services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter; injects Thoughts only if currently empty)
@@ -44,9 +45,9 @@ lib/
   services/anki_connect_service.dart  — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
   services/anki_storage_service.dart  — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
   services/anki_sync_service.dart     — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; see docs/anki.md
-  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile; line-based patching (readAsLines → mutate → join('\n'))
+  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; flat ops: loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile/renameTaskFile; hierarchical ops: parseNodes(lines)→List<TaskNode> (pure, no I/O), addSubtask/deleteBlock/updateBlockText/updateLine; see docs/tasks.md
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
-  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab + ToDos tab (IndexedStack); owns full board CRUD and task-file CRUD inline; AppBar has Anki + Settings + Templates icons
+  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab + ToDos tab (IndexedStack); owns full board CRUD and task-file CRUD inline; task-file long-press → bottom sheet (Rename/Delete); AppBar has Anki + Settings + Templates icons
   screens/settings_screen.dart        — Letterboxd RSS URL input + Sync Now; AnkiConnect URL input + Test Connection; all persisted in SharedPreferences; self-contained
   screens/anki_screen.dart            — card browser; AppBar Sync → AnkiSyncService.sync() → SnackBar; FAB → AnkiCardEditorScreen; see docs/anki.md
   screens/anki_card_editor_screen.dart — Basic/Cloze editor; deck Autocomplete from deckNames(); discard guard (PopScope); Save → AnkiStorageService; see docs/anki.md
@@ -55,7 +56,7 @@ lib/
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
-  screens/task_file_screen.dart       — per-file task view; loads raw lines; renders line-by-line (task → CheckboxListTile, ## → section header, prose → Text); bottom-bar quick-add; tap task text → edit dialog; long-press → delete; [[wikilinks]] styled blue but not navigable
+  screens/task_file_screen.dart       — per-file task view; parses lines into TaskNode tree (TaskHeaderNode/TaskProseNode/TaskBlock); recursive tree renderer with depth indentation; collapse/expand per block; inline task/note editing (no dialogs); ⊕ per-task subtask add; SafeArea bottom bar; AppBar rename; [[wikilinks]] styled blue; see docs/tasks.md
 
 android/app/src/main/
   kotlin/com/nimee/people_tracker/
@@ -314,38 +315,13 @@ Optional, non-destructive external knowledge layer. No vault data is written or 
 
 ## Tasks subsystem
 
-Lightweight Markdown-native task layer. No YAML frontmatter — pure `.md` files, one per topic.
+Hierarchical Markdown-native task layer. Full implementation details: **[docs/tasks.md](docs/tasks.md)**.
 
-**Task file format:**
+Files in `Interesting/Tasks/` — one per topic, no YAML frontmatter. Task syntax: `- [ ]` / `- [x]`. Indented `- [ ]` are subtasks; indented prose after a task are inline notes. Files are parsed into a `TaskNode` tree in memory (`TaskBlock` with `children[]` and `noteLineIndices[]`); Markdown files remain canonical — the tree is a parsed projection only.
 
-```markdown
-# Build
+**UI:** ToDos tab lists task files as cards with `LinearProgressIndicator`. Tap → `TaskFileScreen` (hierarchical tree view, collapsible, inline editing, per-task ⊕ subtask add). Long-press → bottom sheet (Rename / Delete). AppBar `+` → create dialog.
 
-## Goals
-
-- [ ] Improve [[Anki Integration]]
-- [ ] Explore [[Readwise]]
-
-## Done
-
-- [x] Fix widget UX
-```
-
-**Storage:** `Interesting/Tasks/`; one file per topic (`Reading.md`, `Build.md`, …); many tasks per file. Task regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Standard Markdown/Obsidian syntax.
-
-**`TaskStorageService` (all-static, all-catch):**
-- `loadTaskFiles()` — scans `Interesting/Tasks/*.md`; first `# ` line → display name (fallback: filename stem); counts total/completed tasks → `List<TaskFile>`
-- `loadLines(filePath)` — `readAsLines()` → `List<String>`
-- `toggleTask(filePath, lineIndex)` — flips `[ ]` ↔ `[x]` at line index; writes back with `lines.join('\n')`
-- `addTask(filePath, text)` — appends `- [ ] text` to end of file
-- `deleteTask(filePath, lineIndex)` — removes line at index; writes back
-- `updateTaskText(filePath, lineIndex, newText)` — preserves completion state + leading indent, replaces text portion
-- `createTaskFile(name)` → writes `# name\n\n`; returns `null` on collision or I/O error
-- `deleteTaskFile(filePath)` — hard delete (no trash; task files are not identity-bearing)
-
-**UI:** ToDos tab (tab 2 in HomeScreen) lists task files as cards with `LinearProgressIndicator`; tap → `TaskFileScreen`; long-press → delete confirm; AppBar `+` → create dialog. `TaskFileScreen` is self-contained (no entity lists needed).
-
-**Boundaries:** no task-level IDs; no due dates, reminders, priorities, or sync; wikilinks in task text are Markdown-native and Obsidian-compatible but are not integrated into the in-app `EntityLink` graph (task files have no `alias` and cannot be graph nodes).
+**Boundaries:** no task IDs; no due dates, reminders, priorities, or sync; wikilinks preserved but not wired into `EntityLink` graph.
 
 ## Anki integration
 

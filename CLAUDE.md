@@ -55,17 +55,22 @@ Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See R
 
 ## Tasks subsystem constraints
 
-- Task files live in `Interesting/Tasks/`; **no YAML frontmatter** — pure Markdown. `VaultService.tasksPath(vaultPath)` returns the path; directory is created in `ensureVaultDirectories`.
-- Task syntax: `- [ ] text` (uncompleted) and `- [x] text` (completed). Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Standard Markdown/Obsidian — do not deviate.
-- Storage model: one `.md` file per topic, many tasks per file. Do NOT store one task per file.
-- `TaskStorageService` is all-static; every public method wraps in `try/catch`, never throws — same pattern as `GrokipediaService`/`AnkiConnectService`.
-- Patching is line-based: `readAsLines()` → mutate at index → `lines.join('\n')`. Never regenerate the entire file. All other lines preserved exactly.
+Full implementation docs: [docs/tasks.md](docs/tasks.md).
+
+- Task files live in `Interesting/Tasks/`; **no YAML frontmatter** — pure Markdown. `VaultService.tasksPath(vaultPath)` returns the path.
+- Task syntax: `- [ ] text` / `- [x] text`. Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Subtasks use 2-space indent multiples. Do not deviate.
+- Storage model: one `.md` file per topic, many tasks per file.
+- `TaskStorageService` is all-static; every public method wraps in `try/catch`, never throws.
+- All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never regenerate whole file.
+- `parseNodes(lines)` is **pure** (no I/O) — only call after `loadLines()`; never from `loadTaskFiles()`.
+- `deleteBlock` uses `removeRange(startLine, endLine + 1)` — always removes the full subtree atomically.
+- `TaskBlock.endLine` is computed from the live subtree — do not cache across reloads.
+- `_collapsed` expansion state in `_TaskFileScreenState` is **session-only** — never persist to Markdown or SharedPreferences.
+- `TaskFileScreen` receives `filePath`, `title`, and optional `onRenamed(newPath, newTitle)` callback — still self-contained (no entity lists).
+- `HomeScreen` owns `_taskFiles` state and task-file CRUD: `_showCreateTaskFile`, `_showDeleteTaskFileConfirm`, `_showTaskFileOptions`, `_showRenameTaskFile`, `_reloadTaskFiles`.
 - Deletions are hard-delete (no trash). Task files have no `alias` and are not identity-bearing.
-- `TaskFile` objects are always reconstructed from disk on reload — no `copyWith()` needed; they are summary-only.
-- `HomeScreen` owns `_taskFiles` state and task-file CRUD (`_showCreateTaskFile`, `_showDeleteTaskFileConfirm`, `_reloadTaskFiles`) — same pattern as boards inline in HomeScreen.
-- `TaskFileScreen` is self-contained; receives only `filePath` and `title` — no entity lists. Wikilinks are styled but not clickable in v1.
-- Do NOT integrate task wikilinks into the `EntityLink` graph — task files have no `alias` and cannot be `from`/`to` in `EntityLink`. Wikilinks are Obsidian-compatible via the filesystem without in-app graph wiring.
-- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, drag-to-reorder, or calendar integration to this subsystem.
+- Do NOT integrate task wikilinks into the `EntityLink` graph — task files have no `alias`.
+- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, drag-to-reorder, or calendar integration.
 
 ## Grokipedia integration constraints
 
