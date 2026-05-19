@@ -28,7 +28,7 @@ Subtasks: `- [ ]` at 2-space indent multiples below the parent task.
 Notes: indented prose lines (non-task) between a task and its subtasks.  
 Wikilinks: preserved verbatim; not wired into `EntityLink` graph.
 
-## In-memory model (`lib/models/task_block.dart`)
+## In-memory model (`lib/features/tasks/models/task_block.dart`)
 
 The file is parsed into a `TaskNode` tree in memory. The tree is a parsed projection only — Markdown files remain canonical.
 
@@ -63,7 +63,7 @@ abstract class TaskNode
 - Header line or indent ≤ `parent.indentSpaces` → stop
 - Returns next unconsumed line index
 
-## Storage methods (`lib/services/task_storage_service.dart`)
+## Storage methods (`lib/features/tasks/services/task_storage_service.dart`)
 
 All-static, all-catch, never throw.
 
@@ -81,6 +81,7 @@ All-static, all-catch, never throw.
 - `parseNodes(lines)` → `List<TaskNode>` — pure parser
 - `addNote(filePath, parent, noteText)` — insert `noteText` at `parent.startLine + 1` with `parent.indentSpaces + 2` indent; multiline text split on `\n`; each empty line stored as `''`
 - `addSubtask(filePath, parent, text)` — insert `' ' * (parent.indentSpaces + 2) + '- [ ] text'` at `parent.endLine + 1`
+- `addSiblingTask(filePath, block, text)` — insert `' ' * block.indentSpaces + '- [ ] text'` at `block.endLine + 1` (same indent level as `block`)
 - `deleteBlock(filePath, block)` — `removeRange(block.startLine, block.endLine + 1)`; removes full subtree
 - `updateBlockText(filePath, block, newText)` — thin wrapper: `updateTaskText(filePath, block.startLine, newText)`
 - `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing (caller must re-prepend original indentation)
@@ -88,7 +89,7 @@ All-static, all-catch, never throw.
 
 All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never regenerate whole file.
 
-## UI (`lib/screens/task_file_screen.dart`)
+## UI (`lib/features/tasks/screens/task_file_screen.dart`)
 
 **State:**
 - `_lines` — raw file lines; source of truth
@@ -98,23 +99,26 @@ All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never r
 - `_editingNoteLine` — `int?` line index of note being edited
 - `_addingChildOf` — `int?` startLine of parent for pending subtask add
 - `_addingNoteOf` — `int?` startLine of parent for pending note add; cleared by `_reload()`
+- `_addingSiblingOf` — `int?` startLine of source block for pending sibling add; sibling field renders outside the block's indent wrapper
 
 **Constructor params:** `filePath`, `title`, `onRenamed` (optional callback `(String newPath, String newTitle) → void`).
 
 **Rendering:**
 - `_buildNodeWidget` dispatches to header/prose/block renderers
-- `_buildBlockWidget(block, depth)`: `Padding(left: depth * 20px)` with collapse chevron, Checkbox, task text (or inline TextField), 📝 add-note icon, ⊕ add-subtask icon, delete icon
+- `_buildBlockWidget(block, depth)`: `Padding(left: depth * 24px)` with collapse chevron, Checkbox, task text (or inline TextField), ⊕ add-subtask icon, ··· more-actions icon (→ sheet: Add note / Add sibling task / Delete)
 - Task text color: `Theme.of(context).colorScheme.onSurface` (explicit; `RichText` does not inherit `DefaultTextStyle`)
-- Notes: italic grey 13px, `left = 56px + depth * 20px`
+- Notes: italic grey 13px, `left = 56px + depth * 24px`
 - Completed tasks: grey + strikethrough
 - Collapse chevron visible when `block.children.isNotEmpty || block.noteLineIndices.isNotEmpty`
 
 **Render order inside a block (top → bottom):**
-1. Task row (chevron / checkbox / text / note-icon / subtask-icon / delete)
+1. Task row (chevron / checkbox / text / ⊕ subtask-icon / ··· more-icon)
 2. Inline note-add field (if `_addingNoteOf == block.startLine`)
 3. Existing notes (`noteLineIndices`)
 4. Inline subtask-add field (if `_addingChildOf == block.startLine`)
 5. Children (recursive)
+
+Sibling add field (`_addingSiblingOf == block.startLine`) renders **outside** the block's indent wrapper, as a sibling of the block in a wrapping `Column`.
 
 **Inline editing:** Tap task text → TextField in-place (no dialog). Tap note line → TextField in-place. Note edit re-prepends original leading whitespace before writing (`_lines[lineIndex]` prefix). Both save on `onSubmitted` and `onTapOutside`.
 
@@ -124,9 +128,9 @@ All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never r
 
 **Bottom bar:** `SafeArea(top: false)` handles Android gesture nav bar. `Scaffold.resizeToAvoidBottomInset` (default true) handles keyboard. No manual `viewInsets.bottom` padding.
 
-**Rename:** AppBar `PopupMenuButton` → AlertDialog → `renameTaskFile()` → updates `_currentTitle` / `_currentPath` in state; calls `onRenamed`.
+**Rename:** AppBar `PopupMenuButton` → `showInputDialog()` → `renameTaskFile()` → updates `_currentTitle` / `_currentPath` in state; calls `onRenamed`.
 
-## HomeScreen integration (`lib/screens/home_screen.dart`)
+## HomeScreen integration (`lib/screens/home_screen.dart` — stays at this path)
 
 `HomeScreen` owns `_taskFiles` state and all task-file CRUD:
 - `_reloadTaskFiles()` — refreshes from disk

@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import 'package:yaml/yaml.dart';
 
-import '../services/vault_service.dart';
+import '../../../core/vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/input_dialog.dart';
 import 'template_editor_screen.dart';
 
 typedef _TemplateInfo = ({
@@ -47,7 +49,10 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
           try {
             final content = await f.readAsString();
-            final category = _extractCategory(content);
+            final category = parseYamlMap(splitFrontmatter(content).frontmatter)
+                    ?['category']
+                    ?.toString() ??
+                '';
             final filename = p.basename(f.path);
             final displayName = _toDisplayName(p.basenameWithoutExtension(f.path));
             templates.add((
@@ -67,22 +72,6 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     }
   }
 
-  String _extractCategory(String content) {
-    try {
-      final lines = content.split('\n');
-      if (lines.isEmpty || lines[0].trim() != '---') return '';
-      int closeIdx = -1;
-      for (int i = 1; i < lines.length; i++) {
-        if (lines[i].trim() == '---') { closeIdx = i; break; }
-      }
-      if (closeIdx == -1) return '';
-      final frontmatter = lines.sublist(1, closeIdx).join('\n');
-      final yaml = loadYaml(frontmatter);
-      if (yaml is YamlMap) return yaml['category']?.toString() ?? '';
-    } catch (_) {}
-    return '';
-  }
-
   String _toDisplayName(String slug) {
     return slug
         .replaceAll('-', ' ')
@@ -92,48 +81,20 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         .join(' ');
   }
 
-  String _slugify(String name) {
-    return name
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '-')
-        .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
-  }
-
   Future<void> _showCreateDialog() async {
-    final ctrl = TextEditingController();
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Template'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Name'),
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            _createTemplate(v);
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _createTemplate(ctrl.text);
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    final name = await showInputDialog(context,
+      title: 'New Template',
+      hintText: 'Name',
+      confirmLabel: 'Create',
+      capitalization: TextCapitalization.words,
     );
+    if (name != null) _createTemplate(name);
   }
 
   Future<void> _createTemplate(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final slug = _slugify(trimmed);
+    final slug = slugify(trimmed);
     if (slug.isEmpty) return;
 
     final vaultPath = await VaultService.getVaultPath();
@@ -168,21 +129,11 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
   }
 
   Future<void> _confirmDelete(_TemplateInfo item) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete "${item.displayName}"?'),
-        content: const Text('This will remove the template file from your vault.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmDialog(context,
+      title: 'Delete "${item.displayName}"?',
+      message: 'This will remove the template file from your vault.',
     );
-    if (confirmed == true) {
+    if (confirmed) {
       try { await File(item.filePath).delete(); } catch (_) {}
       _loadTemplates();
     }

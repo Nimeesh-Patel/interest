@@ -4,7 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../models/anki_card.dart';
-import 'vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
+import '../../../core/vault_service.dart';
 
 class AnkiStorageService {
   static Future<List<AnkiCard>> loadCards() async {
@@ -84,16 +85,16 @@ class AnkiStorageService {
       final file = File(filePath);
       if (!await file.exists()) return;
       final content = await file.readAsString();
-      final parts = _splitFrontmatter(content);
-      if (parts == null) return;
-      var fm = parts.$1;
+      final split = splitFrontmatter(content);
+      if (split.frontmatter == null) return;
+      var fm = split.frontmatter!;
       // Insert or replace anki_id line
       if (fm.contains('anki_id:')) {
         fm = fm.replaceAll(RegExp(r'anki_id:.*'), 'anki_id: $ankiId');
       } else {
         fm = 'anki_id: $ankiId\n$fm';
       }
-      await file.writeAsString('---\n$fm---\n${parts.$2}');
+      await file.writeAsString('---\n$fm\n---\n${split.body}');
     } catch (_) {}
   }
 
@@ -162,13 +163,11 @@ class AnkiStorageService {
 
   static AnkiCard? _parseCardFile(String filePath, String content) {
     try {
-      final parts = _splitFrontmatter(content);
-      if (parts == null) return null;
-      final fm = parts.$1;
-      final body = parts.$2;
+      final split = splitFrontmatter(content);
+      if (split.frontmatter == null) return null;
 
-      final yaml = loadYaml(fm);
-      if (yaml is! YamlMap) return null;
+      final yaml = parseYamlMap(split.frontmatter);
+      if (yaml == null) return null;
 
       final ankiId = yaml['anki_id']?.toString();
       final noteTypeStr = yaml['note_type']?.toString() ?? 'Basic';
@@ -184,7 +183,7 @@ class AnkiStorageService {
       final noteType =
           noteTypeStr == 'Cloze' ? AnkiNoteType.cloze : AnkiNoteType.basic;
 
-      final sections = _parseSections(body);
+      final sections = parseSectionsH1(split.body);
       String front = '', back = '', text = '';
       final extra = <String, String>{};
       for (final entry in sections.entries) {
@@ -263,10 +262,9 @@ class AnkiStorageService {
   // Patch: rewrite frontmatter + semantic sections; preserve extra sections
   static String _patchCardContent(String existing, AnkiCard card) {
     try {
-      final parts = _splitFrontmatter(existing);
-      if (parts == null) return _buildCardContent(card);
-      final body = parts.$2;
-      final sections = _parseSections(body);
+      final split = splitFrontmatter(existing);
+      if (split.frontmatter == null) return _buildCardContent(card);
+      final sections = parseSectionsH1(split.body);
       final extra = <String, String>{};
       for (final entry in sections.entries) {
         if (!_isSemanticSection(entry.key, card.noteType)) {
@@ -280,47 +278,9 @@ class AnkiStorageService {
     }
   }
 
-  // ── Section parsing (H1-based) ────────────────────────────────────────────
-
-  static Map<String, String> _parseSections(String body) {
-    final sections = <String, String>{};
-    final lines = body.split('\n');
-    String? currentSection;
-    final buf = StringBuffer();
-
-    for (final line in lines) {
-      if (line.startsWith('# ')) {
-        if (currentSection != null) {
-          sections[currentSection] = buf.toString().trim();
-        }
-        currentSection = line.substring(2).trim();
-        buf.clear();
-      } else {
-        if (currentSection != null) {
-          buf.writeln(line);
-        }
-      }
-    }
-    if (currentSection != null) {
-      sections[currentSection] = buf.toString().trim();
-    }
-    return sections;
-  }
-
   static bool _isSemanticSection(String name, AnkiNoteType type) {
     if (type == AnkiNoteType.basic) return name == 'Front' || name == 'Back';
     return name == 'Text';
-  }
-
-  // ── Frontmatter splitting ─────────────────────────────────────────────────
-
-  static (String, String)? _splitFrontmatter(String content) {
-    if (!content.startsWith('---')) return null;
-    final end = content.indexOf('\n---', 3);
-    if (end == -1) return null;
-    final fm = '${content.substring(4, end).trim()}\n';
-    final body = content.substring(end + 4).trimLeft();
-    return (fm, body);
   }
 
   // ── Filename helpers ──────────────────────────────────────────────────────
@@ -339,6 +299,8 @@ class AnkiStorageService {
     }
   }
 
+  // Unique to Anki: strips cloze syntax, caps at 50 chars.
+  // Not in md_utils because of the cloze-specific logic.
   static String _slugifyTitle(String text, List<String> existing) {
     final clozeStripped = text.replaceAll(RegExp(r'\{\{c\d+::(.*?)\}\}'), r'$1');
     var slug = clozeStripped

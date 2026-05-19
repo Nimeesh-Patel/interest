@@ -6,7 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xml/xml.dart';
 import 'package:yaml/yaml.dart';
 
-import 'vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
+import '../../../core/vault_service.dart';
 
 class ImportResult {
   final int created;
@@ -105,7 +106,7 @@ class LetterboxdService {
             );
             updated++;
           } else {
-            var alias = _slugify(filmTitle);
+            var alias = slugify(filmTitle);
             if (alias.isEmpty) alias = 'movie';
             alias = _uniqueAlias(alias, entitiesDirPath);
 
@@ -121,7 +122,7 @@ class LetterboxdService {
               updatedAt: now,
             );
 
-            final filename = '${_sanitizeFilename(filmTitle)}.md';
+            final filename = '${sanitizeFilename(filmTitle)}.md';
             final filePath = p.join(entitiesDirPath, filename);
             await File(filePath).writeAsString(content);
 
@@ -153,18 +154,10 @@ class LetterboxdService {
         if (entry is! File || !entry.path.endsWith('.md')) continue;
         try {
           final content = await entry.readAsString();
-          final lines = content.split('\n');
-          if (lines.isEmpty || lines[0].trim() != '---') continue;
-
-          int closeIdx = -1;
-          for (int i = 1; i < lines.length; i++) {
-            if (lines[i].trim() == '---') { closeIdx = i; break; }
-          }
-          if (closeIdx == -1) continue;
-
-          final frontmatter = lines.sublist(1, closeIdx).join('\n');
-          final yaml = loadYaml(frontmatter);
-          if (yaml is! YamlMap) continue;
+          final split = splitFrontmatter(content);
+          if (split.frontmatter == null) continue;
+          final yaml = parseYamlMap(split.frontmatter);
+          if (yaml == null) continue;
 
           final category = yaml['category']?.toString() ?? '';
           if (category.toLowerCase() != 'movies') continue;
@@ -174,14 +167,8 @@ class LetterboxdService {
           if (tmdbId != null && tmdbId.isNotEmpty) index[tmdbId] = filePath;
 
           // Extract H1 title for normalized title index
-          final body = lines.sublist(closeIdx + 1).join('\n');
-          for (final line in body.split('\n')) {
-            final t = line.trim();
-            if (t.startsWith('# ') && !t.startsWith('## ')) {
-              index[_normalizeTitle(t.substring(2).trim())] = filePath;
-              break;
-            }
-          }
+          final h1 = extractH1(split.body);
+          if (h1 != null) index[_normalizeTitle(h1)] = filePath;
         } catch (_) {}
       }
     } catch (_) {}
@@ -209,8 +196,8 @@ class LetterboxdService {
     if (watchedDate != null && watchedDate.isNotEmpty) buf.writeln('watched_date: $watchedDate');
     if (letterboxdUrl != null && letterboxdUrl.isNotEmpty) buf.writeln('letterboxd_url: $letterboxdUrl');
     if (tmdbId != null && tmdbId.isNotEmpty) buf.writeln('tmdb_id: $tmdbId');
-    buf.writeln('created_at: ${_msToIso(createdAt)}');
-    buf.writeln('updated_at: ${_msToIso(updatedAt)}');
+    buf.writeln('created_at: ${msToIso(createdAt)}');
+    buf.writeln('updated_at: ${msToIso(updatedAt)}');
     buf.writeln('---');
     buf.writeln('# $title');
     buf.writeln();
@@ -243,19 +230,10 @@ class LetterboxdService {
     required int updatedAt,
   }) async {
     final content = await File(filePath).readAsString();
-    final lines = content.split('\n');
-    if (lines.isEmpty || lines[0].trim() != '---') return;
-
-    int closeIdx = -1;
-    for (int i = 1; i < lines.length; i++) {
-      if (lines[i].trim() == '---') { closeIdx = i; break; }
-    }
-    if (closeIdx == -1) return;
-
-    // Parse current frontmatter
-    final fmLines = List<String>.from(lines.sublist(1, closeIdx));
-    final yaml = loadYaml(fmLines.join('\n'));
-    if (yaml is! YamlMap) return;
+    final split = splitFrontmatter(content);
+    if (split.frontmatter == null) return;
+    final yaml = parseYamlMap(split.frontmatter);
+    if (yaml == null) return;
 
     // Rebuild frontmatter with updated fields (preserve existing values for fields we don't override)
     final buf = StringBuffer();
@@ -285,14 +263,13 @@ class LetterboxdService {
       for (final t in rawTags) { buf.writeln('  - $t'); }
     }
 
-    buf.writeln('created_at: ${yaml['created_at'] ?? _msToIso(updatedAt)}');
-    buf.writeln('updated_at: ${_msToIso(updatedAt)}');
+    buf.writeln('created_at: ${yaml['created_at'] ?? msToIso(updatedAt)}');
+    buf.writeln('updated_at: ${msToIso(updatedAt)}');
     buf.write('---');
 
     // Reconstruct body with updated Thoughts if currently empty
-    final body = lines.sublist(closeIdx + 1).join('\n');
-    final sections = _parseSections(body);
-    final h1 = _extractH1(body) ?? yaml['alias']?.toString() ?? '';
+    final sections = parseSectionsH2(split.body);
+    final h1 = extractH1(split.body) ?? yaml['alias']?.toString() ?? '';
 
     final bodyBuf = StringBuffer();
     bodyBuf.writeln('# $h1');
@@ -396,55 +373,9 @@ class LetterboxdService {
     return text.trim();
   }
 
-  // ── Private: section parser (mirrors MarkdownStorageService) ─────────────
-
-  static Map<String, String> _parseSections(String body) {
-    final result = <String, String>{};
-    final lines = body.split('\n');
-    String? currentSection;
-    final buf = StringBuffer();
-
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.startsWith('## ') && !t.startsWith('### ')) {
-        if (currentSection != null) {
-          result[currentSection] = buf.toString().trimRight();
-          buf.clear();
-        }
-        currentSection = t.substring(3).trim();
-      } else if (currentSection != null) {
-        buf.writeln(line);
-      }
-    }
-    if (currentSection != null) result[currentSection] = buf.toString().trimRight();
-    return result;
-  }
-
-  static String? _extractH1(String body) {
-    for (final line in body.split('\n')) {
-      final t = line.trim();
-      if (t.startsWith('# ') && !t.startsWith('## ')) return t.substring(2).trim();
-    }
-    return null;
-  }
-
   // ── Private: string/path helpers ─────────────────────────────────────────
 
   static String _normalizeTitle(String title) => title.trim().toLowerCase();
-
-  static String _slugify(String name) => name
-      .trim()
-      .toLowerCase()
-      .replaceAll(RegExp(r'\s+'), '-')
-      .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
-
-  static String _sanitizeFilename(String name) => name
-      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-
-  static String _msToIso(int ms) =>
-      DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toIso8601String();
 
   // Appends -2, -3, etc. to alias until no file with that name exists.
   static String _uniqueAlias(String base, String entitiesDirPath) {

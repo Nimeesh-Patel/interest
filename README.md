@@ -21,7 +21,7 @@ Single-user Flutter app for tracking entities (people, ideas, solutions, product
 - **Letterboxd RSS ingestion**: import watched films from a Letterboxd RSS feed into the vault as first-class `Movies` entities; manual trigger from Settings; deduplicates by TMDB ID then normalized title
 - **Grokipedia External Knowledge**: on any entity screen, automatically searches Grokipedia by entity name; shows matched article title with "Open Article" (browser) and collapsible inline summary card; degrades gracefully to "No article found" on failure; never modifies Markdown files
 - **Anki bidirectional sync**: Markdown cards in `Interesting/Anki/` sync bidirectionally with Anki via AnkiConnect; Basic and Cloze note types; last-modified-wins conflict resolution; manual sync only; safe deletion via `.trash/`; see [docs/anki.md](docs/anki.md)
-- **Markdown-native ToDo layer**: hierarchical task blocks in `Interesting/Tasks/`; standard `- [ ]` / `- [x]` syntax; nested subtasks and inline notes via Markdown indentation; collapsible task trees; inline task/note editing; task-file rename; `[[wikilinks]]` preserved; no YAML frontmatter — fully Obsidian-compatible; see [docs/tasks.md](docs/tasks.md)
+- **Markdown-native ToDo layer**: hierarchical task blocks in `Interesting/Tasks/`; standard `- [ ]` / `- [x]` syntax; nested subtasks and inline notes via Markdown indentation; collapsible task trees; inline task/note editing; per-task sibling task add; task-file rename; `[[wikilinks]]` preserved; no YAML frontmatter — fully Obsidian-compatible; see [docs/tasks.md](docs/tasks.md)
 
 ## Architecture
 
@@ -29,48 +29,89 @@ No state management libraries. Pure `setState`. No repository pattern.
 
 ```
 lib/
-  main.dart                           — async vault-path check at startup; _StoragePermissionGate (Android All Files Access, re-checks on resume); routes to VaultSetupScreen or HomeScreen
-  models/entity.dart                  — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt, rawSections, watchedDate?, letterboxdUrl?, tmdbId?} + copyWith()
-  models/anki_card.dart               — AnkiCard {ankiId?, filePath, noteType, deck, tags, updatedAt, front, back, text, extraSections} + copyWith(); AnkiNoteType enum (basic, cloze)
-  models/category.dart                — Category {id, name}
-  models/entity_link.dart             — EntityLink {id, from, to, type}
-  models/board.dart                   — Board {id, name}
-  models/board_entity.dart            — BoardEntity {boardId, entityId} (join table; derived at load time from board .md files)
-  models/task.dart                    — TaskFile {filePath, name, totalTasks, completedTasks, progress}; summary only — tasks are never reified as in-memory objects
-  models/task_block.dart              — TaskNode abstract; TaskHeaderNode {lineIndex, headingLevel, text}; TaskProseNode {lineIndex, raw}; TaskBlock {text, completed, indentSpaces, startLine, noteLineIndices[], children[], endLine (computed)}; in-memory only — never persisted; see docs/tasks.md
-  services/vault_service.dart         — vault path persistence (SharedPreferences key: 'vault_path'); entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath/tasksPath helpers; ensureVaultDirectories (creates Entities + Boards + Templates + Anki + Anki/.trash + Tasks + seeds 5 default templates)
-  services/markdown_storage_service.dart — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link helpers
-  services/letterboxd_service.dart    — Letterboxd RSS ingestion pipeline; fetchAndImport() fetches RSS, parses XML, writes/patches .md files directly; getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; _buildMovieIndex() dedup lookup (tmdbId → path, normalizedTitle → path, Movies only); _buildMovieMarkdown() creates new files; _updateMovieFile() patches existing (updates frontmatter; injects Thoughts only if currently empty)
-  services/grokipedia_service.dart    — Grokipedia external knowledge; GrokipediaArticle {title, slug, snippet?}; static findArticle(name) → GrokipediaArticle?; static fetchPageSummary(slug) → String?; base URL https://grokipedia.com; all paths catch-all to null — never throws
-  services/anki_connect_service.dart  — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
-  services/anki_storage_service.dart  — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
-  services/anki_sync_service.dart     — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; see docs/anki.md
-  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; flat ops: loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile/renameTaskFile; hierarchical ops: parseNodes(lines)→List<TaskNode> (pure, no I/O), addNote/addSubtask/deleteBlock/updateBlockText/updateLine; see docs/tasks.md
-  screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
-  screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab + ToDos tab (IndexedStack); owns full board CRUD and task-file CRUD inline; task-file long-press → bottom sheet (Rename/Delete); AppBar has Anki + Settings + Templates icons
-  screens/settings_screen.dart        — Letterboxd RSS URL input + Sync Now; AnkiConnect URL input + Test Connection; all persisted in SharedPreferences; self-contained
-  screens/anki_screen.dart            — card browser; AppBar Sync → AnkiSyncService.sync() → SnackBar; FAB → AnkiCardEditorScreen; see docs/anki.md
-  screens/anki_card_editor_screen.dart — Basic/Cloze editor; deck Autocomplete from deckNames(); discard guard (PopScope); Save → AnkiStorageService; see docs/anki.md
-  screens/entity_screen.dart          — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related; display mode includes External Knowledge section (Grokipedia) — search triggered non-blocking in initState
-  screens/board_detail_screen.dart    — entities in a board; 7 sort options; FAB to add entities; self-contained
-  screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
-  screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
-  screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
-  screens/task_file_screen.dart       — per-file task view; parses lines into TaskNode tree (TaskHeaderNode/TaskProseNode/TaskBlock); recursive tree renderer with depth indentation; collapse/expand per block; inline task/note editing (no dialogs); 📝 per-task note add; ⊕ per-task subtask add; SafeArea bottom bar; AppBar rename; [[wikilinks]] styled blue; see docs/tasks.md
+  main.dart                             — async vault-path check; _StoragePermissionGate (Android All Files Access, re-checks on resume); routes to VaultSetupScreen or HomeScreen
+
+  core/
+    vault_service.dart                  — vault path in SharedPreferences (key: 'vault_path'); path helpers (entitiesPath/boardsPath/templatesPath/ankiPath/ankiTrashPath/tasksPath); ensureVaultDirectories (creates dirs + seeds 5 default templates)
+    vault_setup_screen.dart             — first-launch folder picker; saves path; navigates to HomeScreen
+
+  shared/
+    markdown/
+      md_utils.dart                     — pure text utilities (no I/O): splitFrontmatter, parseSectionsH2, parseSectionsH1 (anki), extractH1, extractWikilinks, parseSectionAsWikilinks, parseSectionAsList, slugify, sanitizeFilename, generateUniqueId, msToIso, parseIsoToMs
+      md_io.dart                        — filesystem helpers: listMdFiles, readFrontmatter, readAllMdContents
+    widgets/
+      input_dialog.dart                 — showInputDialog() — reusable text-input AlertDialog; manages its own controller
+      confirm_dialog.dart               — showConfirmDialog() — reusable confirmation AlertDialog; returns bool
+      bottom_sheet_menu.dart            — showBottomSheetMenu() + BottomSheetMenuItem — action sheet
+      section_header.dart               — SectionHeader widget — bold title + gap + optional trailing widget
+      empty_state.dart                  — EmptyState widget — centered icon + message text
+      wikilink_text.dart                — WikilinkText widget — RichText with blue [[wikilink]] spans; strikethrough support
+
+  features/
+    entities/
+      models/
+        entity.dart                     — Entity {id, name, categoryId, notes, links, tags, score, createdAt, updatedAt, rawSections, watchedDate?, letterboxdUrl?, tmdbId?} + copyWith()
+        category.dart                   — Category {id, name}
+        entity_link.dart                — EntityLink {id, from, to, type}
+      services/
+        markdown_storage_service.dart   — canonical storage layer; loadData/saveData; dynamic section parser (_parseSections); section-aware patching (_patchEntityContent); template loading; AppData typedef; static ID/link/sort helpers
+        letterboxd_service.dart         — Letterboxd RSS ingestion; fetchAndImport(); getRssUrl/setRssUrl (SharedPreferences key: 'letterboxd_rss_url'); ImportResult {created, updated, skipped, error?}; dedup by tmdbId then normalized title; writes .md directly to Entities/
+        grokipedia_service.dart         — external knowledge; GrokipediaArticle {title, slug, snippet?}; findArticle/fetchPageSummary; all-static; all-catch-null
+      screens/
+        entity_screen.dart              — display mode (read-only) / edit mode (deferred save with Cancel); name, category, tags, score, boards, notes, links, related; display mode includes External Knowledge section (Grokipedia, non-blocking initState)
+
+    boards/
+      models/
+        board.dart                      — Board {id, name}
+        board_entity.dart               — BoardEntity {boardId, entityId} (join table; derived at load time from board .md wikilinks)
+      screens/
+        board_detail_screen.dart        — entities in a board; 7 sort options; FAB to add entities; self-contained
+
+    tasks/
+      models/
+        task.dart                       — TaskFile {filePath, name, totalTasks, completedTasks, progress}; summary only — tasks are never reified as in-memory objects
+        task_block.dart                 — TaskNode abstract; TaskHeaderNode {lineIndex, headingLevel, text}; TaskProseNode {lineIndex, raw}; TaskBlock {text, completed, indentSpaces, startLine, noteLineIndices[], children[], endLine (computed)}; in-memory only; see docs/tasks.md
+      services/
+        task_storage_service.dart       — task file I/O in Interesting/Tasks/; all-static, all-catch; flat ops: loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile/renameTaskFile; hierarchical ops: parseNodes(lines) (pure, no I/O), addNote/addSubtask/deleteBlock/updateBlockText/updateLine; see docs/tasks.md
+      screens/
+        task_file_screen.dart           — per-file task view; recursive tree renderer (depth * 24px indent); collapse/expand per block; inline task/note editing; ⊕ per-task subtask add; ··· per-task more-actions sheet (Add note / Add sibling / Delete); AppBar rename via showInputDialog; [[wikilinks]] via WikilinkText; see docs/tasks.md
+
+    anki/
+      models/
+        anki_card.dart                  — AnkiCard {ankiId?, filePath, noteType, deck, tags, updatedAt, front, back, text, extraSections} + copyWith(); AnkiNoteType enum (basic, cloze)
+      services/
+        anki_connect_service.dart       — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
+        anki_storage_service.dart       — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
+        anki_sync_service.dart          — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; batch-50 notesInfo; see docs/anki.md
+      screens/
+        anki_screen.dart                — card browser; AppBar Sync → AnkiSyncService.sync() → SnackBar; FAB → AnkiCardEditorScreen; see docs/anki.md
+        anki_card_editor_screen.dart    — Basic/Cloze editor; deck Autocomplete from deckNames(); discard guard (PopScope); Save → AnkiStorageService; see docs/anki.md
+
+    settings/
+      screens/
+        settings_screen.dart            — Letterboxd RSS URL + Sync Now; AnkiConnect URL + Test Connection; all in SharedPreferences; self-contained
+
+    templates/
+      screens/
+        templates_screen.dart           — list templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
+        template_editor_screen.dart     — full-screen raw Markdown editor for a single template file; Save/discard-guard
+
+  screens/
+    home_screen.dart                    — orchestrator; stays at lib/screens/ (imports all feature screens); BottomNavigationBar shell: Entities + Boards + ToDos tabs (IndexedStack); owns board CRUD and task-file CRUD inline; AppBar has Anki + Settings + Templates icons
 
 android/app/src/main/
   kotlin/com/nimee/people_tracker/
-    MainActivity.kt                   — FlutterActivity subclass (boilerplate)
-    QuickCaptureWidget.kt             — abstract AppWidgetProvider base; onUpdate() wires tap → QuickCaptureActivity via PendingIntent
-    QuickCaptureWidget1x1.kt          — 1×1 concrete subclass (40×40dp); "+" centered
-    QuickCaptureWidget2x1.kt          — 2×1 concrete subclass (110×40dp); "+" + prompt text
-    QuickCaptureWidget2x2.kt          — 2×2 concrete subclass (110×110dp); label + prompt, centred
-    QuickCaptureActivity.kt           — dialog-style Activity; reads vault path from FlutterSharedPreferences; slugifies title → alias; loads default.md template body; builds Markdown; writes entity .md file; shows Toast; no app launch
+    MainActivity.kt                     — FlutterActivity subclass (boilerplate)
+    QuickCaptureWidget.kt               — abstract AppWidgetProvider base; onUpdate() wires tap → QuickCaptureActivity via PendingIntent
+    QuickCaptureWidget1x1.kt            — 1×1 concrete subclass (40×40dp); "+" centered
+    QuickCaptureWidget2x1.kt            — 2×1 concrete subclass (110×40dp); "+" + prompt text
+    QuickCaptureWidget2x2.kt            — 2×2 concrete subclass (110×110dp); label + prompt, centred
+    QuickCaptureActivity.kt             — dialog-style Activity; reads vault path from FlutterSharedPreferences; slugifies title → alias; loads default.md template body; builds Markdown; writes entity .md file; shows Toast; no app launch
   res/
-    xml/                              — quick_capture_widget_{1x1,2x1,2x2}.xml — AppWidget provider metadata (minWidth, minHeight, initialLayout)
-    layout/                           — quick_capture_widget_{1x1,2x1,2x2}.xml — widget face layouts; quick_capture_activity.xml — title/note input form
-    values/strings.xml                — widget/activity string resources
-    values/styles.xml                 — QuickCaptureTheme (Theme.Material.Light.Dialog.MinWidth, no title bar)
+    xml/                                — quick_capture_widget_{1x1,2x1,2x2}.xml — AppWidget provider metadata (minWidth, minHeight, initialLayout)
+    layout/                             — quick_capture_widget_{1x1,2x1,2x2}.xml — widget face layouts; quick_capture_activity.xml — title/note input form
+    values/strings.xml                  — widget/activity string resources
+    values/styles.xml                   — QuickCaptureTheme (Theme.Material.Light.Dialog.MinWidth, no title bar)
 ```
 
 ## Vault folder layout
@@ -319,7 +360,7 @@ Hierarchical Markdown-native task layer. Full implementation details: **[docs/ta
 
 Files in `Interesting/Tasks/` — one per topic, no YAML frontmatter. Task syntax: `- [ ]` / `- [x]`. Indented `- [ ]` are subtasks; indented prose after a task are inline notes. Files are parsed into a `TaskNode` tree in memory (`TaskBlock` with `children[]` and `noteLineIndices[]`); Markdown files remain canonical — the tree is a parsed projection only.
 
-**UI:** ToDos tab lists task files as cards with `LinearProgressIndicator`. Tap → `TaskFileScreen` (hierarchical tree view, collapsible, inline editing, per-task ⊕ subtask add). Long-press → bottom sheet (Rename / Delete). AppBar `+` → create dialog.
+**UI:** ToDos tab lists task files as cards with `LinearProgressIndicator`. Tap → `TaskFileScreen` (hierarchical tree view, collapsible, inline editing, ⊕ per-task subtask add, ··· per-task more-actions sheet for note/sibling/delete). Long-press → bottom sheet (Rename / Delete). AppBar `+` → create dialog.
 
 **Boundaries:** no task IDs; no due dates, reminders, priorities, or sync; wikilinks preserved but not wired into `EntityLink` graph.
 
@@ -342,6 +383,7 @@ HomeScreen navigates via push to:
 - `EntityScreen` — from entity list tap; passes full six-list set by reference
 - `BoardDetailScreen` — from board tap in Boards tab; self-contained
 - `TaskFileScreen` — from task file tap in ToDos tab; self-contained (no entity lists needed)
+- `AnkiScreen` — from AppBar Anki icon; self-contained
 - `TemplatesScreen` — from AppBar templates icon; self-contained (reads/writes template files directly, no MarkdownStorageService)
 - `SettingsScreen` — from AppBar settings icon; self-contained; `_reloadData()` called on pop to pick up any newly imported entities
 

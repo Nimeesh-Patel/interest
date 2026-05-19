@@ -96,7 +96,7 @@ The app is the semantic synchronization layer. It never touches review metadata.
 ## Vocabulary
 
 - **Anki note**: content record in Anki (fields + tags). One note → one or more review cards.
-- **AnkiCard**: the app's model (`lib/models/anki_card.dart`). Maps 1:1 to an Anki note and 1:1 to a Markdown file.
+- **AnkiCard**: the app's model (`lib/features/anki/models/anki_card.dart`). Maps 1:1 to an Anki note and 1:1 to a Markdown file.
 - **`anki_id`**: stable cross-system identity anchor. Written into Markdown frontmatter on first sync. Immutable — never regenerated.
 
 ---
@@ -170,7 +170,7 @@ Slugified first 50 chars of `Front` (Basic) or `Text` (Cloze). Collision suffix 
 
 ## Services
 
-### `AnkiConnectService` (`lib/services/anki_connect_service.dart`)
+### `AnkiConnectService` (`lib/features/anki/services/anki_connect_service.dart`)
 
 All-static HTTP client for AnkiConnect. Every method catches all exceptions and returns `null`/`false` — same pattern as `GrokipediaService`.
 
@@ -201,7 +201,7 @@ response: {"result": ..., "error": null}  ← success
 
 ---
 
-### `AnkiStorageService` (`lib/services/anki_storage_service.dart`)
+### `AnkiStorageService` (`lib/features/anki/services/anki_storage_service.dart`)
 
 All-static service for Anki card `.md` file I/O. Writes directly to `Interesting/Anki/` — does NOT call `saveData()`, same as `LetterboxdService`.
 
@@ -218,7 +218,7 @@ All-static service for Anki card `.md` file I/O. Writes directly to `Interesting
 
 ---
 
-### `AnkiSyncService` (`lib/services/anki_sync_service.dart`)
+### `AnkiSyncService` (`lib/features/anki/services/anki_sync_service.dart`)
 
 Sync orchestrator. `sync()` → `AnkiSyncResult`.
 
@@ -305,11 +305,11 @@ Only semantic content syncs: `Front`/`Back`/`Text`, tags, deck name.
 
 ## UI
 
-### `AnkiScreen` (`lib/screens/anki_screen.dart`)
+### `AnkiScreen` (`lib/features/anki/screens/anki_screen.dart`)
 
 Opened via `style_outlined` AppBar icon in HomeScreen. Card browser: note type chip (Basic/Cloze), deck, front/text preview, tags, unsynced indicator (cloud_off). AppBar Sync button → `AnkiSyncService.sync()` → SnackBar. FAB → new card.
 
-### `AnkiCardEditorScreen` (`lib/screens/anki_card_editor_screen.dart`)
+### `AnkiCardEditorScreen` (`lib/features/anki/screens/anki_card_editor_screen.dart`)
 
 - Note type toggle (Basic / Cloze ChoiceChips)
 - Deck field with `Autocomplete` populated from `AnkiConnectService.deckNames()`

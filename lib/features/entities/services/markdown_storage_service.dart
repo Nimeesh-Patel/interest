@@ -6,12 +6,13 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:yaml/yaml.dart';
 
-import '../models/board.dart';
-import '../models/board_entity.dart';
+import '../../boards/models/board.dart';
+import '../../boards/models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
-import 'vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
+import '../../../core/vault_service.dart';
 
 typedef AppData = ({
   List<Entity> entities,
@@ -34,7 +35,6 @@ const Map<String, SectionType> _semanticSections = {
 };
 
 class MarkdownStorageService {
-  static final _wikilinkRegex = RegExp(r'\[\[([^\]]+)\]\]');
   String? _vaultPath;
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -100,12 +100,12 @@ class MarkdownStorageService {
         for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
           try {
             final content = await f.readAsString();
-            final boardName = _extractH1(content) ?? p.basenameWithoutExtension(f.path);
-            final boardId = _slugify(boardName);
+            final boardName = extractH1(content) ?? p.basenameWithoutExtension(f.path);
+            final boardId = slugify(boardName);
             if (boardId.isEmpty) continue;
             boards.add(Board(id: boardId, name: boardName));
 
-            for (final memberName in _extractWikilinks(content)) {
+            for (final memberName in extractWikilinks(content)) {
               final memberId = nameToId[memberName];
               if (memberId == null) continue;
               if (!boardEntryExists(boardId, memberId, boardEntities)) {
@@ -167,13 +167,10 @@ class MarkdownStorageService {
         for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
           try {
             final content = await f.readAsString();
-            final split = _splitFrontmatter(content);
-            if (split.frontmatter != null) {
-              final yaml = loadYaml(split.frontmatter!);
-              if (yaml is YamlMap) {
-                final alias = yaml['alias']?.toString();
-                if (alias != null) existingAliasToPath[alias] = f.path;
-              }
+            final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
+            if (yaml != null) {
+              final alias = yaml['alias']?.toString();
+              if (alias != null) existingAliasToPath[alias] = f.path;
             }
           } catch (_) {}
         }
@@ -195,7 +192,7 @@ class MarkdownStorageService {
           }
         }
 
-        final filename = '${_sanitizeFilename(entity.name)}.md';
+        final filename = '${sanitizeFilename(entity.name)}.md';
         final newPath = p.join(entitiesDirPath, filename);
 
         final oldPath = existingAliasToPath[entity.id];
@@ -264,7 +261,7 @@ class MarkdownStorageService {
             .toList();
 
         final content = _buildBoardMarkdown(board: board, memberNames: memberNames);
-        final filename = '${_sanitizeFilename(board.name)}.md';
+        final filename = '${sanitizeFilename(board.name)}.md';
         final filePath = p.join(boardsDirPath, filename);
 
         await File(filePath).writeAsString(content);
@@ -302,13 +299,13 @@ class MarkdownStorageService {
       entries.any((be) => be.boardId == boardId && be.entityId == entityId);
 
   static String generateEntityId(String name, List<Entity> existing) =>
-      _generateId(name, existing.map((e) => e.id).toSet(), fallback: 'entity');
+      generateUniqueId(name, existing.map((e) => e.id).toSet(), fallback: 'entity');
 
   static String generateCategoryId(String name, List<Category> existing) =>
-      _generateId(name, existing.map((c) => c.id).toSet(), fallback: 'category');
+      generateUniqueId(name, existing.map((c) => c.id).toSet(), fallback: 'category');
 
   static String generateBoardId(String name, List<Board> existing) =>
-      _generateId(name, existing.map((b) => b.id).toSet(), fallback: 'board');
+      generateUniqueId(name, existing.map((b) => b.id).toSet(), fallback: 'board');
 
   static List<Entity> sortEntities(List<Entity> entities, String sortOrder) {
     final sorted = List<Entity>.from(entities);
@@ -345,11 +342,11 @@ class MarkdownStorageService {
 
   static ({Entity entity, List<String> relatedNames, String categoryName})
       _parseEntityFile(String content, String filePath) {
-    final split = _splitFrontmatter(content);
+    final split = splitFrontmatter(content);
     final body = split.body;
     final basename = p.basenameWithoutExtension(filePath);
 
-    String alias = _slugify(basename).isEmpty ? 'entity' : _slugify(basename);
+    String alias = slugify(basename).isEmpty ? 'entity' : slugify(basename);
     String categoryName = '';
     double? score;
     List<String> tags = [];
@@ -360,45 +357,41 @@ class MarkdownStorageService {
     int createdAt = now;
     int updatedAt = now;
 
-    if (split.frontmatter != null && split.frontmatter!.isNotEmpty) {
-      try {
-        final yaml = loadYaml(split.frontmatter!);
-        if (yaml is YamlMap) {
-          final rawAlias = yaml['alias'];
-          if (rawAlias != null) {
-            final a = _slugify(rawAlias.toString());
-            if (a.isNotEmpty) { alias = a; }
-          }
-          categoryName = yaml['category']?.toString() ?? '';
-          final rawScore = yaml['score'];
-          if (rawScore is num) score = rawScore.toDouble();
-          final rawTags = yaml['tags'];
-          if (rawTags is YamlList) {
-            tags = rawTags.map((t) => t.toString()).toList();
-          }
-          createdAt = _parseIsoToMs(yaml['created_at']?.toString()) ?? now;
-          updatedAt = _parseIsoToMs(yaml['updated_at']?.toString()) ?? createdAt;
-          watchedDate = yaml['watched_date']?.toString();
-          letterboxdUrl = yaml['letterboxd_url']?.toString();
-          tmdbId = yaml['tmdb_id']?.toString();
-        }
-      } catch (_) {}
+    final yaml = parseYamlMap(split.frontmatter);
+    if (yaml != null) {
+      final rawAlias = yaml['alias'];
+      if (rawAlias != null) {
+        final a = slugify(rawAlias.toString());
+        if (a.isNotEmpty) { alias = a; }
+      }
+      categoryName = yaml['category']?.toString() ?? '';
+      final rawScore = yaml['score'];
+      if (rawScore is num) score = rawScore.toDouble();
+      final rawTags = yaml['tags'];
+      if (rawTags is YamlList) {
+        tags = rawTags.map((t) => t.toString()).toList();
+      }
+      createdAt = parseIsoToMs(yaml['created_at']?.toString()) ?? now;
+      updatedAt = parseIsoToMs(yaml['updated_at']?.toString()) ?? createdAt;
+      watchedDate = yaml['watched_date']?.toString();
+      letterboxdUrl = yaml['letterboxd_url']?.toString();
+      tmdbId = yaml['tmdb_id']?.toString();
     }
 
-    final name = _extractH1(body) ?? basename;
+    final name = extractH1(body) ?? basename;
 
     // Dynamic section parse — discovers ALL sections in the file
-    final rawSections = _parseSections(body);
-    final notes = _parseSectionAsList(rawSections['Why Interesting'] ?? '');
-    final links = _parseSectionAsList(rawSections['Sources'] ?? '');
+    final rawSections = parseSectionsH2(body);
+    final notes = parseSectionAsList(rawSections['Why Interesting'] ?? '');
+    final links = parseSectionAsList(rawSections['Sources'] ?? '');
     final relatedNames = {
-      ..._parseSectionAsWikilinks(rawSections['Related'] ?? ''),
-      ..._extractWikilinks(body),
+      ...parseSectionAsWikilinks(rawSections['Related'] ?? ''),
+      ...extractWikilinks(body),
     }.toList();
 
     final catId = categoryName.isEmpty
         ? 'uncategorized'
-        : (_slugify(categoryName).isEmpty ? 'uncategorized' : _slugify(categoryName));
+        : (slugify(categoryName).isEmpty ? 'uncategorized' : slugify(categoryName));
 
     final entity = Entity(
       id: alias,
@@ -417,57 +410,6 @@ class MarkdownStorageService {
     );
 
     return (entity: entity, relatedNames: relatedNames, categoryName: categoryName);
-  }
-
-  // ── Private: dynamic section parsing ───────────────────────────────────────
-
-  // Returns all ## sections in the body as an ordered map (section name → raw content).
-  // ### and deeper headings are treated as content within their parent section.
-  // Never throws.
-  static Map<String, String> _parseSections(String body) {
-    final result = <String, String>{};
-    final lines = body.split('\n');
-    String? currentSection;
-    final buf = StringBuffer();
-
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.startsWith('## ') && !t.startsWith('### ')) {
-        if (currentSection != null) {
-          result[currentSection] = buf.toString().trimRight();
-          buf.clear();
-        }
-        currentSection = t.substring(3).trim();
-      } else if (currentSection != null) {
-        buf.writeln(line);
-      }
-    }
-    if (currentSection != null) {
-      result[currentSection] = buf.toString().trimRight();
-    }
-    return result;
-  }
-
-  // Extracts list items from pre-parsed section content.
-  static List<String> _parseSectionAsList(String sectionContent) {
-    final result = <String>[];
-    for (final line in sectionContent.split('\n')) {
-      final t = line.trim();
-      if (t.startsWith('- ') || t.startsWith('* ')) {
-        result.add(t.substring(2).trim());
-      } else if (t.isNotEmpty) {
-        result.add(t);
-      }
-    }
-    return result;
-  }
-
-  // Extracts wikilink names from pre-parsed section content.
-  static List<String> _parseSectionAsWikilinks(String sectionContent) {
-    return _wikilinkRegex
-        .allMatches(sectionContent)
-        .map((m) => m.group(1)!)
-        .toList();
   }
 
   // ── Private: frontmatter builder ───────────────────────────────────────────
@@ -492,15 +434,14 @@ class MarkdownStorageService {
         buf.writeln('  - $tag');
       }
     }
-    buf.writeln('created_at: ${_msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${_msToIso(entity.updatedAt)}');
+    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
+    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
     buf.write('---');
     return buf.toString();
   }
 
   // ── Private: semantic section renderer ─────────────────────────────────────
 
-  // Renders current app state for a single known section to Markdown text.
   static String _renderSemanticSection(
     String sectionName,
     Entity entity,
@@ -520,17 +461,15 @@ class MarkdownStorageService {
 
   // ── Private: section-aware patch ───────────────────────────────────────────
 
-  // Patches an existing entity file: updates frontmatter and known semantic
-  // sections while preserving all other content (unknown sections, prose, etc.).
   static String _patchEntityContent({
     required String existingContent,
     required Entity entity,
     required String categoryName,
     required List<String> relatedEntityNames,
   }) {
-    final split = _splitFrontmatter(existingContent);
+    final split = splitFrontmatter(existingContent);
     final body = split.body;
-    final rawSections = _parseSections(body);
+    final rawSections = parseSectionsH2(body);
 
     final newFrontmatter = _buildFrontmatter(
       entity: entity,
@@ -578,14 +517,12 @@ class MarkdownStorageService {
 
   // ── Private: template system ───────────────────────────────────────────────
 
-  // Loads a template for the given category name.
-  // Tries <slug>.md first, then default.md. Returns null if none found.
   Future<String?> _loadTemplate(String categoryName) async {
     try {
       final vaultPath = _vaultPath;
       if (vaultPath == null) return null;
       final tdir = VaultService.templatesPath(vaultPath);
-      final slug = _slugify(categoryName);
+      final slug = slugify(categoryName);
 
       if (slug.isNotEmpty) {
         final catFile = File(p.join(tdir, '$slug.md'));
@@ -608,14 +545,8 @@ class MarkdownStorageService {
   }
 
   static bool _isTemplate(String content) {
-    try {
-      final split = _splitFrontmatter(content);
-      if (split.frontmatter == null) return false;
-      final yaml = loadYaml(split.frontmatter!);
-      return yaml is YamlMap && yaml['template'] == true;
-    } catch (_) {
-      return false;
-    }
+    final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
+    return yaml != null && yaml['template'] == true;
   }
 
   static String _instantiateTemplate(String templateContent, String title) =>
@@ -623,7 +554,6 @@ class MarkdownStorageService {
 
   // ── Private: new entity content builder ────────────────────────────────────
 
-  // For entities with no existing file: tries template, falls back to legacy builder.
   Future<String> _buildNewEntityContent({
     required Entity entity,
     required String categoryName,
@@ -650,7 +580,8 @@ class MarkdownStorageService {
   // ── Private: write (legacy-fallback) ───────────────────────────────────────
 
   // Kept as ultimate fallback for when no template is available and no existing
-  // file can be patched.
+  // file can be patched. Intentionally does NOT include movie-specific fields
+  // (watchedDate, letterboxdUrl, tmdbId) — those are only written by _buildFrontmatter.
   static String _buildEntityMarkdown({
     required Entity entity,
     required String categoryName,
@@ -670,8 +601,8 @@ class MarkdownStorageService {
         buf.writeln('  - $tag');
       }
     }
-    buf.writeln('created_at: ${_msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${_msToIso(entity.updatedAt)}');
+    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
+    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
     buf.writeln('---');
     buf.writeln('# ${entity.name}');
 
@@ -718,84 +649,6 @@ class MarkdownStorageService {
       }
     }
     return buf.toString();
-  }
-
-  // ── Private: text parsing helpers ─────────────────────────────────────────
-
-  static ({String? frontmatter, String body}) _splitFrontmatter(String content) {
-    final lines = content.split('\n');
-    if (lines.isEmpty || lines[0].trim() != '---') {
-      return (frontmatter: null, body: content);
-    }
-    int closeIdx = -1;
-    for (int i = 1; i < lines.length; i++) {
-      if (lines[i].trim() == '---') {
-        closeIdx = i;
-        break;
-      }
-    }
-    if (closeIdx == -1) return (frontmatter: null, body: content);
-    final frontmatter = lines.sublist(1, closeIdx).join('\n');
-    final body = lines.sublist(closeIdx + 1).join('\n').trimLeft();
-    return (frontmatter: frontmatter, body: body);
-  }
-
-  static String? _extractH1(String body) {
-    for (final line in body.split('\n')) {
-      final t = line.trim();
-      if (t.startsWith('# ') && !t.startsWith('## ')) {
-        return t.substring(2).trim();
-      }
-    }
-    return null;
-  }
-
-  static List<String> _extractWikilinks(String text) =>
-      _wikilinkRegex.allMatches(text).map((m) => m.group(1)!).toList();
-
-  // ── Private: timestamp helpers ─────────────────────────────────────────────
-
-  static int? _parseIsoToMs(String? iso) {
-    if (iso == null || iso.isEmpty) return null;
-    try {
-      return DateTime.parse(iso).millisecondsSinceEpoch;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static String _msToIso(int ms) =>
-      DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toIso8601String();
-
-  // ── Private: string helpers ────────────────────────────────────────────────
-
-  static String _slugify(String name) {
-    return name
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '-')
-        .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
-  }
-
-  static String _sanitizeFilename(String name) {
-    return name
-        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  static String _generateId(String name, Set<String> existing,
-      {required String fallback}) {
-    var base = name
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '-')
-        .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
-    if (base.isEmpty) base = fallback;
-    if (!existing.contains(base)) return base;
-    var n = 2;
-    while (existing.contains('$base-$n')) { n++; }
-    return '$base-$n';
   }
 
   // ── Private: migration ─────────────────────────────────────────────────────

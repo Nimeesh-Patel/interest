@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/board.dart';
 import '../models/board_entity.dart';
-import '../models/category.dart';
-import '../models/entity.dart';
-import '../models/entity_link.dart';
-import '../services/markdown_storage_service.dart';
-import 'entity_screen.dart';
+import '../../entities/models/category.dart';
+import '../../entities/models/entity.dart';
+import '../../entities/models/entity_link.dart';
+import '../../entities/services/markdown_storage_service.dart';
+import '../../entities/screens/entity_screen.dart';
 
 class BoardDetailScreen extends StatefulWidget {
   final MarkdownStorageService storage;

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'screens/home_screen.dart';
-import 'screens/vault_setup_screen.dart';
-import 'services/vault_service.dart';
+import 'core/vault_setup_screen.dart';
+import 'core/vault_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

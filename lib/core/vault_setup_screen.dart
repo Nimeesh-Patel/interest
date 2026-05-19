@@ -1,8 +1,8 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../services/vault_service.dart';
-import 'home_screen.dart';
+import 'vault_service.dart';
+import '../screens/home_screen.dart';
 
 class VaultSetupScreen extends StatefulWidget {
   const VaultSetupScreen({super.key});

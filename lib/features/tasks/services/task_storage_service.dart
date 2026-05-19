@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/task.dart';
 import '../models/task_block.dart';
-import 'vault_service.dart';
+import '../../../core/vault_service.dart';
 
 class TaskStorageService {
   static final _taskRegex = RegExp(r'^\s*-\s+\[([ xX])\]\s+(.+)$');

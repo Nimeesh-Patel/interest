@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/board.dart';
-import '../models/board_entity.dart';
+import '../../boards/models/board.dart';
+import '../../boards/models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
+import '../../../shared/widgets/section_header.dart';
 
 class EntityScreen extends StatefulWidget {
   final Entity entity;
@@ -583,10 +584,7 @@ class _EntityScreenState extends State<EntityScreen> {
 
         const Divider(height: 32),
 
-        // Why it matters
-        const Text('Why it matters',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 8),
+        const SectionHeader(title: 'Why it matters'),
         if (_entity.notes.isEmpty)
           Text('No notes yet.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
@@ -598,10 +596,7 @@ class _EntityScreenState extends State<EntityScreen> {
 
         const Divider(height: 32),
 
-        // Sources
-        const Text('Sources',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 8),
+        const SectionHeader(title: 'Sources'),
         if (_entity.links.isEmpty)
           Text('No sources yet.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
@@ -620,10 +615,7 @@ class _EntityScreenState extends State<EntityScreen> {
 
         const Divider(height: 32),
 
-        // Related
-        const Text('Related',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 4),
+        const SectionHeader(title: 'Related', bottomGap: 4),
         if (related.isEmpty)
           Text('No related entities.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500))

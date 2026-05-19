@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/task_block.dart';
 import '../services/task_storage_service.dart';
+import '../../../shared/widgets/bottom_sheet_menu.dart';
+import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/wikilink_text.dart';
 
 class TaskFileScreen extends StatefulWidget {
   final String filePath;
@@ -21,7 +26,6 @@ class TaskFileScreen extends StatefulWidget {
 }
 
 class _TaskFileScreenState extends State<TaskFileScreen> {
-  static final _wikilinkRegex = RegExp(r'\[\[([^\]]+)\]\]');
 
   List<String> _lines = [];
   List<TaskNode> _nodes = [];
@@ -169,33 +173,14 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   // ── Rename ────────────────────────────────────────────────────────────────
 
-  void _showRenameDialog() {
-    final ctrl = TextEditingController(text: _currentTitle);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            _doRename(v);
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _doRename(ctrl.text);
-            },
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
-    ).then((_) => ctrl.dispose());
+  void _showRenameDialog() async {
+    final name = await showInputDialog(context,
+      title: 'Rename',
+      initialValue: _currentTitle,
+      confirmLabel: 'Rename',
+      capitalization: TextCapitalization.words,
+    );
+    if (name != null) _doRename(name);
   }
 
   Future<void> _doRename(String newName) async {
@@ -217,37 +202,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     await _reload();
   }
 
-  // ── Wikilink-aware text renderer ──────────────────────────────────────────
-
-  Widget _buildRichText(String text, TextStyle base, {bool strikethrough = false}) {
-    // Color for completed tasks comes from base (set by taskTextStyle); only add lineThrough here.
-    final style = strikethrough
-        ? base.copyWith(decoration: TextDecoration.lineThrough)
-        : base;
-    final spans = <InlineSpan>[];
-    int cursor = 0;
-    for (final m in _wikilinkRegex.allMatches(text)) {
-      if (m.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, m.start), style: style));
-      }
-      spans.add(TextSpan(
-        text: m.group(0),
-        style: style.copyWith(
-          color: strikethrough ? Colors.black38 : Colors.blue.shade700,
-          fontWeight: FontWeight.normal,
-          decoration: strikethrough
-              ? TextDecoration.lineThrough
-              : TextDecoration.underline,
-          decorationColor: strikethrough ? null : Colors.blue.shade300,
-        ),
-      ));
-      cursor = m.end;
-    }
-    if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor), style: style));
-    }
-    return RichText(text: TextSpan(children: spans));
-  }
 
   // ── Node renderer dispatch ────────────────────────────────────────────────
 
@@ -371,9 +325,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: _buildRichText(
-                                    block.text,
-                                    taskTextStyle,
+                                  child: WikilinkText(
+                                    text: block.text,
+                                    style: taskTextStyle,
                                     strikethrough: block.completed,
                                   ),
                                 ),
@@ -489,9 +443,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                     margin: const EdgeInsets.only(right: 6, top: 2),
                   ),
                   Expanded(
-                    child: _buildRichText(
-                      raw.trimLeft(),
-                      const TextStyle(
+                    child: WikilinkText(
+                      text: raw.trimLeft(),
+                      style: const TextStyle(
                         fontSize: 13,
                         color: Colors.black45,
                         fontStyle: FontStyle.italic,
@@ -630,66 +584,43 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   }
 
   void _showTaskActions(TaskBlock block) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.sticky_note_2_outlined),
-              title: const Text('Add note'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() {
-                  _addingNoteOf = block.startLine;
-                  _addNoteController.clear();
-                });
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.playlist_add),
-              title: const Text('Add sibling task'),
-              onTap: () {
-                Navigator.pop(ctx);
-                setState(() {
-                  _addingSiblingOf = block.startLine;
-                  _addSiblingController.clear();
-                });
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Delete', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showDeleteConfirm(block);
-              },
-            ),
-          ],
-        ),
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.sticky_note_2_outlined,
+        label: 'Add note',
+        onTap: () => setState(() {
+          _addingNoteOf = block.startLine;
+          _addNoteController.clear();
+        }),
       ),
-    );
+      BottomSheetMenuItem(
+        icon: Icons.playlist_add,
+        label: 'Add sibling task',
+        onTap: () => setState(() {
+          _addingSiblingOf = block.startLine;
+          _addSiblingController.clear();
+        }),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.delete_outline,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _showDeleteConfirm(block),
+      ),
+    ]);
   }
 
   // ── Delete confirmation ───────────────────────────────────────────────────
 
   Future<void> _showDeleteConfirm(TaskBlock block) async {
     final hasChildren = block.children.isNotEmpty;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete task?'),
-        content: Text(hasChildren
-            ? '"${block.text}" and all its subtasks will be removed.'
-            : '"${block.text}"'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-        ],
-      ),
+    final confirmed = await showConfirmDialog(context,
+      title: 'Delete task?',
+      message: hasChildren
+          ? '"${block.text}" and all its subtasks will be removed.'
+          : '"${block.text}"',
     );
-    if (confirmed == true) await _deleteBlock(block);
+    if (confirmed) await _deleteBlock(block);
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -716,12 +647,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
               children: [
                 Expanded(
                   child: _nodes.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No content yet.\nAdd a task below.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                      ? const EmptyState(
+                          message: 'No content yet.\nAdd a task below.',
                         )
                       : ListView(
                           padding: const EdgeInsets.only(top: 8, bottom: 16),

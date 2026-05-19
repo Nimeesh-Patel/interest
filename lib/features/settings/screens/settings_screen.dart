@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../services/anki_connect_service.dart';
-import '../services/letterboxd_service.dart';
+import '../../anki/services/anki_connect_service.dart';
+import '../../entities/services/letterboxd_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});

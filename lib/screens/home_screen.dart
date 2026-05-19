@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
-import '../models/board.dart';
-import '../models/board_entity.dart';
-import '../models/category.dart';
-import '../models/entity.dart';
-import '../models/entity_link.dart';
-import '../models/task.dart';
-import '../services/markdown_storage_service.dart';
-import '../services/task_storage_service.dart';
-import 'board_detail_screen.dart';
-import 'entity_screen.dart';
-import 'anki_screen.dart';
-import 'settings_screen.dart';
-import 'task_file_screen.dart';
-import 'templates_screen.dart';
+import '../features/boards/models/board.dart';
+import '../features/boards/models/board_entity.dart';
+import '../features/entities/models/category.dart';
+import '../features/entities/models/entity.dart';
+import '../features/entities/models/entity_link.dart';
+import '../features/tasks/models/task.dart';
+import '../features/entities/services/markdown_storage_service.dart';
+import '../features/tasks/services/task_storage_service.dart';
+import '../shared/widgets/bottom_sheet_menu.dart';
+import '../shared/widgets/confirm_dialog.dart';
+import '../shared/widgets/empty_state.dart';
+import '../shared/widgets/input_dialog.dart';
+import '../features/boards/screens/board_detail_screen.dart';
+import '../features/entities/screens/entity_screen.dart';
+import '../features/anki/screens/anki_screen.dart';
+import '../features/settings/screens/settings_screen.dart';
+import '../features/tasks/screens/task_file_screen.dart';
+import '../features/templates/screens/templates_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -209,66 +213,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showCategoryOptions(Category category) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Rename'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showRenameCategory(category);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteCategory(category);
-              },
-            ),
-          ],
-        ),
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.edit,
+        label: 'Rename',
+        onTap: () => _showRenameCategory(category),
       ),
-    );
+      BottomSheetMenuItem(
+        icon: Icons.delete,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _deleteCategory(category),
+      ),
+    ]);
   }
 
-  void _showRenameCategory(Category category) {
-    final ctrl = TextEditingController(text: category.name);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename category'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            final trimmed = v.trim();
-            if (trimmed.isEmpty) return;
-            setState(() => category.name = trimmed);
-            _save();
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final trimmed = ctrl.text.trim();
-              if (trimmed.isEmpty) return;
-              setState(() => category.name = trimmed);
-              _save();
-            },
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
+  void _showRenameCategory(Category category) async {
+    final name = await showInputDialog(context,
+      title: 'Rename category',
+      initialValue: category.name,
+      confirmLabel: 'Rename',
     );
+    if (name != null) {
+      setState(() => category.name = name);
+      _save();
+    }
   }
 
   void _deleteCategory(Category category) {
@@ -293,34 +262,14 @@ class _HomeScreenState extends State<HomeScreen> {
   int _entityCountForBoard(String boardId) =>
       _boardEntities.where((be) => be.boardId == boardId).length;
 
-  void _showCreateBoard() {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New board'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Board name'),
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            _createBoard(v);
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _createBoard(ctrl.text);
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+  void _showCreateBoard() async {
+    final name = await showInputDialog(context,
+      title: 'New board',
+      hintText: 'Board name',
+      confirmLabel: 'Create',
+      capitalization: TextCapitalization.words,
     );
+    if (name != null) _createBoard(name);
   }
 
   void _createBoard(String name) {
@@ -332,66 +281,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showBoardOptions(Board board) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Rename'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showRenameBoard(board);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteBoard(board);
-              },
-            ),
-          ],
-        ),
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.edit,
+        label: 'Rename',
+        onTap: () => _showRenameBoard(board),
       ),
-    );
+      BottomSheetMenuItem(
+        icon: Icons.delete,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _deleteBoard(board),
+      ),
+    ]);
   }
 
-  void _showRenameBoard(Board board) {
-    final ctrl = TextEditingController(text: board.name);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename board'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            final trimmed = v.trim();
-            if (trimmed.isEmpty) return;
-            setState(() => board.name = trimmed);
-            _save();
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final trimmed = ctrl.text.trim();
-              if (trimmed.isEmpty) return;
-              setState(() => board.name = trimmed);
-              _save();
-            },
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
+  void _showRenameBoard(Board board) async {
+    final name = await showInputDialog(context,
+      title: 'Rename board',
+      initialValue: board.name,
+      confirmLabel: 'Rename',
     );
+    if (name != null) {
+      setState(() => board.name = name);
+      _save();
+    }
   }
 
   void _deleteBoard(Board board) {
@@ -625,34 +539,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── ToDos tab operations ──────────────────────────────────────────────────
 
-  void _showCreateTaskFile() {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New task file'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Name'),
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            _createTaskFile(v);
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _createTaskFile(ctrl.text);
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+  void _showCreateTaskFile() async {
+    final name = await showInputDialog(context,
+      title: 'New task file',
+      hintText: 'Name',
+      confirmLabel: 'Create',
+      capitalization: TextCapitalization.words,
     );
+    if (name != null) _createTaskFile(name);
   }
 
   Future<void> _createTaskFile(String name) async {
@@ -662,84 +556,42 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reloadTaskFiles();
   }
 
-  void _showDeleteTaskFileConfirm(TaskFile tf) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete task file?'),
-        content: Text('Delete "${tf.name}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await TaskStorageService.deleteTaskFile(tf.filePath);
-              await _reloadTaskFiles();
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+  void _showDeleteTaskFileConfirm(TaskFile tf) async {
+    final confirmed = await showConfirmDialog(context,
+      title: 'Delete task file?',
+      message: 'Delete "${tf.name}"? This cannot be undone.',
     );
+    if (confirmed) {
+      await TaskStorageService.deleteTaskFile(tf.filePath);
+      await _reloadTaskFiles();
+    }
   }
 
   void _showTaskFileOptions(TaskFile tf) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.drive_file_rename_outline),
-              title: const Text('Rename'),
-              onTap: () {
-                Navigator.pop(context);
-                _showRenameTaskFile(tf);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () {
-                Navigator.pop(context);
-                _showDeleteTaskFileConfirm(tf);
-              },
-            ),
-          ],
-        ),
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.drive_file_rename_outline,
+        label: 'Rename',
+        onTap: () => _showRenameTaskFile(tf),
       ),
-    );
+      BottomSheetMenuItem(
+        icon: Icons.delete_outline,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _showDeleteTaskFileConfirm(tf),
+      ),
+    ]);
   }
 
-  void _showRenameTaskFile(TaskFile tf) {
-    final ctrl = TextEditingController(text: tf.name);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename task file'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(hintText: 'Name'),
-          onSubmitted: (v) {
-            Navigator.pop(ctx);
-            _renameTaskFile(tf, v);
-          },
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _renameTaskFile(tf, ctrl.text);
-            },
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
-    ).then((_) => ctrl.dispose());
+  void _showRenameTaskFile(TaskFile tf) async {
+    final name = await showInputDialog(context,
+      title: 'Rename task file',
+      initialValue: tf.name,
+      hintText: 'Name',
+      confirmLabel: 'Rename',
+      capitalization: TextCapitalization.words,
+    );
+    if (name != null) _renameTaskFile(tf, name);
   }
 
   Future<void> _renameTaskFile(TaskFile tf, String newName) async {
@@ -760,12 +612,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTodosTab() {
     if (_taskFiles.isEmpty) {
-      return const Center(
-        child: Text(
-          'No task files yet.\nTap + to create one.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey),
-        ),
+      return const EmptyState(
+        icon: Icons.check_box_outline_blank,
+        message: 'No task files yet.\nTap + to create one.',
       );
     }
     return ListView.builder(
