@@ -48,6 +48,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   int? _addingChildOf;
   final _addChildController = TextEditingController();
 
+  // Inline note add — value is parent.startLine
+  int? _addingNoteOf;
+  final _addNoteController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +67,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     _editController.dispose();
     _editNoteController.dispose();
     _addChildController.dispose();
+    _addNoteController.dispose();
     super.dispose();
   }
 
@@ -77,6 +82,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       _editingLine = null;
       _editingNoteLine = null;
       _addingChildOf = null;
+      _addingNoteOf = null;
     });
   }
 
@@ -106,8 +112,12 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   }
 
   Future<void> _saveNoteEdit(int lineIndex) async {
-    final text = _editNoteController.text;
-    await TaskStorageService.updateLine(_currentPath, lineIndex, text);
+    if (lineIndex >= _lines.length) return;
+    final original = _lines[lineIndex];
+    final trimStart = original.length - original.trimLeft().length;
+    final indent = original.substring(0, trimStart);
+    final newContent = '$indent${_editNoteController.text}';
+    await TaskStorageService.updateLine(_currentPath, lineIndex, newContent);
     await _reload();
   }
 
@@ -122,6 +132,15 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       await TaskStorageService.addSubtask(_currentPath, parent, text);
     }
     setState(() => _addingChildOf = null);
+    await _reload();
+  }
+
+  Future<void> _addNote(TaskBlock parent) async {
+    final text = _addNoteController.text.trim();
+    if (text.isNotEmpty) {
+      await TaskStorageService.addNote(_currentPath, parent, text);
+    }
+    setState(() => _addingNoteOf = null);
     await _reload();
   }
 
@@ -251,6 +270,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final taskTextStyle = TextStyle(
       fontSize: depth == 0 ? 15 : 14,
       fontWeight: depth == 0 ? FontWeight.w500 : FontWeight.normal,
+      color: Theme.of(context).colorScheme.onSurface,
     );
 
     return Padding(
@@ -328,6 +348,18 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                         ),
                       ),
               ),
+              // Add note button
+              if (!isEditing)
+                IconButton(
+                  icon: Icon(Icons.sticky_note_2_outlined, size: 16, color: Colors.grey.shade500),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
+                  tooltip: 'Add note',
+                  onPressed: () => setState(() {
+                    _addingNoteOf = block.startLine;
+                    _addNoteController.clear();
+                  }),
+                ),
               // Add subtask button
               if (!isEditing)
                 IconButton(
@@ -352,6 +384,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 ),
             ],
           ),
+          // ── Inline note add field ─────────────────────────────────────
+          if (!isCollapsed && _addingNoteOf == block.startLine)
+            _buildInlineNoteAddField(block, depth),
           // ── Notes (if not collapsed) ──────────────────────────────────
           if (!isCollapsed)
             for (final idx in block.noteLineIndices)
@@ -444,6 +479,54 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: () => setState(() => _addingChildOf = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInlineNoteAddField(TaskBlock parent, int depth) {
+    return Padding(
+      padding: EdgeInsets.only(left: 56.0 + (depth * 20.0), right: 8, top: 4, bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _addNoteController,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Note…',
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              ),
+              style: TextStyle(
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+                color: Colors.grey.shade700,
+              ),
+              maxLines: null,
+              textInputAction: TextInputAction.newline,
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.check, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () => _addNote(parent),
+              ),
+              IconButton(
+                icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () => setState(() => _addingNoteOf = null),
+              ),
+            ],
           ),
         ],
       ),

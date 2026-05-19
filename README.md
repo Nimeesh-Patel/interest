@@ -45,7 +45,7 @@ lib/
   services/anki_connect_service.dart  — AnkiConnect HTTP client; configurable URL (SharedPreferences key: 'anki_connect_url', default localhost:8765); actions: testConnection/deckNames/addNote/updateNote/changeDeck/notesInfo/findNotes; all-static; all-catch-null; see docs/anki.md
   services/anki_storage_service.dart  — Anki card .md I/O in Interesting/Anki/; H1-based section parser; loadCards/saveCard/createNewCard/updateAnkiId/trashCard/createFromAnki; section-aware patch; .trash/ support; see docs/anki.md
   services/anki_sync_service.dart     — bidirectional sync orchestrator; AnkiSyncResult {createdInAnki, updatedInAnki, createdMarkdown, updatedMarkdown, trashed, skipped, error?}; last-modified-wins 5s tolerance; see docs/anki.md
-  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; flat ops: loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile/renameTaskFile; hierarchical ops: parseNodes(lines)→List<TaskNode> (pure, no I/O), addSubtask/deleteBlock/updateBlockText/updateLine; see docs/tasks.md
+  services/task_storage_service.dart  — task file I/O in Interesting/Tasks/; all-static, all-catch; flat ops: loadTaskFiles/loadLines/toggleTask/addTask/deleteTask/updateTaskText/createTaskFile/deleteTaskFile/renameTaskFile; hierarchical ops: parseNodes(lines)→List<TaskNode> (pure, no I/O), addNote/addSubtask/deleteBlock/updateBlockText/updateLine; see docs/tasks.md
   screens/vault_setup_screen.dart     — shown on first launch; folder picker → creates Interesting/Entities + Interesting/Boards + Interesting/Templates → saves path
   screens/home_screen.dart            — BottomNavigationBar shell: Entities tab + Boards tab + ToDos tab (IndexedStack); owns full board CRUD and task-file CRUD inline; task-file long-press → bottom sheet (Rename/Delete); AppBar has Anki + Settings + Templates icons
   screens/settings_screen.dart        — Letterboxd RSS URL input + Sync Now; AnkiConnect URL input + Test Connection; all persisted in SharedPreferences; self-contained
@@ -56,7 +56,7 @@ lib/
   screens/templates_screen.dart       — list of templates in Interesting/Templates/; create (FAB), edit (tap), delete; self-contained
   screens/template_editor_screen.dart — full-screen raw Markdown editor for a single template file; Save/discard-guard
   screens/boards_screen.dart          — DEAD CODE: standalone boards list, superseded by Boards tab in home_screen.dart; kept for reference only
-  screens/task_file_screen.dart       — per-file task view; parses lines into TaskNode tree (TaskHeaderNode/TaskProseNode/TaskBlock); recursive tree renderer with depth indentation; collapse/expand per block; inline task/note editing (no dialogs); ⊕ per-task subtask add; SafeArea bottom bar; AppBar rename; [[wikilinks]] styled blue; see docs/tasks.md
+  screens/task_file_screen.dart       — per-file task view; parses lines into TaskNode tree (TaskHeaderNode/TaskProseNode/TaskBlock); recursive tree renderer with depth indentation; collapse/expand per block; inline task/note editing (no dialogs); 📝 per-task note add; ⊕ per-task subtask add; SafeArea bottom bar; AppBar rename; [[wikilinks]] styled blue; see docs/tasks.md
 
 android/app/src/main/
   kotlin/com/nimee/people_tracker/

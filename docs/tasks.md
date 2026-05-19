@@ -79,10 +79,11 @@ All-static, all-catch, never throw.
 
 **Hierarchical (new):**
 - `parseNodes(lines)` → `List<TaskNode>` — pure parser
+- `addNote(filePath, parent, noteText)` — insert `noteText` at `parent.startLine + 1` with `parent.indentSpaces + 2` indent; multiline text split on `\n`; each empty line stored as `''`
 - `addSubtask(filePath, parent, text)` — insert `' ' * (parent.indentSpaces + 2) + '- [ ] text'` at `parent.endLine + 1`
 - `deleteBlock(filePath, block)` — `removeRange(block.startLine, block.endLine + 1)`; removes full subtree
 - `updateBlockText(filePath, block, newText)` — thin wrapper: `updateTaskText(filePath, block.startLine, newText)`
-- `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing
+- `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing (caller must re-prepend original indentation)
 - `renameTaskFile(filePath, newName)` → `String?` — updates `# heading` in file, renames file on disk; null on collision or error
 
 All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never regenerate whole file.
@@ -96,19 +97,30 @@ All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never r
 - `_editingLine` — `int?` startLine of task being inline-edited
 - `_editingNoteLine` — `int?` line index of note being edited
 - `_addingChildOf` — `int?` startLine of parent for pending subtask add
+- `_addingNoteOf` — `int?` startLine of parent for pending note add; cleared by `_reload()`
 
 **Constructor params:** `filePath`, `title`, `onRenamed` (optional callback `(String newPath, String newTitle) → void`).
 
 **Rendering:**
 - `_buildNodeWidget` dispatches to header/prose/block renderers
-- `_buildBlockWidget(block, depth)`: `Padding(left: depth * 20px)` with collapse chevron, Checkbox, task text (or inline TextField), ⊕ add-subtask icon, delete icon
+- `_buildBlockWidget(block, depth)`: `Padding(left: depth * 20px)` with collapse chevron, Checkbox, task text (or inline TextField), 📝 add-note icon, ⊕ add-subtask icon, delete icon
+- Task text color: `Theme.of(context).colorScheme.onSurface` (explicit; `RichText` does not inherit `DefaultTextStyle`)
 - Notes: italic grey 13px, `left = 56px + depth * 20px`
 - Completed tasks: grey + strikethrough
 - Collapse chevron visible when `block.children.isNotEmpty || block.noteLineIndices.isNotEmpty`
 
-**Inline editing:** Tap task text → TextField in-place (no dialog). Tap note line → TextField in-place. Both save on `onSubmitted` and `onTapOutside`.
+**Render order inside a block (top → bottom):**
+1. Task row (chevron / checkbox / text / note-icon / subtask-icon / delete)
+2. Inline note-add field (if `_addingNoteOf == block.startLine`)
+3. Existing notes (`noteLineIndices`)
+4. Inline subtask-add field (if `_addingChildOf == block.startLine`)
+5. Children (recursive)
 
-**Add subtask:** Tap ⊕ icon → sets `_addingChildOf`; renders inline TextField below the task row.
+**Inline editing:** Tap task text → TextField in-place (no dialog). Tap note line → TextField in-place. Note edit re-prepends original leading whitespace before writing (`_lines[lineIndex]` prefix). Both save on `onSubmitted` and `onTapOutside`.
+
+**Add note:** Tap 📝 icon → sets `_addingNoteOf`; renders `_buildInlineNoteAddField` — multiline TextField (`maxLines: null`, `TextInputAction.newline`) at note indent. Confirm (✓) calls `addNote(filePath, parent, text)`; inserted at `parent.startLine + 1`.
+
+**Add subtask:** Tap ⊕ icon → sets `_addingChildOf`; renders inline TextField below existing notes.
 
 **Bottom bar:** `SafeArea(top: false)` handles Android gesture nav bar. `Scaffold.resizeToAvoidBottomInset` (default true) handles keyboard. No manual `viewInsets.bottom` padding.
 

@@ -250,6 +250,23 @@ class TaskStorageService {
 
   // ── Block-level mutations ──────────────────────────────────────────────────
 
+  // Insert a note immediately after the task's own line (before children).
+  // Multiline noteText is split on '\n'; each piece is indented at
+  // parent.indentSpaces + 2 to satisfy _collectBlockContent's indent check.
+  static Future<void> addNote(
+      String filePath, TaskBlock parent, String noteText) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      final indent = ' ' * (parent.indentSpaces + 2);
+      final noteLines = noteText
+          .split('\n')
+          .map((l) => l.isEmpty ? '' : '$indent$l')
+          .toList();
+      lines.insertAll(parent.startLine + 1, noteLines);
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
   // Insert a subtask as the last child of [parent].
   static Future<void> addSubtask(
       String filePath, TaskBlock parent, String text) async {
