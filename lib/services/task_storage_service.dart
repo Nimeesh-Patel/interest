@@ -278,6 +278,17 @@ class TaskStorageService {
     } catch (_) {}
   }
 
+  // Insert a sibling task immediately after [block]'s full subtree (same indent level).
+  static Future<void> addSiblingTask(
+      String filePath, TaskBlock block, String text) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      final indent = ' ' * block.indentSpaces;
+      lines.insert(block.endLine + 1, '$indent- [ ] $text');
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
   // Delete a block and its entire subtree (notes + children).
   static Future<void> deleteBlock(String filePath, TaskBlock block) async {
     try {

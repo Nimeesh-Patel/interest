@@ -52,6 +52,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   int? _addingNoteOf;
   final _addNoteController = TextEditingController();
 
+  // Inline sibling add — value is source block's startLine
+  int? _addingSiblingOf;
+  final _addSiblingController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +72,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     _editNoteController.dispose();
     _addChildController.dispose();
     _addNoteController.dispose();
+    _addSiblingController.dispose();
     super.dispose();
   }
 
@@ -83,6 +88,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       _editingNoteLine = null;
       _addingChildOf = null;
       _addingNoteOf = null;
+      _addingSiblingOf = null;
     });
   }
 
@@ -144,6 +150,23 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     await _reload();
   }
 
+  Future<void> _addSiblingTask(TaskBlock block) async {
+    final text = _addSiblingController.text.trim();
+    if (text.isNotEmpty) {
+      await TaskStorageService.addSiblingTask(_currentPath, block, text);
+    }
+    setState(() => _addingSiblingOf = null);
+    await _reload();
+  }
+
+  int _countDescendants(TaskBlock block) {
+    int count = block.children.length;
+    for (final child in block.children) {
+      count += _countDescendants(child);
+    }
+    return count;
+  }
+
   // ── Rename ────────────────────────────────────────────────────────────────
 
   void _showRenameDialog() {
@@ -197,11 +220,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   // ── Wikilink-aware text renderer ──────────────────────────────────────────
 
   Widget _buildRichText(String text, TextStyle base, {bool strikethrough = false}) {
+    // Color for completed tasks comes from base (set by taskTextStyle); only add lineThrough here.
     final style = strikethrough
-        ? base.copyWith(
-            color: Colors.grey.shade400,
-            decoration: TextDecoration.lineThrough,
-          )
+        ? base.copyWith(decoration: TextDecoration.lineThrough)
         : base;
     final spans = <InlineSpan>[];
     int cursor = 0;
@@ -212,9 +233,12 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       spans.add(TextSpan(
         text: m.group(0),
         style: style.copyWith(
-          color: strikethrough ? Colors.grey.shade400 : Colors.blue,
-          fontWeight: FontWeight.bold,
-          decoration: strikethrough ? TextDecoration.lineThrough : null,
+          color: strikethrough ? Colors.black38 : Colors.blue.shade700,
+          fontWeight: FontWeight.normal,
+          decoration: strikethrough
+              ? TextDecoration.lineThrough
+              : TextDecoration.underline,
+          decorationColor: strikethrough ? null : Colors.blue.shade300,
         ),
       ));
       cursor = m.end;
@@ -260,7 +284,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   // ── Task block renderer ───────────────────────────────────────────────────
 
   Widget _buildBlockWidget(TaskBlock block, int depth) {
-    final leftPad = depth * 20.0;
+    final leftPad = depth * 24.0;
     final hasExpandable =
         block.children.isNotEmpty || block.noteLineIndices.isNotEmpty;
     final isCollapsed = _collapsed.contains(block.startLine);
@@ -270,119 +294,127 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final taskTextStyle = TextStyle(
       fontSize: depth == 0 ? 15 : 14,
       fontWeight: depth == 0 ? FontWeight.w500 : FontWeight.normal,
-      color: Theme.of(context).colorScheme.onSurface,
+      color: block.completed
+          ? Colors.black38
+          : Theme.of(context).colorScheme.onSurface,
     );
 
-    return Padding(
+    final blockWidget = Padding(
       padding: EdgeInsets.only(left: leftPad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Task row ──────────────────────────────────────────────────
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Collapse chevron
-              SizedBox(
-                width: 24,
-                child: hasExpandable
-                    ? GestureDetector(
-                        onTap: () => setState(() {
-                          if (isCollapsed) {
-                            _collapsed.remove(block.startLine);
-                          } else {
-                            _collapsed.add(block.startLine);
-                          }
-                        }),
-                        child: Icon(
-                          isCollapsed
-                              ? Icons.chevron_right
-                              : Icons.expand_more,
-                          size: 18,
-                          color: Colors.grey.shade500,
-                        ),
-                      )
-                    : null,
-              ),
-              // Checkbox
-              SizedBox(
-                width: 32,
-                height: 32,
-                child: Checkbox(
-                  value: block.completed,
-                  onChanged: (_) => _toggle(block),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Collapse chevron
+                SizedBox(
+                  width: 24,
+                  child: hasExpandable
+                      ? GestureDetector(
+                          onTap: () => setState(() {
+                            if (isCollapsed) {
+                              _collapsed.remove(block.startLine);
+                            } else {
+                              _collapsed.add(block.startLine);
+                            }
+                          }),
+                          child: Icon(
+                            isCollapsed
+                                ? Icons.chevron_right
+                                : Icons.expand_more,
+                            size: 18,
+                            color: Colors.grey.shade500,
+                          ),
+                        )
+                      : null,
                 ),
-              ),
-              // Task text / inline editor
-              Expanded(
-                child: isEditing
-                    ? TextField(
-                        controller: _editController,
-                        autofocus: true,
-                        style: taskTextStyle,
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 4),
-                        ),
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _saveBlockEdit(block),
-                        onTapOutside: (_) => _saveBlockEdit(block),
-                      )
-                    : GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _editingLine = block.startLine;
-                            _editController.text = block.text;
-                          });
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: _buildRichText(
-                            block.text,
-                            taskTextStyle,
-                            strikethrough: block.completed,
+                // Checkbox
+                SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Checkbox(
+                    value: block.completed,
+                    onChanged: (_) => _toggle(block),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                // Task text / inline editor
+                Expanded(
+                  child: isEditing
+                      ? TextField(
+                          controller: _editController,
+                          autofocus: true,
+                          style: taskTextStyle,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(vertical: 4),
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _saveBlockEdit(block),
+                          onTapOutside: (_) => _saveBlockEdit(block),
+                        )
+                      : GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _editingLine = block.startLine;
+                              _editController.text = block.text;
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _buildRichText(
+                                    block.text,
+                                    taskTextStyle,
+                                    strikethrough: block.completed,
+                                  ),
+                                ),
+                                // Collapsed child count badge
+                                if (isCollapsed && hasExpandable)
+                                  Text(
+                                    '  +${_countDescendants(block)}',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade400),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-              ),
-              // Add note button
-              if (!isEditing)
-                IconButton(
-                  icon: Icon(Icons.sticky_note_2_outlined, size: 16, color: Colors.grey.shade500),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
-                  tooltip: 'Add note',
-                  onPressed: () => setState(() {
-                    _addingNoteOf = block.startLine;
-                    _addNoteController.clear();
-                  }),
                 ),
-              // Add subtask button
-              if (!isEditing)
-                IconButton(
-                  icon: const Icon(Icons.add, size: 18),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'Add subtask',
-                  color: Colors.grey.shade500,
-                  onPressed: () => setState(() {
-                    _addingChildOf = block.startLine;
-                    _addChildController.clear();
-                  }),
-                ),
-              // Delete button
-              if (!isEditing)
-                IconButton(
-                  icon: Icon(Icons.delete_outline, size: 16, color: Colors.grey.shade400),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
-                  tooltip: 'Delete',
-                  onPressed: () => _confirmDeleteBlock(block),
-                ),
-            ],
+                // ⊕ Add subtask button
+                if (!isEditing)
+                  IconButton(
+                    icon: Icon(Icons.add_circle_outline,
+                        size: 18, color: Colors.grey.shade400),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    tooltip: 'Add subtask',
+                    onPressed: () => setState(() {
+                      _addingChildOf = block.startLine;
+                      _addChildController.clear();
+                    }),
+                  ),
+                // ··· More actions button
+                if (!isEditing)
+                  IconButton(
+                    icon: Icon(Icons.more_horiz,
+                        size: 18, color: Colors.grey.shade400),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    tooltip: 'More actions',
+                    onPressed: () => _showTaskActions(block),
+                  ),
+              ],
+            ),
           ),
           // ── Inline note add field ─────────────────────────────────────
           if (!isCollapsed && _addingNoteOf == block.startLine)
@@ -400,6 +432,18 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
         ],
       ),
     );
+
+    // Sibling add field renders outside this block's indent wrapper
+    if (_addingSiblingOf == block.startLine) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          blockWidget,
+          _buildInlineSiblingAddField(block, depth),
+        ],
+      );
+    }
+    return blockWidget;
   }
 
   Widget _buildNoteLineWidget(int lineIdx, int depth) {
@@ -410,7 +454,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final isEditing = _editingNoteLine == lineIdx;
 
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + (depth * 20.0), right: 8, top: 2, bottom: 2),
+      padding: EdgeInsets.only(left: 56.0 + (depth * 24.0), right: 8, top: 2, bottom: 2),
       child: isEditing
           ? TextField(
               controller: _editNoteController,
@@ -435,13 +479,26 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 _editingNoteLine = lineIdx;
                 _editNoteController.text = raw.trimLeft();
               }),
-              child: _buildRichText(
-                raw.trimLeft(),
-                TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
-                  fontStyle: FontStyle.italic,
-                ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 2,
+                    height: 16,
+                    color: Colors.grey.shade300,
+                    margin: const EdgeInsets.only(right: 6, top: 2),
+                  ),
+                  Expanded(
+                    child: _buildRichText(
+                      raw.trimLeft(),
+                      const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black45,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
     );
@@ -449,7 +506,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   Widget _buildInlineAddField(TaskBlock parent, int depth) {
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + ((depth + 1) * 20.0), right: 8, top: 4, bottom: 4),
+      padding: EdgeInsets.only(left: 56.0 + ((depth + 1) * 24.0), right: 8, top: 4, bottom: 4),
       child: Row(
         children: [
           Expanded(
@@ -487,7 +544,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   Widget _buildInlineNoteAddField(TaskBlock parent, int depth) {
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + (depth * 20.0), right: 8, top: 4, bottom: 4),
+      padding: EdgeInsets.only(left: 56.0 + (depth * 24.0), right: 8, top: 4, bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -533,9 +590,91 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     );
   }
 
+  Widget _buildInlineSiblingAddField(TaskBlock block, int depth) {
+    return Padding(
+      padding: EdgeInsets.only(
+          left: (depth * 24.0) + 56.0, right: 8, top: 4, bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _addSiblingController,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Add sibling task…',
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              ),
+              style: const TextStyle(fontSize: 14),
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _addSiblingTask(block),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.send, size: 16),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _addSiblingTask(block),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => setState(() => _addingSiblingOf = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTaskActions(TaskBlock block) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.sticky_note_2_outlined),
+              title: const Text('Add note'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() {
+                  _addingNoteOf = block.startLine;
+                  _addNoteController.clear();
+                });
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.playlist_add),
+              title: const Text('Add sibling task'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() {
+                  _addingSiblingOf = block.startLine;
+                  _addSiblingController.clear();
+                });
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Delete', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showDeleteConfirm(block);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Delete confirmation ───────────────────────────────────────────────────
 
-  Future<void> _confirmDeleteBlock(TaskBlock block) async {
+  Future<void> _showDeleteConfirm(TaskBlock block) async {
     final hasChildren = block.children.isNotEmpty;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -605,8 +744,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                             controller: _addController,
                             focusNode: _addFocus,
                             decoration: const InputDecoration(
-                              hintText: 'Add task…',
+                              hintText: 'New task…',
                               border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 10),
                             ),
                             onSubmitted: (_) => _addRootTask(),
                             textInputAction: TextInputAction.send,

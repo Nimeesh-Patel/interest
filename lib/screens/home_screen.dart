@@ -775,6 +775,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: ListTile(
+            leading: Icon(Icons.check_box_outline_blank,
+                color: Colors.grey.shade400),
             title: Text(tf.name),
             subtitle: tf.totalTasks == 0
                 ? const Text('No tasks', style: TextStyle(fontSize: 12))
@@ -784,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 4),
                       LinearProgressIndicator(
                         value: tf.progress,
-                        minHeight: 4,
+                        minHeight: 5,
                       ),
                       const SizedBox(height: 2),
                       Text(
