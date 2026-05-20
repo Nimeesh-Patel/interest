@@ -309,7 +309,7 @@ Only semantic content syncs: `Front`/`Back`/`Text`, tags, deck name.
 
 ### `AnkiScreen` (`lib/features/anki/screens/anki_screen.dart`)
 
-Opened via `style_outlined` AppBar icon in HomeScreen. Card browser: note type chip (Basic/Cloze), deck, front/text preview, tags, unsynced indicator (cloud_off). AppBar Sync button → `AnkiSyncService.sync()` → SnackBar. FAB → new card.
+Accessible via the **More** overflow menu (PopupMenuButton) in HomeScreen AppBar → "Anki". Card browser: note type chip (Basic/Cloze), deck, front/text preview, tags, unsynced indicator (cloud_off). AppBar Sync button → `AnkiSyncService.sync()` → SnackBar. FAB → new card.
 
 ### `AnkiCardEditorScreen` (`lib/features/anki/screens/anki_card_editor_screen.dart`)
 

@@ -333,7 +333,7 @@ class _EntityScreenState extends State<EntityScreen> {
                 bottom: MediaQuery.of(ctx).viewInsets.bottom,
               ),
               child: SizedBox(
-                height: 400,
+                height: MediaQuery.of(ctx).size.height * 0.55,
                 child: Column(
                   children: [
                     Padding(
@@ -514,8 +514,8 @@ class _EntityScreenState extends State<EntityScreen> {
     final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+    return SafeArea(top: false, child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
       children: [
         // Name
         Text(
@@ -647,7 +647,7 @@ class _EntityScreenState extends State<EntityScreen> {
         _buildExternalKnowledgeSection(),
         const SizedBox(height: 16),
       ],
-    );
+    ));
   }
 
   // ── Edit body ─────────────────────────────────────────────────────────────
@@ -660,7 +660,7 @@ class _EntityScreenState extends State<EntityScreen> {
           : Category(id: '', name: ''),
     );
 
-    return ListView(
+    return SafeArea(top: false, child: ListView(
       children: [
         // Name field
         Padding(
@@ -710,7 +710,7 @@ class _EntityScreenState extends State<EntityScreen> {
         _buildRelatedSection(),
         const SizedBox(height: 32),
       ],
-    );
+    ));
   }
 
   // ── Edit section builders ─────────────────────────────────────────────────

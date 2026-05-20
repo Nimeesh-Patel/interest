@@ -84,7 +84,9 @@ class _StoragePermissionGateState extends State<_StoragePermissionGate>
         title: const Text('Storage Permission Required'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Padding(
+      body: SafeArea(
+        top: false,
+        child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -110,7 +112,7 @@ class _StoragePermissionGateState extends State<_StoragePermissionGate>
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 }

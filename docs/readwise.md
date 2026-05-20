@@ -180,7 +180,7 @@ Returns `ImportResult` (reused from `LetterboxdService`): `created=1` for new fi
 
 ## UI (`lib/features/readwise/screens/readwise_screen.dart`)
 
-Opened via `book_outlined` AppBar icon in `HomeScreen`.
+Opened from `SettingsScreen` → "Open Import Screen" button (bottom of Readwise section). There is no direct AppBar shortcut.
 
 **Empty state:** shown when no token is configured — directs user to Settings.
 

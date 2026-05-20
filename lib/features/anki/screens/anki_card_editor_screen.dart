@@ -219,6 +219,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
     if (_deckSuggestions.isEmpty) {
       return TextField(
         controller: _deckController,
+        textInputAction: TextInputAction.next,
         decoration: const InputDecoration(
           labelText: 'Deck',
           hintText: 'e.g. Philosophy',
@@ -245,6 +246,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
         return TextField(
           controller: controller,
           focusNode: focusNode,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'Deck',
             hintText: 'e.g. Philosophy',
@@ -263,6 +265,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
     if (_noteType == AnkiNoteType.cloze) {
       return TextField(
         controller: _textController,
+        textInputAction: TextInputAction.newline,
         decoration: const InputDecoration(
           labelText: 'Text',
           hintText: 'Use {{c1::...}} for cloze deletions',
@@ -277,6 +280,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
       children: [
         TextField(
           controller: _frontController,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'Front',
             hintText: 'Question',
@@ -289,6 +293,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: _backController,
+          textInputAction: TextInputAction.next,
           decoration: const InputDecoration(
             labelText: 'Back',
             hintText: 'Answer',
@@ -305,6 +310,7 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
   Widget _buildTagsField() {
     return TextField(
       controller: _tagsController,
+      textInputAction: TextInputAction.done,
       decoration: const InputDecoration(
         labelText: 'Tags',
         hintText: 'tag1, tag2, tag3',

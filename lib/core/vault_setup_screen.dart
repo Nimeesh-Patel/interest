@@ -46,7 +46,9 @@ class _VaultSetupScreenState extends State<VaultSetupScreen> {
         title: const Text('Choose Vault'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Padding(
+      body: SafeArea(
+        top: false,
+        child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -90,7 +92,7 @@ class _VaultSetupScreenState extends State<VaultSetupScreen> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 }

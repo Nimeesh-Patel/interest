@@ -53,6 +53,7 @@ Each service owns exactly one directory. No service writes outside its directory
 
 - **All Markdown parsing** lives in `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, slugify, sanitizeFilename, timestamp helpers. Never reimplement in services or screens.
 - **All reusable dialogs and UI primitives** live in `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
+- **Spacing constants** live in `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0 — bottom padding for lists behind a FAB), `kScreenHPad` (16.0 — standard horizontal body padding). Use these instead of magic numbers.
 
 ## Subsystem constraints
 
@@ -73,6 +74,15 @@ Each service owns exactly one directory. No service writes outside its directory
 **Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then add `DropdownMenuItem` entries in screens. Entity/board pickers are pre-sorted A→Z inline (not via `sortEntities`).
 
 **Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding new category-specific fields requires updating both `_parseEntityFile` and `_buildFrontmatter` in `markdown_storage_service.dart`.
+
+## Mobile UX conventions
+
+Full reference: [docs/mobile_ux.md](docs/mobile_ux.md). Enforcement rules:
+
+- Every `Scaffold` body: wrap in `SafeArea(top: false)` (AppBar handles top; SafeArea handles gesture nav bar bottom)
+- Every list behind a FAB: `padding: const EdgeInsets.only(bottom: kFabListBottomPad)`
+- Scrollable search sheets (`isScrollControlled: true`): use `screenHeight * fraction` for SizedBox height, never fixed pixels
+- Every `TextField`: declare `textInputAction` (`next` / `done` / `newline` / `send`)
 
 ## When to update documentation
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/constants/app_spacing.dart';
 import '../models/anki_card.dart';
 import '../services/anki_storage_service.dart';
 import '../services/anki_sync_service.dart';
@@ -129,6 +130,7 @@ class _AnkiScreenState extends State<AnkiScreen> {
 
   Widget _buildList() {
     return ListView.builder(
+      padding: const EdgeInsets.only(bottom: kFabListBottomPad),
       itemCount: _cards.length,
       itemBuilder: (context, i) => _buildCard(_cards[i]),
     );

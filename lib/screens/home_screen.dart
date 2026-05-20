@@ -739,20 +739,17 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _openObsidian,
             tooltip: 'Open Obsidian to sync',
           ),
-          IconButton(
-            icon: const Icon(Icons.style_outlined),
-            onPressed: _openAnki,
-            tooltip: 'Anki cards',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: _openSettings,
-            tooltip: 'Settings',
-          ),
-          IconButton(
-            icon: const Icon(Icons.description_outlined),
-            onPressed: _openTemplates,
-            tooltip: 'Templates',
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'anki') { _openAnki(); }
+              else if (v == 'settings') { _openSettings(); }
+              else if (v == 'templates') { _openTemplates(); }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'anki', child: Text('Anki')),
+              PopupMenuItem(value: 'settings', child: Text('Settings')),
+              PopupMenuItem(value: 'templates', child: Text('Templates')),
+            ],
           ),
         ],
       ),

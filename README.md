@@ -55,64 +55,7 @@ Wikilinks (`[[EntityName]]`) are scanned from the **entire Markdown body** — n
 
 Six entity types load on startup (entities, categories, tags, entity links, boards, board entities) and stay in-memory. `saveData()` fires after every mutation. Core entity fields defer to the explicit Save button — required so Cancel can restore the pre-edit snapshot atomically. Join-table mutations (board memberships, entity links) save immediately because they mutate shared lists the snapshot does not cover.
 
-### Entity file format
-
-```markdown
----
-alias: david-deutsch
-category: People
-score: 10.0
-tags:
-  - epistemology
-  - physics
-created_at: 2026-05-07T12:00:00.000Z
-updated_at: 2026-05-07T12:00:00.000Z
----
-# David Deutsch
-
-## Why Interesting
-
-- Developed constructor theory and extended Popperian epistemology.
-
-## Related
-
-- [[Karl Popper]]
-- [[Alan Turing]]
-
-## Sources
-
-- https://en.wikipedia.org/wiki/David_Deutsch
-
-## Background
-
-Any section the user adds here is preserved verbatim on every save.
-```
-
-### Board and template file formats
-
-```markdown
-# Flat Hierarchy Solution
-
-- [[David Deutsch]]
-- [[Browser]]
-- [[Untidiness]]
-```
-
-```markdown
----
-category: Default
-template: true
----
-# {{title}}
-
-## Why Interesting
-
-## Related
-
-## Sources
-```
-
-Five templates are seeded on first launch (`default`, `person`, `product`, `idea`, `movie`). Users can edit, delete, or create templates from within the app. `{{title}}` is the only supported placeholder.
+File formats, frontmatter field reference, service methods, and EntityScreen interaction model: [docs/entities.md](docs/entities.md).
 
 ## Architecture
 
@@ -122,6 +65,7 @@ lib/
   core/                    — vault path (SharedPreferences) + directory bootstrap
   shared/markdown/         — pure Markdown parsing (md_utils) + filesystem I/O (md_io)
   shared/widgets/          — 6 reusable UI primitives
+  shared/constants/        — app-wide constants (app_spacing.dart)
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
     boards/                — Board model, BoardDetailScreen (membership derived at load time)
@@ -134,7 +78,7 @@ lib/
 
 ## Subsystems
 
-**Entities + graph.** Each entity is a node in a semantic graph. Categories are not stored separately — they are derived from distinct `category` frontmatter values at load time. Board membership lives in the board's `.md` file as a wikilink list, not in entity frontmatter. This localizes mutations: changing a board's membership requires rewriting only the board file, not every member entity.
+**Entities + graph.** Each entity is a node in a semantic graph. Categories are not stored separately — they are derived from distinct `category` frontmatter values at load time. Board membership lives in the board's `.md` file as a wikilink list, not in entity frontmatter. This localizes mutations: changing a board's membership requires rewriting only the board file, not every member entity. Full details: [docs/entities.md](docs/entities.md).
 
 **Tasks.** Task files are ephemeral working lists, not knowledge nodes. They have no `alias` and cannot participate in the entity graph. Deletion is hard (no trash) because there is no identity to preserve. The in-memory `TaskBlock` tree is a parsed projection; Markdown files remain canonical. `parseNodes()` is pure and stateless — it must be called on freshly loaded lines, never cached across reloads. Full details: [docs/tasks.md](docs/tasks.md).
 

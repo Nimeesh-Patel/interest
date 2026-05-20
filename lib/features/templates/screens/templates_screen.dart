@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../../../shared/constants/app_spacing.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
@@ -157,6 +158,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                   ),
                 )
               : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: kFabListBottomPad),
                   itemCount: _templates.length,
                   itemBuilder: (ctx, i) {
                     final item = _templates[i];

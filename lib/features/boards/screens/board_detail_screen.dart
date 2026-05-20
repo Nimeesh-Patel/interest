@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/constants/app_spacing.dart';
 import '../models/board.dart';
 import '../models/board_entity.dart';
 import '../../entities/models/category.dart';
@@ -138,7 +139,7 @@ class _BoardDetailScreenState extends State<BoardDetailScreen> {
                 bottom: MediaQuery.of(ctx).viewInsets.bottom,
               ),
               child: SizedBox(
-                height: 420,
+                height: MediaQuery.of(ctx).size.height * 0.60,
                 child: Column(
                   children: [
                     Padding(
@@ -295,6 +296,7 @@ class _BoardDetailScreenState extends State<BoardDetailScreen> {
                     ),
                   )
                 : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: kFabListBottomPad),
                     itemCount: members.length,
                     itemBuilder: (ctx, i) {
                       final entity = members[i];
