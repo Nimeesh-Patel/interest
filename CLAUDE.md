@@ -39,6 +39,7 @@ Each service owns exactly one directory. No service writes outside its directory
 | `LetterboxdService` | `Interesting/Entities/` (bypasses `saveData()`; see README § Subsystems) |
 | `AnkiStorageService` | `Interesting/Anki/` + `Interesting/Anki/.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` |
+| `ReadwiseService` | `Interesting/Books/` |
 | `VaultService.ensureVaultDirectories()` | creates all subdirs + seeds templates on first launch |
 
 ## Identity anchors
@@ -60,6 +61,8 @@ Each service owns exactly one directory. No service writes outside its directory
 **Tasks** — no YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`, never from `loadTaskFiles()`); `_collapsed` is session-only, never persist to file or SharedPreferences; `deleteBlock` is hard-delete with no trash; task wikilinks are preserved verbatim but not wired into `EntityLink` graph; do not add due dates, reminders, priorities, notifications, or drag-to-reorder. Full details: [docs/tasks.md](docs/tasks.md).
 
 **Grokipedia** — all-static, all-catch-null; never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
+
+**Readwise** — `ReadwiseService` all-static, all-catch-null, never throws; token in SharedPreferences (key `readwise_access_token`); writes to `Interesting/Books/` only (not `Entities/`) via `VaultService.booksPath()`; book files are NOT loaded by `MarkdownStorageService` and do not participate in the entity graph; re-import is append-only — scan for existing `^rw{id}` block IDs, append only new highlights, never overwrite; no auto-sync, no background polling. Full details: [docs/readwise.md](docs/readwise.md).
 
 **Obsidian launch ergonomics** — UI-only AppBar action in `home_screen.dart`; fires `obsidian://` URI via `url_launcher` and returns; no sync logic, no background behavior, no state. Do not add polling, sync detection, or lifecycle hooks.
 

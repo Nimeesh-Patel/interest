@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../anki/services/anki_connect_service.dart';
 import '../../entities/services/letterboxd_service.dart';
+import '../../readwise/screens/readwise_screen.dart';
+import '../../readwise/services/readwise_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,17 +25,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _ankiStatus;
   bool _ankiStatusOk = false;
 
+  // Readwise
+  final _readwiseTokenController = TextEditingController();
+  bool _readwiseSaving = false;
+  String? _readwiseSaveStatus;
+
   @override
   void initState() {
     super.initState();
     _loadSavedUrl();
     _loadAnkiUrl();
+    _loadReadwiseToken();
   }
 
   @override
   void dispose() {
     _urlController.dispose();
     _ankiUrlController.dispose();
+    _readwiseTokenController.dispose();
     super.dispose();
   }
 
@@ -93,6 +102,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ankiTesting = false;
         _ankiStatusOk = ok;
         _ankiStatus = ok ? 'Connected' : 'Failed — check URL and that Anki is open';
+      });
+    }
+  }
+
+  Future<void> _loadReadwiseToken() async {
+    final token = await ReadwiseService.getToken();
+    if (mounted) setState(() => _readwiseTokenController.text = token ?? '');
+  }
+
+  Future<void> _saveReadwiseToken() async {
+    final token = _readwiseTokenController.text.trim();
+    setState(() {
+      _readwiseSaving = true;
+      _readwiseSaveStatus = null;
+    });
+    await ReadwiseService.setToken(token);
+    if (mounted) {
+      setState(() {
+        _readwiseSaving = false;
+        _readwiseSaveStatus = token.isEmpty ? 'Token cleared.' : 'Token saved.';
       });
     }
   }
@@ -208,6 +237,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+
+          // ── Readwise ─────────────────────────────────────────────────────
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          const Text(
+            'Readwise',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Import book highlights from Readwise into the vault as Markdown files. '
+            'Find your access token at readwise.io/access_token.',
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _readwiseTokenController,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Access Token',
+              hintText: 'Paste your Readwise access token',
+              border: OutlineInputBorder(),
+            ),
+            autocorrect: false,
+            onSubmitted: (_) => _saveReadwiseToken(),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _readwiseSaving ? null : _saveReadwiseToken,
+              child: _readwiseSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Token'),
+            ),
+          ),
+          if (_readwiseSaveStatus != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _readwiseSaveStatus!,
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.book_outlined),
+            label: const Text('Open Import Screen'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ReadwiseScreen()),
+            ),
+          ),
         ],
       ),
     );

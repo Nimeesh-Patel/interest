@@ -34,6 +34,8 @@ class VaultService {
     if (!await atdir.exists()) await atdir.create(recursive: true);
     final tsdir = Directory(tasksPath(vaultPath));
     if (!await tsdir.exists()) await tsdir.create(recursive: true);
+    final bkdir = Directory(booksPath(vaultPath));
+    if (!await bkdir.exists()) await bkdir.create(recursive: true);
     await _seedDefaultTemplates(tdir.path);
   }
 
@@ -54,6 +56,9 @@ class VaultService {
 
   static String tasksPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Tasks');
+
+  static String booksPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Books');
 
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {

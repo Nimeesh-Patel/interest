@@ -2,8 +2,6 @@
 
 A filesystem-native semantic knowledge layer: all data lives as plain Markdown files in a user-chosen vault folder. The app is a projection over that vault — it reads, patches, and navigates Markdown without owning it. Compatible with Obsidian; readable by any text editor. Single-user Android app. No database, no cloud, no auth.
 
-**The central design bet:** Markdown is the database. A parallel SQLite or JSON store would create dual-truth — when they diverge (and they always do eventually), there is no canonical answer. Eliminating the second store eliminates the divergence problem entirely.
-
 ## Vault layout
 
 ```
@@ -15,9 +13,10 @@ A filesystem-native semantic knowledge layer: all data lives as plain Markdown f
     Anki/         — one .md file per Anki card
       .trash/     — soft-deleted cards
     Tasks/        — one .md file per task topic; pure Markdown, no frontmatter
+    Books/        — one .md file per Readwise book (highlights from that book)
 ```
 
-All subdirectories are created on first launch. All other files in the vault are ignored.
+All subdirectories are created on first launch (`VaultService.ensureVaultDirectories`). All other files in the vault are ignored.
 
 ## Semantic storage model
 
@@ -54,20 +53,7 @@ Wikilinks (`[[EntityName]]`) are scanned from the **entire Markdown body** — n
 
 ### AppData and save semantics
 
-```dart
-typedef AppData = ({
-  List<Entity> entities,
-  List<Category> categories,
-  List<String> tags,
-  List<EntityLink> entityLinks,
-  List<Board> boards,
-  List<BoardEntity> boardEntities,
-});
-```
-
-Loaded once at startup. Mutated in-place. `saveData()` fired after every mutation. Core entity fields (name, category, tags, score, notes, links) are not auto-saved during editing — save is deferred to the explicit Save button. This is required for Cancel to be atomic: Cancel restores from a pre-edit snapshot; any auto-save during editing would make the pre-edit state unrecoverable.
-
-Join-table mutations (board memberships, entity links) save immediately because they mutate shared lists the entity snapshot does not cover.
+Six entity types load on startup (entities, categories, tags, entity links, boards, board entities) and stay in-memory. `saveData()` fires after every mutation. Core entity fields defer to the explicit Save button — required so Cancel can restore the pre-edit snapshot atomically. Join-table mutations (board memberships, entity links) save immediately because they mutate shared lists the snapshot does not cover.
 
 ### Entity file format
 
@@ -141,11 +127,10 @@ lib/
     boards/                — Board model, BoardDetailScreen (membership derived at load time)
     tasks/                 — TaskBlock tree, TaskStorageService (no frontmatter, hard-delete)
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
+    readwise/              — ReadwiseBook/Highlight models, ReadwiseService, ReadwiseScreen
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all three tabs)
 ```
-
-`lib/shared/markdown/md_utils.dart` is the single location for all Markdown parsing logic — frontmatter splitting, section parsing, wikilink extraction, slugify, sanitizeFilename, timestamp helpers. Services and screens import from there; they never reimplement parsing inline.
 
 ## Subsystems
 
@@ -160,6 +145,8 @@ lib/
 **Grokipedia.** Read-only projection: the app searches for an article matching the entity name and displays it inline. Nothing is written to the vault. All network calls are all-catch-null; any failure degrades gracefully to "No article found."
 
 **Android widget.** A native Android Activity (no Flutter engine at runtime). It reads the vault path directly from `FlutterSharedPreferences` using the `flutter.vault_path` key — the prefix Flutter's shared_preferences plugin uses — because VaultService and all Flutter APIs are unavailable outside the Flutter engine. Always writes `category: Default`.
+
+**Readwise.** Ingestion-only: Readwise API → book highlight files in `Interesting/Books/`. One `.md` file per book; highlights are blockquote blocks with `^rw{id}` block IDs. Re-importing appends only new highlights — never overwrites existing content. Token stored in SharedPreferences (`readwise_access_token`). No auto-sync, no background polling. Full details: [docs/readwise.md](docs/readwise.md).
 
 **Obsidian launch ergonomics.** A single AppBar action (`Icons.sync` in `home_screen.dart`) that launches the Obsidian app via `launchUrl(Uri.parse('obsidian://'), mode: LaunchMode.externalApplication)`. Purpose: Obsidian Sync only activates when Obsidian is foregrounded; this eliminates the manual switch after editing. The app itself remains sync-agnostic — it fires the URI and returns. Snackbar on failure (app not installed). No sync logic, no background launch, no state monitoring.
 
@@ -182,6 +169,6 @@ First launch shows a vault folder picker. Select any folder (e.g. your Obsidian 
 - `shared_preferences` — vault path and settings persistence
 - `path` — cross-platform path manipulation
 - `permission_handler` — Android All Files Access gate
-- `http` — Letterboxd RSS, AnkiConnect, Grokipedia (user-triggered or non-blocking; no background polling)
+- `http` — Letterboxd RSS, AnkiConnect, Grokipedia, Readwise API (all user-triggered or non-blocking; no background polling)
 - `xml` — RSS/XML parsing (Letterboxd)
 - `url_launcher` — opens Grokipedia article URLs in external browser; launches Obsidian via `obsidian://` URI scheme
