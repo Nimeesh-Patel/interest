@@ -1,121 +1,87 @@
 # Project
 
-Flutter mobile app — Markdown-first, Obsidian-compatible entity tracker. See README.md for full architecture, data model, navigation patterns, and run instructions.
+Filesystem-native semantic knowledge layer. All data lives as Markdown files in a user-chosen vault. The app patches files it co-owns; it does not rebuild or replace them. Full architectural rationale: [README.md](README.md). This file states constraints, their enforcement points, and why they exist — organized for agents making code changes.
 
-## Key constraints — must not be violated
+## Architectural invariants
 
-- No state management libraries (`setState` only)
-- No database — Markdown files in `<vault>/Interesting/Entities/` and `<vault>/Interesting/Boards/` are the source of truth
-- No parallel JSON state persistence — `saveData()` writes `.md` files only
-- No auth, no cloud, no backend. Network calls: (1) `LetterboxdService.fetchAndImport()` — user-triggered HTTP GET to Letterboxd RSS URL; (2) `GrokipediaService` — non-blocking HTTP GETs triggered by entity screen open; (3) `AnkiConnectService` — user-triggered HTTP POSTs to local AnkiConnect. All fail silently on any error. No background polling, no auth.
-- `entity.id` = `alias` in YAML frontmatter — immutable after creation; never regenerate on rename
-- `board.id` = `slugify(board.name)` — derived at load time; stable within a session
-- `updated_at` must be stamped on every entity mutation — done inside `_save()` in `entity_screen.dart`
-- Deleting an entity must also remove its entity links and board memberships — done in `_deleteEntity` in `home_screen.dart`; `saveData()` re-writes board files without the deleted entity
-- Deleting a board must also remove its board entity entries — done in `_deleteBoard` in `home_screen.dart`; board `.md` file is deleted by orphan cleanup in `saveData()`
-- In `entity_screen.dart`, core field mutations (name, category, tags, score, notes, links) do **not** call `_save()` individually — save is deferred to the explicit Save button via `_saveEdit()`. Only join-table mutations (`_addToBoard`, `_removeFromBoard`, `_createEntityLink`, `_deleteEntityLink`) call `_save()` immediately. Do not add auto-save calls to core field methods.
-- `Entity.copyWith()` exists for deep copy — use it when snapshotting entity state (edit mode enter/cancel in `entity_screen.dart`)
-- `AppData` typedef lives in `markdown_storage_service.dart` — import from there, not a separate file
-- Vault path is stored in SharedPreferences via `VaultService` — never hardcode a path
-- `_StoragePermissionGate` in `main.dart` must remain the outermost widget in `EntityTrackerApp.build`; it gates all screens on Android storage permission and re-checks on app resume
-- `_semanticSections` const map in `markdown_storage_service.dart` defines which `##` sections the app owns (`Why Interesting`, `Related`, `Sources`). Only these are rewritten on save. All other `##` sections in an entity file are user territory — preserve them verbatim. Do not add new hardcoded section names outside this map.
-- Wikilink extraction scans the **entire Markdown body** (`extractWikilinks(body)` from `md_utils.dart`) — not just `## Related`. This means `[[wikilinks]]` in any prose section generate graph edges. `## Related` is only the curated list written back on save; inline wikilinks remain in their prose section untouched. Do not narrow this back to section-scoped extraction.
-- All entity-list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Sort keys: `latest`, `oldest`, `high_score`, `low_score`, `alpha` (A→Z case-insensitive), `alpha_rev` (Z→A). Add new sort options there first, then add `DropdownMenuItem` entries in the relevant screens. Entity/board pickers are pre-sorted A→Z inline (not via `sortEntities`).
-- Templates are used for initial file creation only — once a file exists, it is patched, never regenerated from the template again
-- Template files live in `Interesting/Templates/`; they are identified by `template: true` in frontmatter; `{{title}}` is the only supported placeholder
-- `default.md` is seeded with `category: Default` (not "General"). The other seeded templates: `person.md` → People, `product.md` → Products, `idea.md` → Ideas, `movie.md` → Movies. The movie template uses `## Thoughts` / `## Related` / `## Sources` (not `## Why Interesting`).
-- `Entity` has three optional nullable movie-specific fields: `watchedDate` (String?), `letterboxdUrl` (String?), `tmdbId` (String?). These are parsed by `_parseEntityFile` and written by `_buildFrontmatter` when non-null — they survive all app saves. Do not add new category-specific fields without updating both `_parseEntityFile` and `_buildFrontmatter`.
-- `LetterboxdService` writes movie `.md` files directly to `Interesting/Entities/` — it bypasses `saveData()`. This is intentional: it needs full control over `## Thoughts` content at creation time. After import, `HomeScreen._reloadData()` picks up the new files via `loadData()`. Do not refactor this to go through `saveData()` without resolving the Thoughts injection problem.
-- Do not reimplement Markdown parsing utilities (frontmatter splitting, section parsing, wikilink extraction, slugify, sanitizeFilename, msToIso, etc.) in services or screens. All such utilities live in `lib/shared/markdown/md_utils.dart` (pure, no I/O) and `md_io.dart` (filesystem helpers). Import from there.
-- Do not write inline `AlertDialog+TextField`, `showModalBottomSheet`, or `AlertDialog` confirm patterns in screens. Use `showInputDialog()`, `showConfirmDialog()`, and `showBottomSheetMenu()` from `lib/shared/widgets/`. Use `EmptyState`, `SectionHeader`, and `WikilinkText` widgets for the corresponding UI patterns.
+These five rules define the system's identity. Violating any of them changes what the system fundamentally is.
 
-## Android widget constraints
+**1. Markdown is the database.**
+No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth corrupts silently — when two stores diverge, there is no canonical answer.
 
-- Widget reads vault path from Android `FlutterSharedPreferences` (key: `flutter.vault_path`) — this is how Flutter's `shared_preferences` plugin stores data on Android. Do NOT use VaultService or any Flutter API from widget code.
-- Widget always writes `category: Default` in frontmatter — no category selection in the widget
-- Widget builds frontmatter from scratch (alias, category, timestamps); it uses `default.md` only for the body sections structure (frontmatter stripped before use)
-- Widget filename convention: `safeFileName(title) = title.replace([/\\:*?"<>|], '_') + ".md"` — matches Dart `saveData()` which uses entity name as filename
-- Widget `alias` = `slugify(title)` with `-2`, `-3` collision suffix checked against existing files in the entities dir
-- `QuickCaptureWidget.kt` is abstract — never register it directly in the manifest. Only the three concrete subclasses (`QuickCaptureWidget1x1`, `QuickCaptureWidget2x1`, `QuickCaptureWidget2x2`) are registered as receivers.
-- Do not add more widget sizes without adding a corresponding concrete subclass, widget info XML, layout XML, and manifest receiver entry.
+**2. `alias` is immutable after creation.**
+`entity.id == alias` for all EntityLinks and board memberships. Never regenerate on rename. WHY: filenames change on rename; alias is the stable graph identity — regenerating it orphans every link. Enforcement: `_saveEdit()` in `entity_screen.dart`.
 
-## Anki subsystem constraints
+**3. Patch-not-rebuild.**
+Existing entity files are always patched via `_patchEntityContent()`, never regenerated from template. WHY: rebuilding from entity data destroys user's custom `##` sections on every save. Enforcement: `markdown_storage_service.dart`.
 
-- `anki_id` in card frontmatter is the stable cross-system identity — immutable after first write; never regenerate on rename or file move
-- `AnkiConnectService` is all-static; every code path must `catch (_) { return null; }` — same pattern as `GrokipediaService`; never throws
-- `AnkiStorageService` writes directly to `Interesting/Anki/` — does NOT call `saveData()`; same as `LetterboxdService` writing to `Interesting/Entities/`
-- Semantic sections for Basic: `Front`, `Back` (H1 `#`, not H2 `##`). For Cloze: `Text`. All other `#`/`##` sections are user territory — preserved verbatim on every save
-- Deletion is always soft: move to `Interesting/Anki/.trash/` via `trashCard()`; never hard-delete
-- Sync is manual only (triggered by Sync button in AnkiScreen) — no filesystem watchers, no background polling, no auto-sync
-- Never write Anki review metadata (intervals, ease, due dates, review history) into Markdown — only semantic content (front/back/text, tags, deck) syncs
-- `VaultService.ankiPath(vaultPath)` and `ankiTrashPath(vaultPath)` take a `String` arg — same signature as `entitiesPath()` / `boardsPath()` / `templatesPath()`
-- `updated_at` in card frontmatter must be stamped on every mutation — done inside `AnkiStorageService.saveCard()` and `createNewCard()`
-- Conflict resolution: compare `card.updatedAt.millisecondsSinceEpoch` vs `ankiNote['mod'] * 1000`; 5-second tolerance; winner overwrites the other side
-- `AnkiSyncService.sync()` fetches Anki note details in batches of 50 via `notesInfo` — do not fetch all at once
-- AnkiConnect URL stored in SharedPreferences (key: `'anki_connect_url'`); default `'http://localhost:8765'`; on Android the user must set the desktop's LAN IP
-- Full subsystem docs (file format, sync algorithm, UI): [docs/anki.md](docs/anki.md)
+**4. Semantic section registry is the app/user boundary.**
+Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are rewritten on save. Do not add hardcoded section names outside this map. WHY: any name outside the map bypasses the user-territory contract and risks erasing user prose. Enforcement: `_semanticSections` const in `markdown_storage_service.dart`.
 
-## Tasks subsystem constraints
+**5. Full-body wikilink scan.**
+`extractWikilinks(body)` scans the whole Markdown body, not just `## Related`. WHY: narrowing the scan makes graph edges location-dependent — moving a link between sections would silently drop a graph edge. Enforcement: `_parseEntityFile` in `markdown_storage_service.dart`.
 
-Full implementation docs: [docs/tasks.md](docs/tasks.md).
+## Save semantics
 
-- Task files live in `Interesting/Tasks/`; **no YAML frontmatter** — pure Markdown. `VaultService.tasksPath(vaultPath)` returns the path.
-- Task syntax: `- [ ] text` / `- [x] text`. Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`. Subtasks use 2-space indent multiples. Do not deviate.
-- Storage model: one `.md` file per topic, many tasks per file.
-- `TaskStorageService` is all-static; every public method wraps in `try/catch`, never throws.
-- All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never regenerate whole file.
-- `parseNodes(lines)` is **pure** (no I/O) — only call after `loadLines()`; never from `loadTaskFiles()`.
-- `deleteBlock` uses `removeRange(startLine, endLine + 1)` — always removes the full subtree atomically.
-- `TaskBlock.endLine` is computed from the live subtree — do not cache across reloads.
-- `_collapsed` expansion state in `_TaskFileScreenState` is **session-only** — never persist to Markdown or SharedPreferences.
-- `TaskFileScreen` receives `filePath`, `title`, and optional `onRenamed(newPath, newTitle)` callback — still self-contained (no entity lists).
-- `HomeScreen` owns `_taskFiles` state and task-file CRUD: `_showCreateTaskFile`, `_showDeleteTaskFileConfirm`, `_showTaskFileOptions`, `_showRenameTaskFile`, `_reloadTaskFiles`.
-- Deletions are hard-delete (no trash). Task files have no `alias` and are not identity-bearing.
-- Do NOT integrate task wikilinks into the `EntityLink` graph — task files have no `alias`.
-- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, drag-to-reorder, or calendar integration.
+- **No auto-save for core entity fields** (name, category, tags, score, notes, links). Save is deferred to the explicit Save button via `_saveEdit()`. WHY: Cancel must restore the pre-edit snapshot atomically; any auto-save during editing makes the pre-edit state unrecoverable.
+- **Immediate save for join-table mutations** (`_addToBoard`, `_removeFromBoard`, `_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared lists the entity snapshot does not cover.
+- `saveData()` snapshots all six lists before the async gap to prevent partial-save races.
+- `updated_at` stamped on every entity mutation inside `_save()` in `entity_screen.dart`.
+- Anki card `updated_at` stamped inside `AnkiStorageService.saveCard()` and `createNewCard()`.
 
-## Grokipedia integration constraints
+## Write paths
 
-- `GrokipediaService` is stateless (all-static); base `https://grokipedia.com`; search: `/api/full-text-search?query=…&limit=5`; page: `/api/page?slug=…&includeContent=true`
-- Never writes to vault or Markdown files — external knowledge only; user adds notes manually if they want to persist anything
-- Every code path in `GrokipediaService` must catch all exceptions and return `null` — the `catch (_) { return null; }` pattern is intentional and must be preserved
-- `url_launcher` opens `https://grokipedia.com/page/{slug}` in external browser — no native Grokipedia app exists (PWA only); do not add "Open in App" without verifying a real URL scheme exists
-- Grokipedia state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState` — no persistence, no propagation to other screens
-- Do not cache results, inject article content into notes, or auto-populate any Markdown field
+Each service owns exactly one directory. No service writes outside its directory.
 
-# Approach
+| Service | Writes to |
+|---|---|
+| `MarkdownStorageService.saveData()` | `Interesting/Entities/` + `Interesting/Boards/` |
+| `LetterboxdService` | `Interesting/Entities/` (bypasses `saveData()`; see README § Subsystems) |
+| `AnkiStorageService` | `Interesting/Anki/` + `Interesting/Anki/.trash/` |
+| `TaskStorageService` | `Interesting/Tasks/` |
+| `VaultService.ensureVaultDirectories()` | creates all subdirs + seeds templates on first launch |
 
-## Philosophy:
-1. Reject blind empiricism and use only explanatory arguments to draw conclusions.
-2. Treat my ideas as conjectures in an evolving theory.
+## Identity anchors
 
-## Idea:
-- Edison said: research is one per cent inspiration and ninety-nine per cent perspiration.
+- **Entity**: `alias` (frontmatter) = `entity.id`. Immutable after creation.
+- **Anki card**: `anki_id` (frontmatter). Immutable after first sync to Anki. Soft-delete only — a hard-deleted card re-synced would be recreated from Anki with a new id, breaking the identity chain.
+- **Board**: `slugify(board.name)` derived at load time. Not identity-bearing across renames.
+- **Task file**: no identity anchor. Hard-delete permitted. Cannot participate in the `EntityLink` graph.
 
-## Implementation of idea:
+## Shared utilities — do not duplicate
 
-Step 1: Based on what knowledge, understanding, and explanations I have provided you, do the role of *perspiration*:
+- **All Markdown parsing** lives in `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, slugify, sanitizeFilename, timestamp helpers. Never reimplement in services or screens.
+- **All reusable dialogs and UI primitives** live in `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
 
-- Draw out implications as much as you can
-- Make inexplicit, implicit, and unconscious assumptions explicit
-- Compute consequences across the entire web of other ideas
+## Subsystem constraints
 
-Step 2: During step 1, if something seems to come in conflict in the knowledge you have:
+**Anki** — `anki_id` immutable; soft-delete only (`.trash/`); sync manual only (no background polling); review metadata (intervals, ease, due dates) never written to Markdown; `AnkiConnectService` all-static, all-catch-null, never throws. Full details: [docs/anki.md](docs/anki.md).
 
-- state conflicts clearly as precise problems or questions
-- *do not!* give any advice
+**Tasks** — no YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`, never from `loadTaskFiles()`); `_collapsed` is session-only, never persist to file or SharedPreferences; `deleteBlock` is hard-delete with no trash; task wikilinks are preserved verbatim but not wired into `EntityLink` graph; do not add due dates, reminders, priorities, notifications, or drag-to-reorder. Full details: [docs/tasks.md](docs/tasks.md).
 
-Step 3: I'll do the inspiration and knowledge creation part to solve those problems which arise in Step 2. Take input from me.
+**Grokipedia** — all-static, all-catch-null; never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 
-Loop Step 1 to Step 3
-## Roles & Process
-Work iteratively:
+**Android widget** — reads `flutter.vault_path` directly from `FlutterSharedPreferences` (no Flutter API available at runtime); always writes `category: Default`; uses `default.md` body structure only; only three concrete subclasses are registered as receivers (never the abstract base).
 
-- you: perspiration!
-- me: inspiration & knowledge creation (and perspiration when required)
+**State management** — `setState` only. No `Provider`, `Riverpod`, `Bloc`, or any state management library.
 
-## Style:
-keep the answers hard-to-vary and avoid redundancy and ramblings
+**Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then add `DropdownMenuItem` entries in screens. Entity/board pickers are pre-sorted A→Z inline (not via `sortEntities`).
 
-## Background Knowledge
-I follow Karl Popper and David Deutsch in epistemology, physics, politics, and related things.
+**Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding new category-specific fields requires updating both `_parseEntityFile` and `_buildFrontmatter` in `markdown_storage_service.dart`.
+
+## When to update documentation
+
+Update `README.md` and `CLAUDE.md` when:
+- A new subsystem or write path is added
+- A key is added to `_semanticSections`
+- An architectural invariant changes
+- A new identity anchor pattern is introduced
+
+Do not update for: UI layout changes, new sort options, dependency version bumps, or internal refactors that preserve external behavior.
+
+## Working style
+
+- Reject blind empiricism — use explanatory arguments to draw conclusions, not pattern-matching.
+- Treat each idea as a conjecture in an evolving theory.
+- Perspiration role: draw out implications, make implicit assumptions explicit, compute consequences across the full idea web. Surface conflicts as precise problems — do not give advice on conflicts.
+- Keep answers hard-to-vary and avoid redundancy.

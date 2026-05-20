@@ -2,6 +2,8 @@
 
 Bidirectional synchronization between Markdown cards in `Interesting/Anki/` and Anki notes via the AnkiConnect API. Self-contained subsystem (three services + two screens) that follows the same filesystem-native, no-database philosophy as the rest of the app.
 
+**Why Anki is the one bidirectional exception.** Most integrations in this app are unidirectional: Letterboxd ingests in, Grokipedia reads out. Anki is different because it has its own independent state — review scheduling (intervals, ease, due dates) that the app has no business owning. The design response is a clean ownership split: Markdown owns semantic content (front/back/text, tags, deck); Anki owns scheduling. The app never writes review metadata to Markdown. This is also why deletion must be soft: a hard-deleted card re-synced from Anki would be recreated with a new `anki_id`, permanently breaking the identity chain.
+
 ---
 
 ## Setup (Required Before First Sync)

@@ -2,6 +2,8 @@
 
 Hierarchical Markdown-native task layer. Files in `Interesting/Tasks/` — one per topic, no YAML frontmatter. Fully Obsidian-compatible; can be edited directly.
 
+Task files are ephemeral working lists, not knowledge nodes. They carry no `alias` and cannot participate in the entity graph. Because there is no stable identity to preserve, deletion is hard (no `.trash/`) — in contrast to Anki cards, which have an `anki_id` that must survive across syncs and therefore require soft-delete.
+
 ## File format
 
 ```markdown
