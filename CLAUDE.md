@@ -61,6 +61,8 @@ Each service owns exactly one directory. No service writes outside its directory
 
 **Grokipedia** — all-static, all-catch-null; never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 
+**Obsidian launch ergonomics** — UI-only AppBar action in `home_screen.dart`; fires `obsidian://` URI via `url_launcher` and returns; no sync logic, no background behavior, no state. Do not add polling, sync detection, or lifecycle hooks.
+
 **Android widget** — reads `flutter.vault_path` directly from `FlutterSharedPreferences` (no Flutter API available at runtime); always writes `category: Default`; uses `default.md` body structure only; only three concrete subclasses are registered as receivers (never the abstract base).
 
 **State management** — `setState` only. No `Provider`, `Riverpod`, `Bloc`, or any state management library.

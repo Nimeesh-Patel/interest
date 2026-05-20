@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../features/boards/models/board.dart';
 import '../features/boards/models/board_entity.dart';
 import '../features/entities/models/category.dart';
@@ -192,6 +193,18 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => const AnkiScreen()),
     );
+  }
+
+  Future<void> _openObsidian() async {
+    final launched = await launchUrl(
+      Uri.parse('obsidian://'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Obsidian is not installed')),
+      );
+    }
   }
 
   // ── Category operations ───────────────────────────────────────────────────
@@ -721,6 +734,11 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _showCreateTaskFile,
               tooltip: 'New task file',
             ),
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: _openObsidian,
+            tooltip: 'Open Obsidian to sync',
+          ),
           IconButton(
             icon: const Icon(Icons.style_outlined),
             onPressed: _openAnki,

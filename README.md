@@ -161,6 +161,8 @@ lib/
 
 **Android widget.** A native Android Activity (no Flutter engine at runtime). It reads the vault path directly from `FlutterSharedPreferences` using the `flutter.vault_path` key — the prefix Flutter's shared_preferences plugin uses — because VaultService and all Flutter APIs are unavailable outside the Flutter engine. Always writes `category: Default`.
 
+**Obsidian launch ergonomics.** A single AppBar action (`Icons.sync` in `home_screen.dart`) that launches the Obsidian app via `launchUrl(Uri.parse('obsidian://'), mode: LaunchMode.externalApplication)`. Purpose: Obsidian Sync only activates when Obsidian is foregrounded; this eliminates the manual switch after editing. The app itself remains sync-agnostic — it fires the URI and returns. Snackbar on failure (app not installed). No sync logic, no background launch, no state monitoring.
+
 ## Running
 
 ```
@@ -182,4 +184,4 @@ First launch shows a vault folder picker. Select any folder (e.g. your Obsidian 
 - `permission_handler` — Android All Files Access gate
 - `http` — Letterboxd RSS, AnkiConnect, Grokipedia (user-triggered or non-blocking; no background polling)
 - `xml` — RSS/XML parsing (Letterboxd)
-- `url_launcher` — opens Grokipedia article URLs in external browser
+- `url_launcher` — opens Grokipedia article URLs in external browser; launches Obsidian via `obsidian://` URI scheme
