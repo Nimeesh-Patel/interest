@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../features/boards/models/board.dart';
-import '../features/boards/models/board_entity.dart';
+import '../core/vault_service.dart';
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/models/entity_link.dart';
+import '../features/lists/models/list_model.dart';
+import '../features/lists/services/list_storage_service.dart';
+import '../features/lists/screens/list_detail_screen.dart';
 import '../features/tasks/models/task.dart';
 import '../features/entities/services/markdown_storage_service.dart';
 import '../features/tasks/services/task_storage_service.dart';
+import '../shared/constants/app_spacing.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
 import '../shared/widgets/confirm_dialog.dart';
 import '../shared/widgets/empty_state.dart';
@@ -33,8 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Category> _categories = [];
   List<String> _tags = [];
   List<EntityLink> _entityLinks = [];
-  List<Board> _boards = [];
-  List<BoardEntity> _boardEntities = [];
+  List<ListModel> _lists = [];
   List<TaskFile> _taskFiles = [];
   String? _selectedCategoryId;
   String _searchQuery = '';
@@ -71,10 +73,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _categories = data.categories;
         _tags = data.tags;
         _entityLinks = data.entityLinks;
-        _boards = data.boards;
-        _boardEntities = data.boardEntities;
         _isLoading = false;
       });
+    }
+    final vault = await VaultService.getVaultPath();
+    if (vault != null) {
+      final lists = await ListStorageService.loadLists(vault);
+      if (mounted) setState(() => _lists = lists);
     }
     final taskFiles = await TaskStorageService.loadTaskFiles();
     if (mounted) setState(() => _taskFiles = taskFiles);
@@ -88,9 +93,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _categories = data.categories;
         _tags = data.tags;
         _entityLinks = data.entityLinks;
-        _boards = data.boards;
-        _boardEntities = data.boardEntities;
       });
+    }
+  }
+
+  Future<void> _reloadLists() async {
+    final vault = await VaultService.getVaultPath();
+    if (vault != null) {
+      final lists = await ListStorageService.loadLists(vault);
+      if (mounted) setState(() => _lists = lists);
     }
   }
 
@@ -105,8 +116,6 @@ class _HomeScreenState extends State<HomeScreen> {
       categories: _categories,
       tags: _tags,
       entityLinks: _entityLinks,
-      boards: _boards,
-      boardEntities: _boardEntities,
     );
   }
 
@@ -150,7 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _entities.removeWhere((e) => e.id == entity.id);
       _entityLinks.removeWhere((l) => l.from == entity.id || l.to == entity.id);
-      _boardEntities.removeWhere((be) => be.entityId == entity.id);
     });
     _save();
   }
@@ -166,12 +174,12 @@ class _HomeScreenState extends State<HomeScreen> {
           allCategories: _categories,
           allTags: _tags,
           allEntityLinks: _entityLinks,
-          allBoards: _boards,
-          allBoardEntities: _boardEntities,
+          allLists: _lists,
         ),
       ),
     );
     await _reloadData();
+    await _reloadLists();
   }
 
   Future<void> _openTemplates() async {
@@ -478,6 +486,122 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ── Lists tab operations ──────────────────────────────────────────────────
+
+  void _showCreateList() async {
+    final vault = await VaultService.getVaultPath();
+    if (vault == null) return;
+    if (!mounted) return;
+    final name = await showInputDialog(context,
+      title: 'New list',
+      hintText: 'Name',
+      confirmLabel: 'Create',
+      capitalization: TextCapitalization.words,
+    );
+    if (name == null) return;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final list = await ListStorageService.createList(vault, trimmed);
+    if (list != null) {
+      setState(() => _lists.add(list));
+      _lists.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+  }
+
+  void _showRenameList(ListModel list) async {
+    final vault = await VaultService.getVaultPath();
+    if (vault == null) return;
+    if (!mounted) return;
+    final name = await showInputDialog(context,
+      title: 'Rename list',
+      initialValue: list.name,
+      confirmLabel: 'Rename',
+      capitalization: TextCapitalization.words,
+    );
+    if (name == null) return;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == list.name) return;
+    final updated = await ListStorageService.renameList(vault, list, trimmed);
+    if (!mounted) return;
+    if (updated == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rename failed — name already in use.')),
+      );
+      return;
+    }
+    await _reloadLists();
+  }
+
+  void _showDeleteList(ListModel list) async {
+    final confirmed = await showConfirmDialog(context,
+      title: 'Delete list?',
+      message: 'Delete "${list.name}"? This cannot be undone.',
+    );
+    if (!confirmed) return;
+    final vault = await VaultService.getVaultPath();
+    if (vault == null) return;
+    await ListStorageService.deleteList(vault, list);
+    await _reloadLists();
+  }
+
+  void _showListOptions(ListModel list) {
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.drive_file_rename_outline,
+        label: 'Rename',
+        onTap: () => _showRenameList(list),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.delete_outline,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _showDeleteList(list),
+      ),
+    ]);
+  }
+
+  // ── Lists tab UI ──────────────────────────────────────────────────────────
+
+  Widget _buildListsTab() {
+    if (_lists.isEmpty) {
+      return const EmptyState(
+        icon: Icons.format_list_bulleted,
+        message: 'No lists yet.\nTap + to create one.',
+      );
+    }
+    return SafeArea(
+      top: false,
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: kFabListBottomPad),
+        itemCount: _lists.length,
+        itemBuilder: (ctx, i) {
+          final list = _lists[i];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: ListTile(
+              leading: Icon(Icons.format_list_bulleted, color: Colors.grey.shade400),
+              title: Text(list.name),
+              subtitle: Text(
+                list.items.isEmpty ? 'Empty' : '${list.items.length} item${list.items.length == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ListDetailScreen(list: list),
+                  ),
+                );
+                await _reloadLists();
+              },
+              onLongPress: () => _showListOptions(list),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // ── ToDos tab operations ──────────────────────────────────────────────────
 
   void _showCreateTaskFile() async {
@@ -612,9 +736,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    final tabTitle = switch (_currentTab) {
+      0 => 'Entities',
+      1 => 'Hardcover',
+      2 => 'Lists',
+      _ => 'Todos',
+    };
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentTab == 0 ? 'Entities' : _currentTab == 1 ? 'Hardcover' : 'ToDos'),
+        title: Text(tabTitle),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (_currentTab == 1)
@@ -623,7 +753,7 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Sync with Hardcover',
               onPressed: () => _hardcoverKey.currentState?.sync(),
             ),
-          if (_currentTab == 2)
+          if (_currentTab == 3)
             IconButton(
               icon: const Icon(Icons.add),
               onPressed: _showCreateTaskFile,
@@ -653,32 +783,34 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _buildEntitiesTab(),
           HardcoverScreen(key: _hardcoverKey),
+          _buildListsTab(),
           _buildTodosTab(),
         ],
       ),
-      floatingActionButton: _currentTab == 1
-          ? FloatingActionButton(
-              onPressed: () => _hardcoverKey.currentState?.openSearchSheet(),
-              tooltip: 'Search Hardcover',
-              child: const Icon(Icons.search),
-            )
-          : null,
+      floatingActionButton: switch (_currentTab) {
+        1 => FloatingActionButton(
+            onPressed: () => _hardcoverKey.currentState?.openSearchSheet(),
+            tooltip: 'Search Hardcover',
+            child: const Icon(Icons.search),
+          ),
+        2 => FloatingActionButton(
+            onPressed: _showCreateList,
+            tooltip: 'New list',
+            child: const Icon(Icons.add),
+          ),
+        _ => null,
+      },
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         currentIndex: _currentTab,
         onTap: (i) => setState(() => _currentTab = i),
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Colors.grey.shade600,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.list_alt),
-            label: 'Entities',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.auto_stories),
-            label: 'Hardcover',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.check_box_outline_blank),
-            label: 'ToDos',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Entities'),
+          BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Hardcover'),
+          BottomNavigationBarItem(icon: Icon(Icons.format_list_bulleted), label: 'Lists'),
+          BottomNavigationBarItem(icon: Icon(Icons.check_box_outline_blank), label: 'Todos'),
         ],
       ),
     );

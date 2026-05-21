@@ -23,12 +23,10 @@ class VaultService {
 
   static Future<void> ensureVaultDirectories(String vaultPath) async {
     final edir = Directory(entitiesPath(vaultPath));
-    final bdir = Directory(boardsPath(vaultPath));
     final tdir = Directory(templatesPath(vaultPath));
     final adir = Directory(ankiPath(vaultPath));
     final atdir = Directory(ankiTrashPath(vaultPath));
     if (!await edir.exists()) await edir.create(recursive: true);
-    if (!await bdir.exists()) await bdir.create(recursive: true);
     if (!await tdir.exists()) await tdir.create(recursive: true);
     if (!await adir.exists()) await adir.create(recursive: true);
     if (!await atdir.exists()) await atdir.create(recursive: true);
@@ -36,7 +34,20 @@ class VaultService {
     if (!await tsdir.exists()) await tsdir.create(recursive: true);
     final bkdir = Directory(booksPath(vaultPath));
     if (!await bkdir.exists()) await bkdir.create(recursive: true);
+    await _migrateBoardsToLists(vaultPath);
+    final ldir = Directory(listsPath(vaultPath));
+    if (!await ldir.exists()) await ldir.create(recursive: true);
     await _seedDefaultTemplates(tdir.path);
+  }
+
+  static Future<void> _migrateBoardsToLists(String vaultPath) async {
+    try {
+      final oldDir = Directory(p.join(vaultPath, 'Interesting', 'Boards'));
+      final newDir = Directory(listsPath(vaultPath));
+      if (await oldDir.exists() && !await newDir.exists()) {
+        await oldDir.rename(newDir.path);
+      }
+    } catch (_) {}
   }
 
   static String entitiesPath(String vaultPath) =>
@@ -44,6 +55,9 @@ class VaultService {
 
   static String boardsPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Boards');
+
+  static String listsPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Lists');
 
   static String templatesPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Templates');

@@ -109,7 +109,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   // ── Block mutations ───────────────────────────────────────────────────────
 
   Future<void> _toggle(TaskBlock block) async {
-    await TaskStorageService.toggleTask(_currentPath, block.startLine);
+    await TaskStorageService.toggleBlockAndReorder(_currentPath, block);
     await _reload();
   }
 
@@ -169,6 +169,14 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       count += _countDescendants(child);
     }
     return count;
+  }
+
+  int? _firstCompleteRootNodeIdx() {
+    for (int i = 0; i < _nodes.length; i++) {
+      final n = _nodes[i];
+      if (n is TaskBlock && n.indentSpaces == 0 && n.completed) return i;
+    }
+    return null;
   }
 
   // ── Rename ────────────────────────────────────────────────────────────────
@@ -237,7 +245,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   // ── Task block renderer ───────────────────────────────────────────────────
 
-  Widget _buildBlockWidget(TaskBlock block, int depth) {
+  Widget _buildBlockWidget(TaskBlock block, int depth, {int? reorderIndex}) {
     final leftPad = depth * 24.0;
     final hasExpandable =
         block.children.isNotEmpty || block.noteLineIndices.isNotEmpty;
@@ -264,6 +272,16 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // Drag handle (root blocks only)
+                if (depth == 0 && reorderIndex != null && !isEditing)
+                  ReorderableDragStartListener(
+                    index: reorderIndex,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 2),
+                      child: Icon(Icons.drag_indicator,
+                          size: 16, color: Colors.grey.shade300),
+                    ),
+                  ),
                 // Collapse chevron
                 SizedBox(
                   width: 24,
@@ -627,6 +645,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final int? dividerAt = _isLoading ? null : _firstCompleteRootNodeIdx();
+    final int displayCount = _nodes.length + (dividerAt != null ? 1 : 0);
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentTitle),
@@ -650,11 +670,66 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                       ? const EmptyState(
                           message: 'No content yet.\nAdd a task below.',
                         )
-                      : ListView(
+                      : ReorderableListView.builder(
+                          buildDefaultDragHandles: false,
                           padding: const EdgeInsets.only(top: 8, bottom: 16),
-                          children: _nodes
-                              .map(_buildNodeWidget)
-                              .toList(),
+                          itemCount: displayCount,
+                          itemBuilder: (ctx, displayIdx) {
+                            if (dividerAt != null && displayIdx == dividerAt) {
+                              return const Padding(
+                                key: ValueKey('_cmp_divider'),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 4),
+                                child: Row(children: [
+                                  Expanded(child: Divider()),
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 8),
+                                    child: Text('Completed',
+                                        style: TextStyle(
+                                            fontSize: 11, color: Colors.grey)),
+                                  ),
+                                  Expanded(child: Divider()),
+                                ]),
+                              );
+                            }
+                            final nodeIdx = (dividerAt != null && displayIdx > dividerAt)
+                                ? displayIdx - 1
+                                : displayIdx;
+                            final node = _nodes[nodeIdx];
+                            if (node is TaskBlock && node.indentSpaces == 0) {
+                              return KeyedSubtree(
+                                key: ValueKey('blk-${node.startLine}'),
+                                child: _buildBlockWidget(node, 0,
+                                    reorderIndex: displayIdx),
+                              );
+                            }
+                            return KeyedSubtree(
+                              key: ValueKey('nd-$nodeIdx'),
+                              child: _buildNodeWidget(node),
+                            );
+                          },
+                          onReorder: (oldDisplayIdx, newDisplayIdx) async {
+                            if (dividerAt != null &&
+                                oldDisplayIdx == dividerAt) {
+                              return;
+                            }
+                            final oldNodeIdx =
+                                (dividerAt != null && oldDisplayIdx > dividerAt)
+                                    ? oldDisplayIdx - 1
+                                    : oldDisplayIdx;
+                            final postDividerAt = dividerAt != null
+                                ? (oldDisplayIdx < dividerAt
+                                    ? dividerAt - 1
+                                    : dividerAt)
+                                : null;
+                            final newNodeIdx = (postDividerAt != null &&
+                                    newDisplayIdx > postDividerAt)
+                                ? newDisplayIdx - 1
+                                : newDisplayIdx;
+                            await TaskStorageService.reorderRootBlocks(
+                                _currentPath, _nodes, oldNodeIdx, newNodeIdx);
+                            await _reload();
+                          },
                         ),
                 ),
                 const Divider(height: 1),

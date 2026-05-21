@@ -6,8 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:yaml/yaml.dart';
 
-import '../../boards/models/board.dart';
-import '../../boards/models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
@@ -19,8 +17,6 @@ typedef AppData = ({
   List<Category> categories,
   List<String> tags,
   List<EntityLink> entityLinks,
-  List<Board> boards,
-  List<BoardEntity> boardEntities,
 });
 
 // ── Section type registry ────────────────────────────────────────────────────
@@ -48,7 +44,6 @@ class MarkdownStorageService {
       await _migrateFromJson(vaultPath);
 
       final entitiesDirPath = VaultService.entitiesPath(vaultPath);
-      final boardsDirPath = VaultService.boardsPath(vaultPath);
 
       final entities = <Entity>[];
       final pendingRelated = <String, List<String>>{};
@@ -91,31 +86,6 @@ class MarkdownStorageService {
         }
       });
 
-      final boards = <Board>[];
-      final boardEntities = <BoardEntity>[];
-
-      final boardsDir = Directory(boardsDirPath);
-      if (await boardsDir.exists()) {
-        final all = await boardsDir.list().toList();
-        for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
-          try {
-            final content = await f.readAsString();
-            final boardName = extractH1(content) ?? p.basenameWithoutExtension(f.path);
-            final boardId = slugify(boardName);
-            if (boardId.isEmpty) continue;
-            boards.add(Board(id: boardId, name: boardName));
-
-            for (final memberName in extractWikilinks(content)) {
-              final memberId = nameToId[memberName];
-              if (memberId == null) continue;
-              if (!boardEntryExists(boardId, memberId, boardEntities)) {
-                boardEntities.add(BoardEntity(boardId: boardId, entityId: memberId));
-              }
-            }
-          } catch (_) {}
-        }
-      }
-
       final tags = entities.expand((e) => e.tags).toSet().toList()..sort();
 
       return (
@@ -123,8 +93,6 @@ class MarkdownStorageService {
         categories: categories,
         tags: tags,
         entityLinks: entityLinks,
-        boards: boards,
-        boardEntities: boardEntities,
       );
     } catch (_) {
       return _defaultData();
@@ -136,24 +104,18 @@ class MarkdownStorageService {
     required List<Category> categories,
     required List<String> tags,
     required List<EntityLink> entityLinks,
-    required List<Board> boards,
-    required List<BoardEntity> boardEntities,
   }) async {
     final snapEntities = List<Entity>.from(entities);
     final snapCategories = List<Category>.from(categories);
     final snapLinks = List<EntityLink>.from(entityLinks);
-    final snapBoards = List<Board>.from(boards);
-    final snapBoardEntities = List<BoardEntity>.from(boardEntities);
 
     try {
       final vaultPath = _vaultPath;
       if (vaultPath == null) return;
 
       final entitiesDirPath = VaultService.entitiesPath(vaultPath);
-      final boardsDirPath = VaultService.boardsPath(vaultPath);
 
       await Directory(entitiesDirPath).create(recursive: true);
-      await Directory(boardsDirPath).create(recursive: true);
 
       final catMap = {for (final c in snapCategories) c.id: c.name};
       final entityMap = {for (final e in snapEntities) e.id: e};
@@ -237,42 +199,6 @@ class MarkdownStorageService {
         }
       }
 
-      // ── Boards ──────────────────────────────────────────────────────────────
-
-      final existingBoardPaths = <String>{};
-      final boardsDir = Directory(boardsDirPath);
-      if (await boardsDir.exists()) {
-        final all = await boardsDir.list().toList();
-        for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
-          existingBoardPaths.add(f.path);
-        }
-      }
-
-      final writtenBoardPaths = <String>{};
-
-      for (final board in snapBoards) {
-        final memberIds = snapBoardEntities
-            .where((be) => be.boardId == board.id)
-            .map((be) => be.entityId)
-            .toSet();
-        final memberNames = snapEntities
-            .where((e) => memberIds.contains(e.id))
-            .map((e) => e.name)
-            .toList();
-
-        final content = _buildBoardMarkdown(board: board, memberNames: memberNames);
-        final filename = '${sanitizeFilename(board.name)}.md';
-        final filePath = p.join(boardsDirPath, filename);
-
-        await File(filePath).writeAsString(content);
-        writtenBoardPaths.add(filePath);
-      }
-
-      for (final path in existingBoardPaths) {
-        if (!writtenBoardPaths.contains(path)) {
-          try { await File(path).delete(); } catch (_) {}
-        }
-      }
     } catch (e, st) {
       debugPrint('MarkdownStorageService.saveData error: $e\n$st');
     }
@@ -294,18 +220,11 @@ class MarkdownStorageService {
 
   static String generateLinkId(String from, String to) => '$from--$to';
 
-  static bool boardEntryExists(
-          String boardId, String entityId, List<BoardEntity> entries) =>
-      entries.any((be) => be.boardId == boardId && be.entityId == entityId);
-
   static String generateEntityId(String name, List<Entity> existing) =>
       generateUniqueId(name, existing.map((e) => e.id).toSet(), fallback: 'entity');
 
   static String generateCategoryId(String name, List<Category> existing) =>
       generateUniqueId(name, existing.map((c) => c.id).toSet(), fallback: 'category');
-
-  static String generateBoardId(String name, List<Board> existing) =>
-      generateUniqueId(name, existing.map((b) => b.id).toSet(), fallback: 'board');
 
   static List<Entity> sortEntities(List<Entity> entities, String sortOrder) {
     final sorted = List<Entity>.from(entities);
@@ -636,21 +555,6 @@ class MarkdownStorageService {
     return buf.toString();
   }
 
-  static String _buildBoardMarkdown({
-    required Board board,
-    required List<String> memberNames,
-  }) {
-    final buf = StringBuffer();
-    buf.writeln('# ${board.name}');
-    if (memberNames.isNotEmpty) {
-      buf.writeln();
-      for (final name in memberNames) {
-        buf.writeln('- [[$name]]');
-      }
-    }
-    return buf.toString();
-  }
-
   // ── Private: migration ─────────────────────────────────────────────────────
 
   Future<void> _migrateFromJson(String vaultPath) async {
@@ -680,12 +584,6 @@ class MarkdownStorageService {
       final migLinks = (json['entity_links'] as List? ?? [])
           .map((l) => EntityLink.fromJson(l as Map<String, dynamic>))
           .toList();
-      final migBoards = (json['boards'] as List? ?? [])
-          .map((b) => Board.fromJson(b as Map<String, dynamic>))
-          .toList();
-      final migBoardEntities = (json['board_entities'] as List? ?? [])
-          .map((be) => BoardEntity.fromJson(be as Map<String, dynamic>))
-          .toList();
       final migTags = (json['tags'] as List? ?? []).cast<String>();
 
       await saveData(
@@ -693,8 +591,6 @@ class MarkdownStorageService {
         categories: migCategories,
         tags: migTags,
         entityLinks: migLinks,
-        boards: migBoards,
-        boardEntities: migBoardEntities,
       );
 
       await jsonFile.rename(p.join(appDir.path, 'entities.json.migrated'));
@@ -708,7 +604,5 @@ class MarkdownStorageService {
         categories: [Category(id: 'people', name: 'People')],
         tags: <String>[],
         entityLinks: <EntityLink>[],
-        boards: <Board>[],
-        boardEntities: <BoardEntity>[],
       );
 }

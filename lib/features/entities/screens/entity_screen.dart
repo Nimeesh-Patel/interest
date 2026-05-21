@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../boards/models/board.dart';
-import '../../boards/models/board_entity.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
+import '../../../core/vault_service.dart';
+import '../../../features/lists/models/list_model.dart';
+import '../../../features/lists/services/list_storage_service.dart';
 import '../../../shared/widgets/section_header.dart';
 
 class EntityScreen extends StatefulWidget {
@@ -16,8 +17,7 @@ class EntityScreen extends StatefulWidget {
   final List<Category> allCategories;
   final List<String> allTags;
   final List<EntityLink> allEntityLinks;
-  final List<Board> allBoards;
-  final List<BoardEntity> allBoardEntities;
+  final List<ListModel> allLists;
 
   const EntityScreen({
     super.key,
@@ -27,8 +27,7 @@ class EntityScreen extends StatefulWidget {
     required this.allCategories,
     required this.allTags,
     required this.allEntityLinks,
-    required this.allBoards,
-    required this.allBoardEntities,
+    required this.allLists,
   });
 
   @override
@@ -121,8 +120,6 @@ class _EntityScreenState extends State<EntityScreen> {
       categories: widget.allCategories,
       tags: _allTags,
       entityLinks: widget.allEntityLinks,
-      boards: widget.allBoards,
-      boardEntities: widget.allBoardEntities,
     );
   }
 
@@ -214,36 +211,41 @@ class _EntityScreenState extends State<EntityScreen> {
     setState(() => _entity.score = (value * 10).round() / 10);
   }
 
-  // ── Board mutations (immediate save — mutate join tables) ─────────────────
+  // ── List mutations ────────────────────────────────────────────────────────
 
-  List<Board> get _entityBoards => widget.allBoards
-      .where((b) => widget.allBoardEntities
-          .any((be) => be.boardId == b.id && be.entityId == _entity.id))
+  List<ListModel> get _entityLists => widget.allLists
+      .where((l) => l.items.any((item) => item.contains('[[${_entity.name}]]')))
       .toList();
 
-  void _addToBoard(String boardId) {
-    if (MarkdownStorageService.boardEntryExists(boardId, _entity.id, widget.allBoardEntities)) return;
-    setState(() {
-      widget.allBoardEntities.add(BoardEntity(boardId: boardId, entityId: _entity.id));
-    });
-    _save();
+  void _addToList(String listId) async {
+    final list = widget.allLists.firstWhere((l) => l.id == listId,
+        orElse: () => ListModel(id: '', name: '', items: []));
+    if (list.id.isEmpty) return;
+    final ref = '[[${_entity.name}]]';
+    if (list.items.contains(ref)) return;
+    final vault = await VaultService.getVaultPath();
+    if (vault == null) return;
+    await ListStorageService.addItem(vault, list, ref);
+    if (mounted) setState(() {});
   }
 
-  void _removeFromBoard(String boardId) {
-    setState(() {
-      widget.allBoardEntities.removeWhere(
-          (be) => be.boardId == boardId && be.entityId == _entity.id);
-    });
-    _save();
+  void _removeFromList(String listId) async {
+    final list = widget.allLists.firstWhere((l) => l.id == listId,
+        orElse: () => ListModel(id: '', name: '', items: []));
+    if (list.id.isEmpty) return;
+    final ref = '[[${_entity.name}]]';
+    final idx = list.items.indexOf(ref);
+    if (idx == -1) return;
+    final vault = await VaultService.getVaultPath();
+    if (vault == null) return;
+    await ListStorageService.removeItem(vault, list, idx);
+    if (mounted) setState(() {});
   }
 
-  void _showAddToBoard() {
-    final alreadyIn = widget.allBoardEntities
-        .where((be) => be.entityId == _entity.id)
-        .map((be) => be.boardId)
-        .toSet();
-    final candidates = widget.allBoards
-        .where((b) => !alreadyIn.contains(b.id))
+  void _showAddToList() {
+    final alreadyIn = _entityLists.map((l) => l.id).toSet();
+    final candidates = widget.allLists
+        .where((l) => !alreadyIn.contains(l.id))
         .toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -257,23 +259,23 @@ class _EntityScreenState extends State<EntityScreen> {
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Add to board',
+                child: Text('Add to list',
                     style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
               ),
             ),
             if (candidates.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('No boards available.',
+                child: Text('No lists available.',
                     style: TextStyle(color: Colors.grey)),
               )
             else
-              for (final board in candidates)
+              for (final list in candidates)
                 ListTile(
-                  title: Text(board.name),
+                  title: Text(list.name),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _addToBoard(board.id);
+                    _addToList(list.id);
                   },
                 ),
           ],
@@ -510,7 +512,7 @@ class _EntityScreenState extends State<EntityScreen> {
           ? widget.allCategories.first
           : Category(id: '', name: ''),
     );
-    final boards = _entityBoards;
+    final lists = _entityLists;
     final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
@@ -564,17 +566,17 @@ class _EntityScreenState extends State<EntityScreen> {
           Text('No score set.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
         const SizedBox(height: 12),
-        // Boards
-        if (boards.isEmpty)
-          Text('Not in any board.',
+        // Lists
+        if (lists.isEmpty)
+          Text('Not in any list.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
         else
           Wrap(
             spacing: 6,
             runSpacing: 4,
-            children: boards
-                .map((b) => Chip(
-                      label: Text(b.name, style: const TextStyle(fontSize: 12)),
+            children: lists
+                .map((l) => Chip(
+                      label: Text(l.name, style: const TextStyle(fontSize: 12)),
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
@@ -636,8 +638,7 @@ class _EntityScreenState extends State<EntityScreen> {
                     allCategories: widget.allCategories,
                     allTags: _allTags,
                     allEntityLinks: widget.allEntityLinks,
-                    allBoards: widget.allBoards,
-                    allBoardEntities: widget.allBoardEntities,
+                    allLists: widget.allLists,
                   ),
                 ),
               ).then((_) => setState(() {})),
@@ -701,7 +702,7 @@ class _EntityScreenState extends State<EntityScreen> {
         const Divider(height: 24),
         _buildScoreSection(),
         const Divider(height: 24),
-        _buildBoardsSection(),
+        _buildListsSection(),
         const Divider(height: 24),
         _buildNotesSection(),
         const Divider(height: 24),
@@ -867,8 +868,8 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  Widget _buildBoardsSection() {
-    final boards = _entityBoards;
+  Widget _buildListsSection() {
+    final lists = _entityLists;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -876,14 +877,14 @@ class _EntityScreenState extends State<EntityScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Row(
             children: [
-              const Text('Boards',
+              const Text('Lists',
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
               const Spacer(),
-              if (widget.allBoards.isNotEmpty)
+              if (widget.allLists.isNotEmpty)
                 TextButton.icon(
-                  onPressed: _showAddToBoard,
+                  onPressed: _showAddToList,
                   icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Add to board', style: TextStyle(fontSize: 13)),
+                  label: const Text('Add to list', style: TextStyle(fontSize: 13)),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -892,13 +893,13 @@ class _EntityScreenState extends State<EntityScreen> {
             ],
           ),
         ),
-        if (boards.isEmpty)
+        if (lists.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
-              widget.allBoards.isEmpty
-                  ? 'No boards yet.'
-                  : 'Not in any board.',
+              widget.allLists.isEmpty
+                  ? 'No lists yet.'
+                  : 'Not in any list.',
               style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
           )
@@ -909,11 +910,11 @@ class _EntityScreenState extends State<EntityScreen> {
               spacing: 6,
               runSpacing: 4,
               children: [
-                for (final board in boards)
+                for (final list in lists)
                   Chip(
-                    label: Text(board.name, style: const TextStyle(fontSize: 12)),
+                    label: Text(list.name, style: const TextStyle(fontSize: 12)),
                     deleteIcon: const Icon(Icons.close, size: 14),
-                    onDeleted: () => _removeFromBoard(board.id),
+                    onDeleted: () => _removeFromList(list.id),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
@@ -1229,8 +1230,7 @@ class _EntityScreenState extends State<EntityScreen> {
                     allCategories: widget.allCategories,
                     allTags: _allTags,
                     allEntityLinks: widget.allEntityLinks,
-                    allBoards: widget.allBoards,
-                    allBoardEntities: widget.allBoardEntities,
+                    allLists: widget.allLists,
                   ),
                 ),
               ).then((_) => setState(() {})),

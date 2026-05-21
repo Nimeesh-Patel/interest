@@ -72,7 +72,7 @@ class _VaultSetupScreenState extends State<VaultSetupScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Will create: Interesting/Entities  ·  Interesting/Boards  ·  Interesting/Templates',
+                'Will create: Interesting/Entities  ·  Interesting/Lists  ·  Interesting/Templates',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],

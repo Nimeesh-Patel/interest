@@ -8,7 +8,7 @@ A filesystem-native semantic knowledge layer: all data lives as plain Markdown f
 <vault>/
   Interesting/
     Entities/     — one .md file per entity
-    Boards/       — one .md file per board (wikilink list of members)
+    Lists/        — one .md file per list (flat item collection; items are arbitrary text/wikilinks)
     Templates/    — category templates; seeded on first launch; user-editable
     Anki/         — one .md file per Anki card
       .trash/     — soft-deleted cards
@@ -53,7 +53,7 @@ Wikilinks (`[[EntityName]]`) are scanned from the **entire Markdown body** — n
 
 ### AppData and save semantics
 
-Six entity types load on startup (entities, categories, tags, entity links, boards, board entities) and stay in-memory. `saveData()` fires after every mutation. Core entity fields defer to the explicit Save button — required so Cancel can restore the pre-edit snapshot atomically. Join-table mutations (board memberships, entity links) save immediately because they mutate shared lists the snapshot does not cover.
+Four types load on startup (entities, categories, tags, entity links) and stay in-memory. `saveData()` fires after every mutation. Core entity fields defer to the explicit Save button — required so Cancel can restore the pre-edit snapshot atomically. EntityLink mutations save immediately because they mutate shared lists the snapshot does not cover.
 
 File formats, frontmatter field reference, service methods, and EntityScreen interaction model: [docs/entities.md](docs/entities.md).
 
@@ -68,20 +68,22 @@ lib/
   shared/constants/        — app-wide constants (app_spacing.dart)
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
-    boards/                — Board model, BoardDetailScreen (membership derived at load time)
-    tasks/                 — TaskBlock tree, TaskStorageService (no frontmatter, hard-delete)
+    lists/                 — ListModel, ListStorageService, ListDetailScreen (arbitrary text item collections)
+    tasks/                 — TaskBlock tree, TaskStorageService (no frontmatter, hard-delete, drag reorder)
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
     books/                 — Book model, BookStorageService, HardcoverService/SyncService, HardcoverScreen
     readwise/              — ReadwiseBook/Highlight models, ReadwiseService (enriches Books/), ReadwiseScreen
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
-  screens/home_screen.dart — BottomNavigationBar shell (owns state for all three tabs)
+  screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
 ```
 
 ## Subsystems
 
-**Entities + graph.** Each entity is a node in a semantic graph. Categories are not stored separately — they are derived from distinct `category` frontmatter values at load time. Board membership lives in the board's `.md` file as a wikilink list, not in entity frontmatter. This localizes mutations: changing a board's membership requires rewriting only the board file, not every member entity. Full details: [docs/entities.md](docs/entities.md).
+**Entities + graph.** Each entity is a node in a semantic graph. Categories are not stored separately — they are derived from distinct `category` frontmatter values at load time. List membership is inferred by scanning each list's items for `[[EntityName]]` wikilinks — no join table is maintained. Full details: [docs/entities.md](docs/entities.md).
 
-**Tasks.** Task files are ephemeral working lists, not knowledge nodes. They have no `alias` and cannot participate in the entity graph. Deletion is hard (no trash) because there is no identity to preserve. The in-memory `TaskBlock` tree is a parsed projection; Markdown files remain canonical. `parseNodes()` is pure and stateless — it must be called on freshly loaded lines, never cached across reloads. Full details: [docs/tasks.md](docs/tasks.md).
+**Lists.** General-purpose semantic collections stored in `Interesting/Lists/`. Each `.md` file has an H1 title and a flat list of `- item` lines; items are arbitrary text and may contain `[[wikilinks]]`. `ListStorageService` is all-static, all-catch-null, never throws; it rebuilds the file from the items list on every save (safe because list files have no user prose sections). Drag reorder mutates the canonical file order. Entity membership in a list is inferred by wikilink scan, not a join table.
+
+**Tasks.** Task files are ephemeral working lists, not knowledge nodes. They have no `alias` and cannot participate in the entity graph. Deletion is hard (no trash) because there is no identity to preserve. The in-memory `TaskBlock` tree is a parsed projection; Markdown files remain canonical. `parseNodes()` is pure and stateless — called on freshly loaded lines, never cached. Completing a root block moves it to end-of-file (semantic, not just UI sort). Root blocks are drag-reorderable; reorder mutates file order. Full details: [docs/tasks.md](docs/tasks.md).
 
 **Anki.** The one bidirectional integration. Markdown owns semantic content (front/back/text, tags, deck); Anki owns review scheduling (intervals, ease, due dates — never written to Markdown). `anki_id` is the immutable identity anchor, analogous to entity `alias`. Deletion is soft (`.trash/`) because a hard-deleted card re-synced would be recreated from Anki with a new `anki_id`, breaking the identity chain permanently. Full details: [docs/anki.md](docs/anki.md).
 

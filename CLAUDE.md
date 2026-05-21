@@ -12,7 +12,7 @@ These five rules define the system's identity. Violating any of them changes wha
 No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth corrupts silently — when two stores diverge, there is no canonical answer.
 
 **2. `alias` is immutable after creation.**
-`entity.id == alias` for all EntityLinks and board memberships. Never regenerate on rename. WHY: filenames change on rename; alias is the stable graph identity — regenerating it orphans every link. Enforcement: `_saveEdit()` in `entity_screen.dart`.
+`entity.id == alias` for all EntityLinks. Never regenerate on rename. WHY: filenames change on rename; alias is the stable graph identity — regenerating it orphans every link. Enforcement: `_saveEdit()` in `entity_screen.dart`.
 
 **3. Patch-not-rebuild.**
 Existing entity files are always patched via `_patchEntityContent()`, never regenerated from template. WHY: rebuilding from entity data destroys user's custom `##` sections on every save. Enforcement: `markdown_storage_service.dart`.
@@ -26,8 +26,8 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 ## Save semantics
 
 - **No auto-save for core entity fields** (name, category, tags, score, notes, links). Save is deferred to the explicit Save button via `_saveEdit()`. WHY: Cancel must restore the pre-edit snapshot atomically; any auto-save during editing makes the pre-edit state unrecoverable.
-- **Immediate save for join-table mutations** (`_addToBoard`, `_removeFromBoard`, `_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared lists the entity snapshot does not cover.
-- `saveData()` snapshots all six lists before the async gap to prevent partial-save races.
+- **Immediate save for join-table mutations** (`_createEntityLink`, `_deleteEntityLink`) and list mutations (`_addToList`, `_removeFromList`). WHY: they mutate shared lists the entity snapshot does not cover.
+- `saveData()` snapshots all entity lists before the async gap to prevent partial-save races.
 - `updated_at` stamped on every entity mutation inside `_save()` in `entity_screen.dart`.
 - Anki card `updated_at` stamped inside `AnkiStorageService.saveCard()` and `createNewCard()`.
 
@@ -37,7 +37,8 @@ Each service owns exactly one directory. No service writes outside its directory
 
 | Service | Writes to |
 |---|---|
-| `MarkdownStorageService.saveData()` | `Interesting/Entities/` + `Interesting/Boards/` |
+| `MarkdownStorageService.saveData()` | `Interesting/Entities/` |
+| `ListStorageService` | `Interesting/Lists/` |
 | `LetterboxdService` | `Interesting/Entities/` (bypasses `saveData()`; see README § Subsystems) |
 | `AnkiStorageService` | `Interesting/Anki/` + `Interesting/Anki/.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` |
@@ -50,7 +51,7 @@ Each service owns exactly one directory. No service writes outside its directory
 
 - **Entity**: `alias` (frontmatter) = `entity.id`. Immutable after creation.
 - **Anki card**: `anki_id` (frontmatter). Immutable after first sync to Anki. Soft-delete only — a hard-deleted card re-synced would be recreated from Anki with a new id, breaking the identity chain.
-- **Board**: `slugify(board.name)` derived at load time. Not identity-bearing across renames.
+- **List**: `slugify(list.name)` derived at load time. Not identity-bearing across renames.
 - **Task file**: no identity anchor. Hard-delete permitted. Cannot participate in the `EntityLink` graph.
 
 ## Shared utilities — do not duplicate
@@ -64,7 +65,9 @@ Each service owns exactly one directory. No service writes outside its directory
 
 **Anki** — `anki_id` immutable; soft-delete only (`.trash/`); sync manual only (no background polling); review metadata (intervals, ease, due dates) never written to Markdown; `AnkiConnectService` all-static, all-catch-null, never throws. Full details: [docs/anki.md](docs/anki.md).
 
-**Tasks** — no YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`, never from `loadTaskFiles()`); `_collapsed` is session-only, never persist to file or SharedPreferences; `deleteBlock` is hard-delete with no trash; task wikilinks are preserved verbatim but not wired into `EntityLink` graph; do not add due dates, reminders, priorities, notifications, or drag-to-reorder. Full details: [docs/tasks.md](docs/tasks.md).
+**Lists** — `ListStorageService` all-static, all-catch-null, never throws; writes to `Interesting/Lists/` only; items are arbitrary text strings (may contain `[[wikilinks]]`); item order in file = semantic order; `saveList` rebuilds the file from items (safe — list files have no user prose sections); entity membership inferred by wikilink scan, no join table. Do not add due dates, reminders, priorities, or subtasks to list items.
+
+**Tasks** — no YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`, never from `loadTaskFiles()`); `_collapsed` is session-only, never persist to file or SharedPreferences; `deleteBlock` is hard-delete with no trash; task wikilinks are preserved verbatim but not wired into `EntityLink` graph; completing a root block calls `toggleBlockAndReorder` which moves it to end-of-file; root blocks support drag reorder via `reorderRootBlocks` (mutates file order); do not add due dates, reminders, priorities, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
 
 **Grokipedia** — all-static, all-catch-null; never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 

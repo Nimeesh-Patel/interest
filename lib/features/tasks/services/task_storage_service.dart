@@ -317,6 +317,100 @@ class TaskStorageService {
     } catch (_) {}
   }
 
+  // Toggle a block's completion state and move it to maintain semantic order:
+  // completing moves the block to the bottom; uncompleting moves it before the
+  // first complete root-level block.
+  static Future<void> toggleBlockAndReorder(
+      String filePath, TaskBlock block) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      if (block.startLine < 0 || block.endLine >= lines.length) return;
+
+      final wasComplete = block.completed;
+      if (wasComplete) {
+        lines[block.startLine] =
+            lines[block.startLine].replaceFirst(RegExp(r'\[[xX]\]'), '[ ]');
+      } else {
+        lines[block.startLine] =
+            lines[block.startLine].replaceFirst('[ ]', '[x]');
+      }
+
+      final blockLines = lines.sublist(block.startLine, block.endLine + 1);
+      lines.removeRange(block.startLine, block.endLine + 1);
+
+      int insertLine;
+      if (!wasComplete) {
+        // Newly complete → move to bottom
+        insertLine = lines.length;
+      } else {
+        // Newly incomplete → insert before the first complete root-level block
+        final firstComplete = lines.indexWhere(
+          (l) => _taskRegex.hasMatch(l) && l.indexOf('-') == 0 &&
+              RegExp(r'^\s*-\s+\[[xX]\]').hasMatch(l),
+        );
+        insertLine = firstComplete == -1 ? lines.length : firstComplete;
+      }
+
+      lines.insertAll(insertLine.clamp(0, lines.length), blockLines);
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
+  // Reorder root-level task blocks in the file.
+  // [nodes] is the current parsed node list; [oldIndex] and [newIndex] follow
+  // Flutter's ReorderableListView.onReorder convention.
+  static Future<void> reorderRootBlocks(
+      String filePath, List<TaskNode> nodes, int oldIndex, int newIndex) async {
+    try {
+      if (oldIndex == newIndex) return;
+      if (oldIndex < 0 || oldIndex >= nodes.length) return;
+      final movedNode = nodes[oldIndex];
+      if (movedNode is! TaskBlock || movedNode.indentSpaces != 0) return;
+
+      final lines = await File(filePath).readAsLines();
+      final start = movedNode.startLine;
+      final end = movedNode.endLine;
+      if (start < 0 || end >= lines.length) return;
+
+      final removedCount = end - start + 1;
+      final blockLines = lines.sublist(start, end + 1);
+      lines.removeRange(start, end + 1);
+
+      // Flutter convention: adjust newIndex when moving down
+      if (newIndex > oldIndex) newIndex -= 1;
+
+      // Find the reference node in the remaining sequence.
+      // remaining[i] = nodes[i] for i < oldIndex, nodes[i+1] for i >= oldIndex.
+      // We insert BEFORE remaining[newIndex].
+      final refIdx = newIndex < oldIndex ? newIndex : newIndex + 1;
+
+      int insertLine;
+      if (refIdx >= nodes.length) {
+        insertLine = lines.length;
+      } else {
+        final refNode = nodes[refIdx];
+        int refLine;
+        if (refNode is TaskBlock) {
+          refLine = refNode.startLine;
+        } else if (refNode is TaskHeaderNode) {
+          refLine = refNode.lineIndex;
+        } else if (refNode is TaskProseNode) {
+          refLine = refNode.lineIndex;
+        } else {
+          insertLine = lines.length;
+          lines.insertAll(insertLine, blockLines);
+          await File(filePath).writeAsString(lines.join('\n'));
+          return;
+        }
+        if (refLine > start) refLine -= removedCount;
+        insertLine = refLine.clamp(0, lines.length);
+      }
+
+      lines.insertAll(insertLine, blockLines);
+      await File(filePath).writeAsString(lines.join('\n'));
+    } catch (_) {}
+  }
+
   // Rename a task file: update the # heading and rename the file on disk.
   // Returns the new file path, or null on failure / name collision.
   static Future<String?> renameTaskFile(
