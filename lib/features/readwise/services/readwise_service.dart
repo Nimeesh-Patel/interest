@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../books/models/book.dart';
+import '../../books/services/book_storage_service.dart';
 import '../../entities/services/letterboxd_service.dart' show ImportResult;
 import '../models/readwise_book.dart';
 import '../models/readwise_highlight.dart';
@@ -85,130 +86,129 @@ class ReadwiseService {
   // ── Import: write or patch book file ─────────────────────────────────────
 
   static Future<ImportResult> importBook(
-    ReadwiseBook book,
+    ReadwiseBook rwBook,
     List<ReadwiseHighlight> highlights,
     String vaultPath,
   ) async {
     try {
-      final booksDirPath = VaultService.booksPath(vaultPath);
-      await Directory(booksDirPath).create(recursive: true);
+      await Directory(VaultService.booksPath(vaultPath))
+          .create(recursive: true);
 
-      final title = book.title.isNotEmpty ? book.title : 'Book ${book.id}';
-      final filename = '${sanitizeFilename(title)}.md';
-      final filePath = p.join(booksDirPath, filename);
-      final file = File(filePath);
+      final now = DateTime.now().toUtc().toIso8601String();
+      final authors = _splitAuthors(rwBook.author);
 
-      if (await file.exists()) {
-        final existing = await file.readAsString();
-        final patched = _patchBookFile(existing, book, highlights);
-        await file.writeAsString(patched);
-        return const ImportResult(created: 0, updated: 1, skipped: 0);
-      } else {
-        final content = _buildBookMarkdown(book, highlights);
-        await file.writeAsString(content);
+      // Reconcile: find existing canonical file by readwise_id or title
+      Book? existing = await BookStorageService.reconcile(
+        vaultPath,
+        readwiseId: rwBook.id,
+        title: rwBook.title.isNotEmpty ? rwBook.title : null,
+      );
+
+      if (existing == null) {
+        // Create new canonical book file
+        final existingBooks = await BookStorageService.loadBooks(vaultPath);
+        final existingAliases = existingBooks.map((b) => b.alias).toSet();
+        final alias = BookStorageService.generateAlias(
+          rwBook.title.isNotEmpty ? rwBook.title : 'Book ${rwBook.id}',
+          authors,
+          existing: existingAliases,
+        );
+        final book = Book(
+          alias: alias,
+          title: rwBook.title.isNotEmpty ? rwBook.title : 'Book ${rwBook.id}',
+          authors: authors,
+          readwiseId: rwBook.id,
+          numHighlights: rwBook.numHighlights,
+          lastHighlightAt: rwBook.lastHighlightAt,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+        final filePath = await BookStorageService.createBook(vaultPath, book);
+
+        // Append all highlights to the freshly created file
+        if (highlights.isNotEmpty) {
+          await _appendHighlights(filePath, highlights, {});
+        }
         return const ImportResult(created: 1, updated: 0, skipped: 0);
       }
+
+      // Patch Readwise-owned frontmatter fields only
+      await BookStorageService.patchFields(existing.filePath!, {
+        'readwise_id': rwBook.id,
+        'num_highlights': rwBook.numHighlights,
+        if (rwBook.lastHighlightAt != null &&
+            rwBook.lastHighlightAt!.isNotEmpty)
+          'last_highlight_at': rwBook.lastHighlightAt,
+        'updated_at': now,
+      });
+
+      // Append only new highlights (deduplicate by ^rw{id})
+      final content = await File(existing.filePath!).readAsString();
+      final existingIds = <int>{};
+      for (final match in RegExp(r'\^rw(\d+)').allMatches(content)) {
+        final id = int.tryParse(match.group(1)!);
+        if (id != null) existingIds.add(id);
+      }
+      final newHighlights =
+          highlights.where((h) => !existingIds.contains(h.id)).toList();
+
+      if (newHighlights.isNotEmpty) {
+        await _appendHighlights(existing.filePath!, newHighlights, existingIds);
+      }
+
+      return const ImportResult(created: 0, updated: 1, skipped: 0);
     } catch (e) {
       return ImportResult(
           created: 0, updated: 0, skipped: 0, error: e.toString());
     }
   }
 
-  // ── Private: build new book file ──────────────────────────────────────────
+  // ── Private: append highlights to ## Highlights section ──────────────────
 
-  static String _buildBookMarkdown(
-      ReadwiseBook book, List<ReadwiseHighlight> highlights) {
-    final now = DateTime.now().toUtc().toIso8601String();
-    final title = book.title.isNotEmpty ? book.title : 'Book ${book.id}';
-    final buf = StringBuffer();
-
-    buf.writeln(_buildFrontmatter(book, now));
-    buf.writeln('# $title');
-    if (book.author.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('*${book.author}*');
-    }
-    buf.writeln();
-    buf.writeln('## Highlights');
-    buf.writeln();
-
-    if (highlights.isEmpty) {
-      buf.writeln('*No highlights imported.*');
-    } else {
-      for (final h in highlights) {
-        buf.write(_buildHighlightBlock(h));
-      }
-    }
-
-    return buf.toString().trimRight() + '\n';
-  }
-
-  // ── Private: patch existing book file ────────────────────────────────────
-
-  static String _patchBookFile(
-    String existing,
-    ReadwiseBook book,
+  static Future<void> _appendHighlights(
+    String filePath,
     List<ReadwiseHighlight> highlights,
-  ) {
-    final split = splitFrontmatter(existing);
-    if (split.frontmatter == null) return _buildBookMarkdown(book, highlights);
-    final yaml = parseYamlMap(split.frontmatter);
-    if (yaml == null) return _buildBookMarkdown(book, highlights);
-
-    // Collect IDs already in the file
-    final existingIds = <int>{};
-    for (final match in RegExp(r'\^rw(\d+)').allMatches(existing)) {
-      final id = int.tryParse(match.group(1)!);
-      if (id != null) existingIds.add(id);
-    }
-    final newHighlights =
-        highlights.where((h) => !existingIds.contains(h.id)).toList();
-
-    final now = DateTime.now().toUtc().toIso8601String();
-    final frontmatter = _buildFrontmatter(book, now);
+    Set<int> existingIds,
+  ) async {
+    final file = File(filePath);
+    final content = await file.readAsString();
+    final split = splitFrontmatter(content);
     final sections = parseSectionsH2(split.body);
-    final h1 =
-        extractH1(split.body) ?? (book.title.isNotEmpty ? book.title : 'Book ${book.id}');
-    final preamble = _extractPreamble(split.body);
 
     final buf = StringBuffer();
-    buf.writeln(frontmatter);
-    buf.writeln('# $h1');
 
-    if (preamble.isNotEmpty) {
-      buf.writeln();
-      buf.writeln(preamble);
+    // Preserve frontmatter + H1 + preamble unchanged
+    if (split.frontmatter != null) {
+      buf.writeln('---');
+      buf.writeln(split.frontmatter);
+      buf.writeln('---');
     }
 
-    // If no H2 sections exist yet, add Highlights directly
-    if (sections.isEmpty) {
+    final h1 = extractH1(split.body);
+    if (h1 != null) {
       buf.writeln();
-      buf.writeln('## Highlights');
-      buf.writeln();
-      for (final h in (newHighlights.isNotEmpty ? newHighlights : highlights)) {
-        buf.write(_buildHighlightBlock(h));
+      buf.writeln('# $h1');
+      final preamble = _extractPreamble(split.body);
+      if (preamble.isNotEmpty) {
+        buf.writeln();
+        buf.writeln(preamble);
       }
-      return buf.toString().trimRight() + '\n';
     }
 
+    // Write all sections, appending to ## Highlights
+    bool wroteHighlights = false;
     for (final entry in sections.entries) {
       buf.writeln();
       buf.writeln('## ${entry.key}');
       if (entry.key == 'Highlights') {
-        final existing = entry.value; // trimRight()'ed by parseSectionsH2
-        if (existing.isNotEmpty) {
+        wroteHighlights = true;
+        if (entry.value.isNotEmpty) {
           buf.writeln();
-          buf.write(existing);
+          buf.write(entry.value);
           buf.writeln();
         }
-        if (newHighlights.isNotEmpty) {
-          if (existing.isEmpty) buf.writeln();
-          for (final h in newHighlights) {
-            buf.write(_buildHighlightBlock(h));
-          }
-        } else if (existing.isEmpty) {
-          buf.writeln();
-          buf.writeln('*No highlights imported.*');
+        for (final h in highlights) {
+          buf.write(_buildHighlightBlock(h));
         }
       } else {
         if (entry.value.isNotEmpty) {
@@ -219,8 +219,8 @@ class ReadwiseService {
       }
     }
 
-    // Add Highlights section if it didn't exist yet but we have highlights
-    if (!sections.containsKey('Highlights') && highlights.isNotEmpty) {
+    // Add ## Highlights if it didn't exist yet
+    if (!wroteHighlights && highlights.isNotEmpty) {
       buf.writeln();
       buf.writeln('## Highlights');
       buf.writeln();
@@ -229,27 +229,7 @@ class ReadwiseService {
       }
     }
 
-    return buf.toString().trimRight() + '\n';
-  }
-
-  // ── Private: frontmatter builder ──────────────────────────────────────────
-
-  static String _buildFrontmatter(ReadwiseBook book, String updatedAt) {
-    final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('type: book_highlights');
-    buf.writeln('source: readwise');
-    buf.writeln('title: ${_yamlValue(book.title.isNotEmpty ? book.title : 'Book ${book.id}')}');
-    buf.writeln('author: ${_yamlValue(book.author)}');
-    buf.writeln('readwise_id: ${book.id}');
-    buf.writeln('readwise_category: ${book.category}');
-    buf.writeln('num_highlights: ${book.numHighlights}');
-    if (book.lastHighlightAt != null && book.lastHighlightAt!.isNotEmpty) {
-      buf.writeln('last_highlight_at: ${book.lastHighlightAt}');
-    }
-    buf.writeln('updated_at: $updatedAt');
-    buf.write('---');
-    return buf.toString();
+    await file.writeAsString('${buf.toString().trimRight()}\n');
   }
 
   // ── Private: highlight block builder ─────────────────────────────────────
@@ -257,22 +237,18 @@ class ReadwiseService {
   static String _buildHighlightBlock(ReadwiseHighlight h) {
     final buf = StringBuffer();
 
-    // Blockquote — handle multi-line text
     for (final line in h.text.trim().split('\n')) {
       buf.writeln('> $line');
     }
     buf.writeln();
 
-    // Optional note
     if (h.note != null && h.note!.trim().isNotEmpty) {
       buf.writeln('**Note:** ${h.note!.trim()}');
       buf.writeln();
     }
 
-    // Block ID (Obsidian-compatible, used for deduplication on re-import)
     buf.writeln('^rw${h.id}');
 
-    // Metadata line
     final meta = StringBuffer();
     if (h.location != null && h.location!.isNotEmpty) {
       meta.write('Location: ${h.location}');
@@ -309,19 +285,10 @@ class ReadwiseService {
     return result.join('\n').trim();
   }
 
-  // ── Private: YAML value quoting ───────────────────────────────────────────
+  // ── Private: split author string into list ────────────────────────────────
 
-  // Quotes values that contain YAML-special sequences (colon-space, hash, etc.)
-  static String _yamlValue(String value) {
-    if (value.isEmpty) return '""';
-    if (value.contains(': ') ||
-        value.contains(' #') ||
-        value.startsWith('"') ||
-        value.startsWith("'") ||
-        value.startsWith('[') ||
-        value.startsWith('{')) {
-      return '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-    }
-    return value;
+  static List<String> _splitAuthors(String author) {
+    if (author.isEmpty) return [];
+    return author.split(', ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
   }
 }

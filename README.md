@@ -71,7 +71,8 @@ lib/
     boards/                — Board model, BoardDetailScreen (membership derived at load time)
     tasks/                 — TaskBlock tree, TaskStorageService (no frontmatter, hard-delete)
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
-    readwise/              — ReadwiseBook/Highlight models, ReadwiseService, ReadwiseScreen
+    books/                 — Book model, BookStorageService, HardcoverService/SyncService, HardcoverScreen
+    readwise/              — ReadwiseBook/Highlight models, ReadwiseService (enriches Books/), ReadwiseScreen
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all three tabs)
 ```
@@ -90,7 +91,11 @@ lib/
 
 **Android widget.** A native Android Activity (no Flutter engine at runtime). It reads the vault path directly from `FlutterSharedPreferences` using the `flutter.vault_path` key — the prefix Flutter's shared_preferences plugin uses — because VaultService and all Flutter APIs are unavailable outside the Flutter engine. Always writes `category: Default`.
 
-**Readwise.** Ingestion-only: Readwise API → book highlight files in `Interesting/Books/`. One `.md` file per book; highlights are blockquote blocks with `^rw{id}` block IDs. Re-importing appends only new highlights — never overwrites existing content. Token stored in SharedPreferences (`readwise_access_token`). No auto-sync, no background polling. Full details: [docs/readwise.md](docs/readwise.md).
+**Books (canonical semantic objects).** `Interesting/Books/` holds one `.md` file per book. Each file is a convergence point: Readwise enriches it with highlights, Hardcover enriches it with reading state and metadata, and the user enriches it with prose. No external system owns the file — they patch it. `BookStorageService` is the single I/O layer; `alias` provides stable identity. Full details: [docs/books.md](docs/books.md).
+
+**Readwise.** Highlight ingestion: Readwise API → `Interesting/Books/` via `BookStorageService`. Appends `^rw{id}` highlight blocks to `## Highlights`; patches only Readwise-owned frontmatter fields (`readwise_id`, `num_highlights`, `last_highlight_at`). Re-importing appends only new highlights. Token stored in SharedPreferences (`readwise_access_token`). No auto-sync. Full details: [docs/readwise.md](docs/readwise.md).
+
+**Hardcover.** Bidirectional sync: Hardcover GraphQL API ↔ `Interesting/Books/` via `BookStorageService`. Explicit sync only (no background). Pass 1 (Hardcover → Markdown): patches `hardcover_id`, `status`, `rating`, `started_at`, `finished_at`; creates new book files for unmatched entries. Pass 2 (Markdown → Hardcover): pushes local status/rating changes back via `update_user_book` mutation. Identity reconciliation links books arriving from both Readwise and Hardcover to the same file. Token stored in SharedPreferences (`hardcover_api_token`). Full details: [docs/books.md](docs/books.md).
 
 **Obsidian launch ergonomics.** A single AppBar action (`Icons.sync` in `home_screen.dart`) that launches the Obsidian app via `launchUrl(Uri.parse('obsidian://'), mode: LaunchMode.externalApplication)`. Purpose: Obsidian Sync only activates when Obsidian is foregrounded; this eliminates the manual switch after editing. The app itself remains sync-agnostic — it fires the URI and returns. Snackbar on failure (app not installed). No sync logic, no background launch, no state monitoring.
 

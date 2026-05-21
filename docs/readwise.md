@@ -1,8 +1,8 @@
 # Readwise Subsystem
 
-Ingestion-only integration: Readwise API → book highlight files in `Interesting/Books/`. One `.md` file per book. The app is a write-once, append-on-reimport layer — it never deletes or overwrites user edits.
+Highlight-ingestion integration: Readwise API → canonical book files in `Interesting/Books/`. One `.md` file per book — the same file that `HardcoverSyncService` and the user also enrich. `ReadwiseService` is an **enrichment consumer** of `BookStorageService`; it patches only its own fields and appends highlights without touching anything else.
 
-**Why Books/ is separate from Entities/.** Readwise book files use a different schema (`type: book_highlights`, no `alias`) and are not loaded by `MarkdownStorageService`. Keeping them in their own directory avoids polluting the entity graph load, makes their origin unambiguous, and allows the entity subsystem and the Readwise subsystem to evolve independently.
+Full book ontology, schema, and field-ownership rules: [docs/books.md](books.md).
 
 ---
 
@@ -12,7 +12,7 @@ In the app: **Settings → Readwise → Access Token**
 
 Enter your Readwise access token from [readwise.io/access_token](https://readwise.io/access_token). Stored locally in SharedPreferences; never uploaded anywhere.
 
-Tap **Open Import Screen** (Settings) or the `book_outlined` AppBar icon to open the import screen.
+Tap **Open Import Screen** (Settings) to open the import screen.
 
 ---
 
@@ -20,18 +20,18 @@ Tap **Open Import Screen** (Settings) or the `book_outlined` AppBar icon to open
 
 ### Location
 
-`Interesting/Books/<sanitized-title>.md` — one file per book, filename derived from book title via `sanitizeFilename()`.
+`Interesting/Books/<sanitized-title>.md` — shared with Hardcover and user prose.
 
 ### Example
 
 ```markdown
 ---
-type: book_highlights
-source: readwise
+type: book
+alias: the-beginning-of-infinity-david-deutsch
 title: "The Beginning of Infinity"
-author: David Deutsch
+authors:
+  - David Deutsch
 readwise_id: 12345
-readwise_category: books
 num_highlights: 42
 last_highlight_at: 2024-01-15T10:30:00.000Z
 updated_at: 2024-01-20T08:00:00.000Z
@@ -62,23 +62,17 @@ Location: 201
 User-added sections are preserved verbatim on every re-import.
 ```
 
-### Frontmatter fields
+### Readwise-owned frontmatter fields
 
 | Field | Description |
 |-------|-------------|
-| `type` | Always `book_highlights` — distinguishes from entity files |
-| `source` | Always `readwise` |
-| `title` | Book title (YAML-quoted if it contains `: `) |
-| `author` | Author string from Readwise API |
-| `readwise_id` | Readwise book ID (integer) — stable identity anchor |
-| `readwise_category` | Readwise category: `books`, `articles`, `tweets`, etc. |
-| `num_highlights` | Highlight count as reported by Readwise (updated on re-import) |
-| `last_highlight_at` | ISO 8601 UTC timestamp of most recent highlight (updated on re-import) |
-| `updated_at` | ISO 8601 UTC timestamp of last import by this app |
+| `readwise_id` | Readwise book ID (integer) — identity anchor for this source |
+| `num_highlights` | Highlight count from Readwise API (updated on re-import) |
+| `last_highlight_at` | ISO 8601 UTC timestamp of most recent highlight |
+
+All other frontmatter fields (`alias`, `type`, `title`, `authors`, `hardcover_id`, `status`, `rating`, etc.) belong to other owners and are never overwritten by `ReadwiseService`.
 
 ### Highlight block structure
-
-Each highlight is rendered as:
 
 ```
 > {highlight text}
@@ -92,15 +86,13 @@ Location: {location} · Tags: {tag1, tag2}    ← omit parts that are absent
 
 ```
 
-- `^rw{id}` is an Obsidian block-reference ID on its own line after the blockquote. It is the **deduplication key** used on re-import — `ReadwiseService._patchBookFile` scans for all `^rw(\d+)` matches in the existing file before deciding which highlights to append.
-- Each block ends with a `---` separator followed by a blank line for visual clarity.
-- `## Highlights` is app-owned: re-import appends to it. All other `##` sections are user territory — preserved verbatim.
+`^rw{id}` is an Obsidian block-reference ID and the **deduplication key** — scanned across the full file before deciding which highlights to append on re-import.
 
 ---
 
 ## Service (`lib/features/readwise/services/readwise_service.dart`)
 
-All-static, all-catch-null. Never throws. Follows `LetterboxdService` / `AnkiConnectService` pattern.
+All-static, all-catch-null. Never throws.
 
 ### Token storage
 
@@ -112,14 +104,14 @@ All-static, all-catch-null. Never throws. Follows `LetterboxdService` / `AnkiCon
 
 ### API methods
 
-Auth header on every request: `Authorization: Token {token}`
+Auth header: `Authorization: Token {token}`
 
 | Method | Endpoint | Returns |
 |--------|----------|---------|
 | `fetchBooks(token)` | `GET /api/v2/books/?page_size=1000` | `List<ReadwiseBook>?` |
 | `fetchHighlights(token, bookId)` | `GET /api/v2/highlights/?book_id={id}&page_size=1000` | `List<ReadwiseHighlight>?` |
 
-Both methods handle pagination by following `next` URL until null. Return `null` on any error (network, non-200 status, parse failure).
+Both paginate via `next` URL. Return `null` on any error.
 
 ### Import method
 
@@ -131,22 +123,12 @@ static Future<ImportResult> importBook(
 )
 ```
 
-Returns `ImportResult` (reused from `LetterboxdService`): `created=1` for new file, `updated=1` for patched file.
-
 **Logic:**
-1. Ensure `VaultService.booksPath(vaultPath)` exists.
-2. Compute filename: `${sanitizeFilename(book.title)}.md`.
-3. If file does not exist → `_buildBookMarkdown(book, highlights)` → write.
-4. If file exists → `_patchBookFile(existingContent, book, highlights)` → write.
+1. `BookStorageService.reconcile(readwiseId, title)` → find existing canonical file.
+2. If not found → `BookStorageService.createBook()` → append all highlights.
+3. If found → `BookStorageService.patchFields({readwise_id, num_highlights, last_highlight_at, updated_at})`, then scan for existing `^rw{id}` blocks and append only new highlights.
 
-### Patch algorithm (`_patchBookFile`)
-
-1. `splitFrontmatter(existing)` → YAML + body. If malformed → rebuild from scratch.
-2. Regex-scan full file for `\^rw(\d+)` → `Set<int> existingIds`.
-3. Filter `highlights` to those whose `id` ∉ `existingIds`.
-4. Rebuild frontmatter (update `num_highlights`, `last_highlight_at`, `updated_at`; all other fields from current `book` data).
-5. Reconstruct body: preserve H1 + preamble (content between H1 and first H2); for `## Highlights` section append new highlight blocks after existing content; all other sections preserved verbatim from `parseSectionsH2`.
-6. Return patched string.
+The `_patchBookFile` / `_buildFrontmatter` methods that previously rebuilt the whole frontmatter are removed. Readwise now patches only its owned fields.
 
 ---
 
@@ -154,53 +136,39 @@ Returns `ImportResult` (reused from `LetterboxdService`): `created=1` for new fi
 
 ### `ReadwiseBook` (`lib/features/readwise/models/readwise_book.dart`)
 
-| Field | Type | Source |
-|-------|------|--------|
-| `id` | `int` | `json['id']` |
-| `title` | `String` | `json['title']` |
-| `author` | `String` | `json['author']` |
-| `category` | `String` | `json['category']` — `'books'`, `'articles'`, etc. |
-| `numHighlights` | `int` | `json['num_highlights']` |
-| `lastHighlightAt` | `String?` | `json['last_highlight_at']` — ISO 8601 |
-| `coverImageUrl` | `String?` | `json['cover_image_url']` |
-| `sourceUrl` | `String?` | `json['source_url']` |
+| Field | Type |
+|-------|------|
+| `id` | `int` |
+| `title` | `String` |
+| `author` | `String` (raw; may be comma-separated multi-author) |
+| `category` | `String` — `'books'`, `'articles'`, etc. |
+| `numHighlights` | `int` |
+| `lastHighlightAt` | `String?` — ISO 8601 |
 
 ### `ReadwiseHighlight` (`lib/features/readwise/models/readwise_highlight.dart`)
 
-| Field | Type | Source |
-|-------|------|--------|
-| `id` | `int` | `json['id']` |
-| `text` | `String` | `json['text']` |
-| `note` | `String?` | `json['note']` |
-| `location` | `String?` | `json['location'].toString()` (null if 0 or absent) |
-| `highlightedAt` | `String?` | `json['highlighted_at']` |
-| `tags` | `List<String>` | `json['tags'][*]['name']` |
+| Field | Type |
+|-------|------|
+| `id` | `int` |
+| `text` | `String` |
+| `note` | `String?` |
+| `location` | `String?` (null if 0 or absent) |
+| `tags` | `List<String>` |
 
 ---
 
 ## UI (`lib/features/readwise/screens/readwise_screen.dart`)
 
-Opened from `SettingsScreen` → "Open Import Screen" button (bottom of Readwise section). There is no direct AppBar shortcut.
+Opened from Settings → Readwise → "Open Import Screen".
 
-**Empty state:** shown when no token is configured — directs user to Settings.
-
-**Book list:** one `ListTile` per book showing title, author, category chip, highlight count, last-highlight date. Per-book **Import** button. AppBar **Import All** icon (downloads + imports sequentially to avoid flooding the API).
-
-**Import flow per book:**
-1. `ReadwiseService.fetchHighlights(token, book.id)`
-2. `VaultService.getVaultPath()`
-3. `ReadwiseService.importBook(book, highlights, vaultPath)`
-4. Show inline result: "Imported (N highlights)" / "Updated" / "Error: ..."
-
-**Settings section** (`SettingsScreen`): masked token text field + Save Token button + "Open Import Screen" button. On save, token written to SharedPreferences immediately.
+Book list with per-book Import button and AppBar Import All. Import result shown inline per book.
 
 ---
 
 ## Boundaries (do not violate)
 
-- Book files live in `Interesting/Books/` only — never write to `Entities/`
-- `MarkdownStorageService` never loads `Books/` files — they have no `alias` and are not entities
-- Re-import is append-only — never delete or overwrite existing highlight blocks
-- The `^rw{id}` block ID is the sole deduplication mechanism — do not change this format
-- No auto-sync, no background polling, no scheduled tasks
-- Do not implement: highlights → Anki cards, semantic wikilinking, concept extraction, graph integration, Reader API ingestion, popular highlights (Phase 1 scope)
+- Use `BookStorageService.reconcile()` + `patchFields()` for all file I/O — never bypass with direct file writes
+- Patch only Readwise-owned fields — never touch `hardcover_id`, `status`, `rating`, `started_at`, `finished_at`
+- `## Highlights` is append-only — never delete or reorder existing blocks
+- `^rw{id}` deduplication format is fixed — do not change
+- No auto-sync, no background polling

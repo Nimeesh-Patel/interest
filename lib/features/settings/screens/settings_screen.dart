@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../anki/services/anki_connect_service.dart';
+import '../../books/screens/hardcover_screen.dart';
+import '../../books/services/hardcover_service.dart';
 import '../../entities/services/letterboxd_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
@@ -30,12 +32,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _readwiseSaving = false;
   String? _readwiseSaveStatus;
 
+  // Hardcover
+  final _hardcoverTokenController = TextEditingController();
+  bool _hardcoverSaving = false;
+  String? _hardcoverSaveStatus;
+  bool _hardcoverTesting = false;
+  String? _hardcoverTestStatus;
+  bool _hardcoverTestOk = false;
+
   @override
   void initState() {
     super.initState();
     _loadSavedUrl();
     _loadAnkiUrl();
     _loadReadwiseToken();
+    _loadHardcoverToken();
   }
 
   @override
@@ -43,6 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _urlController.dispose();
     _ankiUrlController.dispose();
     _readwiseTokenController.dispose();
+    _hardcoverTokenController.dispose();
     super.dispose();
   }
 
@@ -122,6 +134,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _readwiseSaving = false;
         _readwiseSaveStatus = token.isEmpty ? 'Token cleared.' : 'Token saved.';
+      });
+    }
+  }
+
+  Future<void> _loadHardcoverToken() async {
+    final token = await HardcoverService.getToken();
+    if (mounted) setState(() => _hardcoverTokenController.text = token ?? '');
+  }
+
+  Future<void> _testHardcoverConnection() async {
+    await _saveHardcoverToken();
+    setState(() {
+      _hardcoverTesting = true;
+      _hardcoverTestStatus = null;
+    });
+    final token = _hardcoverTokenController.text.trim();
+    final error = await HardcoverService.testConnection(token);
+    if (mounted) {
+      setState(() {
+        _hardcoverTesting = false;
+        _hardcoverTestOk = error == null;
+        _hardcoverTestStatus =
+            error == null ? 'Connected' : 'Failed — $error';
+      });
+    }
+  }
+
+  Future<void> _saveHardcoverToken() async {
+    final token = _hardcoverTokenController.text.trim();
+    setState(() {
+      _hardcoverSaving = true;
+      _hardcoverSaveStatus = null;
+    });
+    await HardcoverService.setToken(token);
+    if (mounted) {
+      setState(() {
+        _hardcoverSaving = false;
+        _hardcoverSaveStatus = token.isEmpty ? 'Token cleared.' : 'Token saved.';
       });
     }
   }
@@ -294,6 +344,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ReadwiseScreen()),
+            ),
+          ),
+
+          // ── Hardcover ────────────────────────────────────────────────────
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          const Text(
+            'Hardcover',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Sync your Hardcover reading library with the vault. '
+            'Find your API token at hardcover.app/account/api. '
+            'Token expires annually on January 1st.',
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _hardcoverTokenController,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'API Token',
+              hintText: 'Paste your Hardcover API token',
+              border: OutlineInputBorder(),
+            ),
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _saveHardcoverToken(),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _hardcoverSaving ? null : _saveHardcoverToken,
+              child: _hardcoverSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Token'),
+            ),
+          ),
+          if (_hardcoverSaveStatus != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _hardcoverSaveStatus!,
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _hardcoverTesting ? null : _testHardcoverConnection,
+              child: _hardcoverTesting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Test Connection'),
+            ),
+          ),
+          if (_hardcoverTestStatus != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _hardcoverTestStatus!,
+              style: TextStyle(
+                color: _hardcoverTestOk
+                    ? Colors.green.shade700
+                    : Colors.red.shade700,
+                fontSize: 13,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.sync),
+            label: const Text('Open Hardcover Screen'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HardcoverScreen()),
             ),
           ),
         ],

@@ -1,3 +1,5 @@
+Focus on creating better and better abstractions, such that the implementation keeps becoming more elegant and hard-to-vary. And also encode error-correcting institutions and mechanisms into the code.
+
 # Project
 
 Filesystem-native semantic knowledge layer. All data lives as Markdown files in a user-chosen vault. The app patches files it co-owns; it does not rebuild or replace them. Full architectural rationale: [README.md](README.md). This file states constraints, their enforcement points, and why they exist — organized for agents making code changes.
@@ -39,7 +41,9 @@ Each service owns exactly one directory. No service writes outside its directory
 | `LetterboxdService` | `Interesting/Entities/` (bypasses `saveData()`; see README § Subsystems) |
 | `AnkiStorageService` | `Interesting/Anki/` + `Interesting/Anki/.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` |
-| `ReadwiseService` | `Interesting/Books/` |
+| `BookStorageService` | `Interesting/Books/` — canonical book file I/O |
+| `ReadwiseService` | `Interesting/Books/` via `BookStorageService` only |
+| `HardcoverSyncService` | `Interesting/Books/` via `BookStorageService` only |
 | `VaultService.ensureVaultDirectories()` | creates all subdirs + seeds templates on first launch |
 
 ## Identity anchors
@@ -54,6 +58,7 @@ Each service owns exactly one directory. No service writes outside its directory
 - **All Markdown parsing** lives in `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, slugify, sanitizeFilename, timestamp helpers. Never reimplement in services or screens.
 - **All reusable dialogs and UI primitives** live in `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
 - **Spacing constants** live in `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0 — bottom padding for lists behind a FAB), `kScreenHPad` (16.0 — standard horizontal body padding). Use these instead of magic numbers.
+- **All canonical book file I/O** goes through `lib/features/books/services/book_storage_service.dart`: identity reconciliation, `patchFields()`, `createBook()`. Never write to `Interesting/Books/` directly from `ReadwiseService` or `HardcoverSyncService`.
 
 ## Subsystem constraints
 
@@ -63,7 +68,11 @@ Each service owns exactly one directory. No service writes outside its directory
 
 **Grokipedia** — all-static, all-catch-null; never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 
-**Readwise** — `ReadwiseService` all-static, all-catch-null, never throws; token in SharedPreferences (key `readwise_access_token`); writes to `Interesting/Books/` only (not `Entities/`) via `VaultService.booksPath()`; book files are NOT loaded by `MarkdownStorageService` and do not participate in the entity graph; re-import is append-only — scan for existing `^rw{id}` block IDs, append only new highlights, never overwrite; no auto-sync, no background polling. Full details: [docs/readwise.md](docs/readwise.md).
+**Books** — canonical semantic objects in `Interesting/Books/`; schema: `type: book`, `alias` (immutable), `authors` (list), plus identity anchors `hardcover_id` / `readwise_id` / `isbn` (isbn not populated by HC — see books.md § API quirks); `alias` is stable but books do NOT participate in entity graph yet; lazy migration from `type: book_highlights` on first load; field ownership is strictly partitioned (see [docs/books.md](docs/books.md)); `BookStorageService.patchFields()` is the minimal-patch primitive — all enrichment services call through it.
+
+**Readwise** — `ReadwiseService` all-static, all-catch-null, never throws; token in SharedPreferences (key `readwise_access_token`); writes to `Interesting/Books/` only via `BookStorageService` (never directly); patches only Readwise-owned fields (`readwise_id`, `num_highlights`, `last_highlight_at`); re-import appends only new `^rw{id}` highlight blocks, never overwrites; no auto-sync, no background polling. Full details: [docs/readwise.md](docs/readwise.md).
+
+**Hardcover** — `HardcoverService` all-static, all-catch-null, never throws; token in SharedPreferences (key `hardcover_api_token`); GraphQL endpoint `https://api.hardcover.app/v1/graphql`; auth `Bearer {token}`; explicit sync only via `HardcoverSyncService.sync()` (no background); patches only Hardcover-owned fields (`hardcover_id`, `status`, `rating`, `started_at`, `finished_at`); bidirectional: HC→MD in pass 1, MD→HC in pass 2; identity reconciliation prevents duplicate files. `testConnection` returns `String?` (null=ok); `fetchUserBooks` returns `(List<HardcoverBook>?, String?)` so sync errors are surfaced. Critical API quirks (me-as-List, cached_contributors-as-scalar, no isbn_13 on books type): [docs/books.md § API quirks](docs/books.md). Full details: [docs/books.md](docs/books.md).
 
 **Obsidian launch ergonomics** — UI-only AppBar action in `home_screen.dart`; fires `obsidian://` URI via `url_launcher` and returns; no sync logic, no background behavior, no state. Do not add polling, sync detection, or lifecycle hooks.
 
