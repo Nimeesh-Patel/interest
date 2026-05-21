@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/book.dart';
+import '../models/hardcover_book.dart';
 import '../services/book_storage_service.dart';
 import '../services/hardcover_service.dart';
 import '../services/hardcover_sync_service.dart';
@@ -12,10 +14,10 @@ class HardcoverScreen extends StatefulWidget {
   const HardcoverScreen({super.key});
 
   @override
-  State<HardcoverScreen> createState() => _HardcoverScreenState();
+  State<HardcoverScreen> createState() => HardcoverScreenState();
 }
 
-class _HardcoverScreenState extends State<HardcoverScreen> {
+class HardcoverScreenState extends State<HardcoverScreen> {
   List<Book>? _books;
   bool _loading = true;
   bool _syncing = false;
@@ -84,35 +86,29 @@ class _HardcoverScreenState extends State<HardcoverScreen> {
     if (result.error == null) await _loadBooks();
   }
 
+  // Public entry points called by HomeScreen
+  Future<void> sync() => _sync();
+  void openSearchSheet() => _openSearchSheet(context);
+
+  Future<void> _openSearchSheet(BuildContext ctx) async {
+    final added = await showModalBottomSheet<bool>(
+      context: ctx,
+      isScrollControlled: true,
+      builder: (_) => _SearchSheet(existingBooks: _books ?? []),
+    );
+    if (added == true) await _loadBooks();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hardcover'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          if (_noToken == null && !_loading)
-            _syncing
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.sync),
-                    tooltip: 'Sync with Hardcover',
-                    onPressed: _syncing ? null : _sync,
-                  ),
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          if (_syncing)
+            const LinearProgressIndicator(minHeight: 2),
+          Expanded(child: _buildBody()),
         ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: _buildBody(),
       ),
     );
   }
@@ -242,6 +238,213 @@ class _BookTile extends StatelessWidget {
         label,
         style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
       ),
+    );
+  }
+}
+
+// ── Search-and-add bottom sheet ───────────────────────────────────────────────
+
+class _SearchSheet extends StatefulWidget {
+  const _SearchSheet({required this.existingBooks});
+  final List<Book> existingBooks;
+
+  @override
+  State<_SearchSheet> createState() => _SearchSheetState();
+}
+
+class _SearchSheetState extends State<_SearchSheet> {
+  final _controller = TextEditingController();
+  List<HardcoverBook>? _results;
+  bool _searching = false;
+  String? _searchError;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _searching = true;
+      _results = null;
+      _searchError = null;
+    });
+    final token = await HardcoverService.getToken();
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() { _searching = false; _searchError = 'No token configured.'; });
+      return;
+    }
+    final results = await HardcoverService.searchBooks(token, trimmed);
+    if (mounted) {
+      setState(() {
+        _searching = false;
+        _results = results ?? [];
+        _searchError = results == null ? 'Search failed. Check your connection.' : null;
+      });
+    }
+  }
+
+  bool _alreadyInVault(HardcoverBook hc) =>
+      widget.existingBooks.any((b) =>
+          b.hardcoverId == hc.bookId ||
+          b.title.toLowerCase() == hc.title.toLowerCase());
+
+  void _onResultTap(HardcoverBook hc) {
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.bookmark_outline,
+        label: 'Want to read',
+        onTap: () => _addBook(hc, 1),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.menu_book_outlined,
+        label: 'Reading',
+        onTap: () => _addBook(hc, 2),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.check_circle_outline,
+        label: 'Read',
+        onTap: () => _addBook(hc, 3),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.pause_circle_outline,
+        label: 'Paused',
+        onTap: () => _addBook(hc, 4),
+      ),
+      BottomSheetMenuItem(
+        icon: Icons.cancel_outlined,
+        label: 'Did not finish',
+        onTap: () => _addBook(hc, 5),
+      ),
+    ]);
+  }
+
+  Future<void> _addBook(HardcoverBook hc, int statusId) async {
+    if (_alreadyInVault(hc)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"${hc.title}" is already in your vault')),
+        );
+        Navigator.pop(context, false);
+      }
+      return;
+    }
+
+    final token = await HardcoverService.getToken();
+    final vaultPath = await VaultService.getVaultPath();
+    if (token == null || vaultPath == null) return;
+
+    // Add to Hardcover library — tolerate failure (untested mutation; next sync reconciles)
+    await HardcoverService.insertUserBook(token, hc.bookId, statusId);
+
+    final existingAliases = widget.existingBooks.map((b) => b.alias).toSet();
+    final alias = BookStorageService.generateAlias(hc.title, hc.authors, existing: existingAliases);
+    const statusSlugs = {1: 'want_to_read', 2: 'reading', 3: 'read', 4: 'paused', 5: 'dnf'};
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final book = Book(
+      alias: alias,
+      title: hc.title,
+      authors: hc.authors,
+      hardcoverId: hc.bookId,
+      status: statusSlugs[statusId] ?? 'read',
+      createdAt: now,
+      updatedAt: now,
+    );
+    await BookStorageService.createBook(vaultPath, book);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Added "${hc.title}"')),
+      );
+      Navigator.pop(context, true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    return SizedBox(
+      height: screenHeight * 0.85,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kScreenHPad, 16, kScreenHPad, 8),
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search Hardcover…',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: _search,
+            ),
+          ),
+          Expanded(child: _buildResults()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResults() {
+    if (_searchError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(kScreenHPad),
+          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
+        ),
+      );
+    }
+    if (_results == null) {
+      return const Center(
+        child: Text('Type a title and press Search', style: TextStyle(color: Colors.grey)),
+      );
+    }
+    if (_results!.isEmpty) {
+      return const EmptyState(icon: Icons.search_off, message: 'No results found.');
+    }
+    return ListView.builder(
+      itemCount: _results!.length,
+      itemBuilder: (context, i) {
+        final hc = _results![i];
+        final alreadyAdded = _alreadyInVault(hc);
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 2),
+          title: Text(
+            hc.title,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: alreadyAdded ? Colors.grey : null,
+            ),
+          ),
+          subtitle: hc.authors.isNotEmpty
+              ? Text(
+                  hc.authors.join(', '),
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                )
+              : null,
+          trailing: alreadyAdded
+              ? Text('In vault', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))
+              : const Icon(Icons.add, size: 20),
+          onTap: alreadyAdded ? null : () => _onResultTap(hc),
+        );
+      },
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../features/boards/models/board.dart';
 import '../features/boards/models/board_entity.dart';
+import '../features/books/screens/hardcover_screen.dart';
 import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/models/entity_link.dart';
@@ -12,7 +13,6 @@ import '../shared/widgets/bottom_sheet_menu.dart';
 import '../shared/widgets/confirm_dialog.dart';
 import '../shared/widgets/empty_state.dart';
 import '../shared/widgets/input_dialog.dart';
-import '../features/boards/screens/board_detail_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/anki/screens/anki_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
@@ -28,6 +28,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final MarkdownStorageService _storage = MarkdownStorageService();
+  final _hardcoverKey = GlobalKey<HardcoverScreenState>();
   List<Entity> _entities = [];
   List<Category> _categories = [];
   List<String> _tags = [];
@@ -268,79 +269,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_selectedCategoryId == category.id) _selectedCategoryId = null;
     });
     _save();
-  }
-
-  // ── Board operations ──────────────────────────────────────────────────────
-
-  int _entityCountForBoard(String boardId) =>
-      _boardEntities.where((be) => be.boardId == boardId).length;
-
-  void _showCreateBoard() async {
-    final name = await showInputDialog(context,
-      title: 'New board',
-      hintText: 'Board name',
-      confirmLabel: 'Create',
-      capitalization: TextCapitalization.words,
-    );
-    if (name != null) _createBoard(name);
-  }
-
-  void _createBoard(String name) {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
-    final id = MarkdownStorageService.generateBoardId(trimmed, _boards);
-    setState(() => _boards.add(Board(id: id, name: trimmed)));
-    _save();
-  }
-
-  void _showBoardOptions(Board board) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.edit,
-        label: 'Rename',
-        onTap: () => _showRenameBoard(board),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _deleteBoard(board),
-      ),
-    ]);
-  }
-
-  void _showRenameBoard(Board board) async {
-    final name = await showInputDialog(context,
-      title: 'Rename board',
-      initialValue: board.name,
-      confirmLabel: 'Rename',
-    );
-    if (name != null) {
-      setState(() => board.name = name);
-      _save();
-    }
-  }
-
-  void _deleteBoard(Board board) {
-    setState(() {
-      _boards.removeWhere((b) => b.id == board.id);
-      _boardEntities.removeWhere((be) => be.boardId == board.id);
-    });
-    _save();
-  }
-
-  Future<void> _openBoardDetail(Board board) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BoardDetailScreen(
-          storage: _storage,
-          boardId: board.id,
-          boardName: board.name,
-        ),
-      ),
-    );
-    await _reloadData();
   }
 
   // ── Entities tab UI ───────────────────────────────────────────────────────
@@ -677,39 +605,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Boards tab UI ─────────────────────────────────────────────────────────
-
-  Widget _buildBoardsTab() {
-    if (_boards.isEmpty) {
-      return const Center(
-        child: Text(
-          'No boards yet.\nTap + to create one.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-    return ListView.builder(
-      itemCount: _boards.length,
-      itemBuilder: (ctx, i) {
-        final board = _boards[i];
-        final count = _entityCountForBoard(board.id);
-        return ListTile(
-          title: Text(board.name),
-          subtitle: Text(
-            '$count ${count == 1 ? 'entity' : 'entities'}',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () => _showBoardOptions(board),
-          ),
-          onTap: () => _openBoardDetail(board),
-        );
-      },
-    );
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -719,14 +614,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentTab == 0 ? 'Entities' : _currentTab == 1 ? 'Boards' : 'ToDos'),
+        title: Text(_currentTab == 0 ? 'Entities' : _currentTab == 1 ? 'Hardcover' : 'ToDos'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (_currentTab == 1)
             IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _showCreateBoard,
-              tooltip: 'New board',
+              icon: const Icon(Icons.sync),
+              tooltip: 'Sync with Hardcover',
+              onPressed: () => _hardcoverKey.currentState?.sync(),
             ),
           if (_currentTab == 2)
             IconButton(
@@ -757,10 +652,17 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentTab,
         children: [
           _buildEntitiesTab(),
-          _buildBoardsTab(),
+          HardcoverScreen(key: _hardcoverKey),
           _buildTodosTab(),
         ],
       ),
+      floatingActionButton: _currentTab == 1
+          ? FloatingActionButton(
+              onPressed: () => _hardcoverKey.currentState?.openSearchSheet(),
+              tooltip: 'Search Hardcover',
+              child: const Icon(Icons.search),
+            )
+          : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentTab,
         onTap: (i) => setState(() => _currentTab = i),
@@ -770,8 +672,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Entities',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view),
-            label: 'Boards',
+            icon: Icon(Icons.auto_stories),
+            label: 'Hardcover',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.check_box_outline_blank),

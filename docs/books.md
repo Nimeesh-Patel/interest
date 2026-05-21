@@ -4,11 +4,9 @@ Books are **canonical semantic objects** — Markdown files in `Interesting/Book
 
 ---
 
-## Ontology
+## Field ownership
 
-A book file is the single source of truth for a semantic book. Multiple enrichment systems patch it; none owns it.
-
-**Field ownership** — only the owning system overwrites a field:
+Only the owning system overwrites a field. This is what prevents enrichment systems from clobbering each other.
 
 | Field | Owner |
 |-------|-------|
@@ -20,7 +18,7 @@ A book file is the single source of truth for a semantic book. Multiple enrichme
 
 ---
 
-## Frontmatter Schema
+## Frontmatter schema
 
 ```yaml
 ---
@@ -46,7 +44,7 @@ Optional fields are omitted (not written as `null`) until populated by their own
 
 ---
 
-## Identity and Reconciliation
+## Identity and reconciliation
 
 `alias` is the stable in-file identity anchor, generated once at creation from `slugify(title)` (disambiguated with author slug or numeric suffix if needed). It is **immutable after creation**.
 
@@ -54,47 +52,32 @@ When any import source brings in a book, `BookStorageService.reconcile()` checks
 
 1. `hardcover_id` — exact integer match
 2. `readwise_id` — exact integer match
-3. `isbn` — normalized (hyphens stripped, lowercase) — reachable only if `isbn` was set manually or by a future source; Hardcover API does not expose ISBN on the `books` type
+3. `isbn` — normalized (hyphens stripped, lowercase)
 4. `slugify(title)` — title slug equality
 
-If a match is found but the arriving source's ID is absent from the matched file, it is patched in immediately to cement the link.
+If a match is found but the arriving source's ID is absent from the matched file, it is patched in immediately to cement the link. This is how a Readwise-imported book and a Hardcover-synced book converge on the same file without creating a duplicate.
 
 ---
 
-## Migration from Legacy Format
+## Migration from legacy format
 
-Files with `type: book_highlights` (the pre-consolidation Readwise schema) are **lazily migrated** on first load by `BookStorageService.loadBooks()`:
-
-- `type: book_highlights` → `type: book`
-- `source: readwise` field removed
-- `author: string` → `authors: [list]` (split on `, `)
-- `alias` generated and written in-place
-
-The body (highlights, user sections) is preserved unchanged.
-
----
-
-## File Location
-
-`Interesting/Books/<sanitized-title>.md` — one file per book.
-
-Filename derived via `sanitizeFilename(title)`. Files are NOT loaded by `MarkdownStorageService` and do not currently participate in the entity graph. `alias` is present to enable future graph participation without a migration.
+Files with `type: book_highlights` (pre-consolidation Readwise schema) are **lazily migrated** on first load by `BookStorageService.loadBooks()`: type renamed, `source: readwise` removed, `author: string` split into `authors: [list]`, `alias` generated in-place. The body is preserved unchanged.
 
 ---
 
 ## `BookStorageService` (`lib/features/books/services/book_storage_service.dart`)
 
-All-static. Owns all canonical book file I/O.
+All-static. The only service that creates or reads canonical book files.
 
 | Method | Description |
 |--------|-------------|
 | `loadBooks(vaultPath)` | Load all book files; lazy-migrate legacy files |
-| `reconcile(vaultPath, {hardcoverId, readwiseId, isbn, title})` | Find existing file by any anchor |
+| `reconcile(vaultPath, {hardcoverId, readwiseId, isbn, title})` | Find existing file by any anchor in priority order |
 | `patchFields(filePath, updates)` | Overwrite only specified frontmatter keys; preserve body |
 | `createBook(vaultPath, book)` | Create new canonical file; return path |
 | `generateAlias(title, authors, {existing})` | Collision-safe alias generation |
 
-**`patchFields` is the minimal-patch primitive.** Both `ReadwiseService` and `HardcoverSyncService` call it to write only their owned fields without disturbing the other's data.
+`patchFields` is the minimal-patch primitive. Both `ReadwiseService` and `HardcoverSyncService` call it to write only their owned fields without disturbing the other's data.
 
 ---
 
@@ -105,112 +88,36 @@ All-static, all-catch-null, never throws. GraphQL client for the Hardcover API.
 - **Endpoint**: `https://api.hardcover.app/v1/graphql`
 - **Auth**: `Authorization: Bearer {token}`
 - **Token key**: `hardcover_api_token` (SharedPreferences)
-- **Rate limit**: 60 req/min
 
-| Method | Description |
-|--------|-------------|
-| `getToken()` / `setToken()` / `clearToken()` | SharedPreferences token management |
-| `testConnection(token)` | `query { me { id } }` — returns `String?` (null = success, error description on failure) |
-| `fetchUserBooks(token)` | Returns `(List<HardcoverBook>?, String?)` — error string propagated to sync result |
-| `searchBooks(token, query)` | Title search via `books(where: {title: {_ilike: $query}})` |
-| `updateUserBook(token, userBookId, statusId, rating)` | Push status/rating mutation |
-| `insertUserBook(token, bookId, statusId)` | Add book to Hardcover library |
+| Method | What it does | On failure |
+|--------|-------------|------------|
+| `getToken()` / `setToken()` / `clearToken()` | SharedPreferences token management | — |
+| `testConnection(token)` | `query { me { id } }` — returns `String?` (null = ok) | Returns error description |
+| `fetchUserBooks(token)` | Full user library: `user_books` with book title, contributors, status, rating, dates | Returns `(null, errorString)` |
+| `searchBooks(token, query)` | Title search via `_ilike` on `books` table, limit 10 | Returns `null` |
+| `updateUserBook(token, userBookId, statusId, rating)` | Push status/rating back to Hardcover | Returns `false` |
+| `insertUserBook(token, bookId, statusId)` | Add book to user's Hardcover library | Returns `null` |
 
-### GraphQL operations
-
-**Connectivity check** (`testConnection`)
-```graphql
-query { me { id } }
-```
-
-**Fetch user library** (`fetchUserBooks`) — response shape: `data.me[0].user_books[*]`
-```graphql
-query GetMyBooks {
-  me {
-    user_books {
-      id
-      status_id
-      rating
-      date_added
-      first_started_reading_date
-      last_read_date
-      book {
-        id
-        title
-        cached_contributors
-      }
-    }
-  }
-}
-```
-
-**Search books by title** (`searchBooks`) — response shape: `data.books[*]`
-```graphql
-query SearchBooks($query: String!) {
-  books(where: {title: {_ilike: $query}}, limit: 10) {
-    id
-    title
-    cached_contributors
-  }
-}
-```
-`searchBooks` returns bare `book` objects, not `user_book` wrappers. `fromJson` is called with a synthetic wrapper (`id: 0, status_id: 1, ...`) to reuse the same parser.
-
-**Update reading state** (`updateUserBook`) — takes `userBookId` (the `user_books.id`, not `books.id`)
-```graphql
-mutation UpdateUserBook($id: Int!, $statusId: Int!, $rating: numeric) {
-  update_user_book(
-    where: {id: {_eq: $id}},
-    _set: {status_id: $statusId, rating: $rating}
-  ) {
-    returning { id }
-  }
-}
-```
-
-**Add book to library** (`insertUserBook`) — returns new `user_books.id`
-```graphql
-mutation InsertUserBook($bookId: Int!, $statusId: Int!) {
-  insert_user_book(object: {book_id: $bookId, status_id: $statusId}) {
-    id
-  }
-}
-```
-
-### Transport layer
-
-Two private HTTP helpers:
-
-| Helper | When used | On failure |
-|--------|-----------|------------|
-| `_graphqlDebug` | `testConnection`, `fetchUserBooks` | Returns `(null, errorString)` |
-| `_graphql` | All mutations, `searchBooks` | Returns `null` (silent) |
-
-`_graphqlDebug` captures HTTP status codes, GraphQL `errors[*].message`, and caught exceptions as a human-readable string. `_graphql` discards all failure detail — appropriate for fire-and-forget mutations.
+`fetchUserBooks` uses `_graphqlDebug` (propagates the error string); all other methods use `_graphql` (silent null on failure).
 
 ### `HardcoverBook` model (`lib/features/books/models/hardcover_book.dart`)
 
-| Field | Source | Type |
-|-------|--------|------|
-| `userBookId` | `user_books.id` | `int` — used in mutations |
-| `bookId` | `book.id` | `int` — Hardcover's canonical book ID |
-| `title` | `book.title` | `String` |
-| `authors` | `book.cached_contributors` (scalar JSON) | `List<String>` |
-| `statusId` | `user_books.status_id` | `int` (1–5) |
-| `rating` | `user_books.rating` | `double?` |
-| `dateAdded` | `user_books.date_added` | `String?` |
-| `firstStartedReadingDate` | `user_books.first_started_reading_date` | `String?` |
-| `lastReadDate` | `user_books.last_read_date` | `String?` |
-
-`cached_contributors` is parsed defensively: tries `entry['author']['name']` first, falls back to `entry['name']`.
+| Field | Source |
+|-------|--------|
+| `userBookId` | `user_books.id` — used in mutations |
+| `bookId` | `book.id` — Hardcover's canonical book ID, used as local identity anchor |
+| `title`, `authors` | `book.title`, `book.cached_contributors` (scalar JSON) |
+| `statusId` | `user_books.status_id` (1–5); `statusSlug` getter converts to string |
+| `rating` | `user_books.rating` (`double?`) |
+| `firstStartedReadingDate`, `lastReadDate` | `user_books` date fields |
 
 ### Hardcover API schema quirks (do not regress)
 
-These were discovered through runtime failures and must be preserved as invariants:
+These were discovered through runtime failures:
 
-- **`me` is a `List`**, not a single object. Hasura returns user-scoped queries as arrays even for single-user contexts. Parse as `(data['me'] as List?)?.first`, not `data['me'] as Map`.
-- **`cached_contributors` is `json!` (scalar)**, not a nested object type. Do NOT use subselection syntax `{ author { name } }` — query it bare and parse the decoded value as `List<dynamic>` in Dart.
-- **`isbn_13` does not exist on the `books` type**. ISBN is on `editions`, not `books`. Do not add it to any query against the `books` type.
+- **`me` is a `List`**, not a single object. Parse as `(data['me'] as List?)?.first`.
+- **`cached_contributors` is `json!` (scalar)**, not a nested GraphQL type. Do NOT subselect `{ author { name } }` — query it bare and cast the decoded value to `List<dynamic>` in Dart.
+- **`isbn_13` does not exist on the `books` type**. ISBN is on `editions`, not `books`. Do not add it to any query against `books`.
 
 ### Status ID mapping
 
@@ -226,74 +133,59 @@ These were discovered through runtime failures and must be preserved as invarian
 
 ## `HardcoverSyncService` (`lib/features/books/services/hardcover_sync_service.dart`)
 
-Bidirectional sync. Explicit only — no background polling.
-
-### Algorithm
+Bidirectional sync. Explicit only — no background polling. Single entry point: `sync()`.
 
 ```
 sync() →
-  1. Fetch all user_books from Hardcover API
-  2. Load all local book files (with lazy migration)
-  3. Build lookup: hardcover_id → local Book
+  Fetch all user_books from Hardcover API
+  Load all local book files (with lazy migration)
+  Build lookup: hardcover_id → local Book
 
   Pass 1: Hardcover → Markdown
     For each HC book:
-      - Find local match (by hardcover_id → title slug; ISBN not available from HC API)
-      - If no match: createBook() with HC metadata → importedFromHardcover++
-      - If match: patchFields() with HC-owned fields only
-          - wasLinked (no prior hardcover_id) → linkedToHardcover++
-          - else → updatedFromHardcover++
+      - Find local match (hardcover_id lookup → title-slug fallback)
+      - No match: createBook() with HC metadata → importedFromHardcover++
+      - Match: patchFields() with HC-owned fields only
+          - First time linking (no prior hardcover_id) → linkedToHardcover++
+          - Already linked → updatedFromHardcover++
 
   Pass 2: Markdown → Hardcover
-    Reload local books (to pick up hardcover_ids from pass 1)
+    Reload local books (picks up hardcover_ids written in pass 1)
     For each local book with hardcover_id:
       - Compare status + rating against HC record
-      - If changed: updateUserBook() → pushedToHardcover++
-      - Else: skipped++
+      - Changed: updateUserBook() → pushedToHardcover++
+      - Unchanged: skipped++
 
   Return HardcoverSyncResult
 ```
 
-### Result fields
-
-| Field | Meaning |
-|-------|---------|
-| `importedFromHardcover` | New book files created from Hardcover |
-| `updatedFromHardcover` | Existing files patched with HC metadata |
-| `linkedToHardcover` | Files that gained a `hardcover_id` for the first time |
-| `pushedToHardcover` | Local status/rating changes pushed to HC |
-| `skipped` | Linked books with no state difference |
+`HardcoverSyncResult` counters: `importedFromHardcover`, `updatedFromHardcover`, `linkedToHardcover`, `pushedToHardcover`, `skipped`, `error`.
 
 ---
 
-## Readwise Coexistence
+## Readwise coexistence
 
-`ReadwiseService` delegates all file I/O to `BookStorageService`:
-
-1. `reconcile(readwiseId, title)` — find or create the canonical file
-2. `patchFields({readwise_id, num_highlights, last_highlight_at, updated_at})` — write only Readwise-owned fields
-3. `_appendHighlights()` — append new `^rw{id}` blocks to `## Highlights`
-
-Readwise never touches `hardcover_id`, `status`, `rating`, `started_at`, `finished_at`. Hardcover sync never touches `readwise_id`, `num_highlights`, `last_highlight_at`, or the highlights body. User sections (`## Thoughts`, `## Notes`, any custom `##`) are preserved by both.
+`ReadwiseService` calls through `BookStorageService` exclusively: `reconcile()` to find or create the file, `patchFields()` for its owned fields only, and `_appendHighlights()` to append new `^rw{id}` blocks to `## Highlights`. It never touches Hardcover-owned fields, and vice versa. User sections are preserved by both.
 
 ---
 
 ## `HardcoverScreen` (`lib/features/books/screens/hardcover_screen.dart`)
 
-Opened from `SettingsScreen` → "Open Hardcover Screen".
+Middle tab in the `HomeScreen` bottom navigation bar (Entities | **Hardcover** | ToDos).
 
-- Shows all books in `Interesting/Books/` with status chips, rating, and source badges (HC / RW)
-- AppBar sync button → `HardcoverSyncService.sync()` → SnackBar result
-- Empty state if no token; error state with retry if vault unreadable
+- Lists all books in `Interesting/Books/` with status chips, rating, and HC/RW source badges
+- AppBar sync button (in `HomeScreen`) calls `HardcoverScreenState.sync()`
+- Search FAB (in `HomeScreen`) calls `HardcoverScreenState.openSearchSheet()` — opens a bottom sheet to search Hardcover by title, pick a reading status, and add the book to both the vault and the user's Hardcover library
 
 ---
 
 ## Boundaries (do not violate)
 
-- `BookStorageService` is the only service that creates or reads canonical book files — `ReadwiseService` and `HardcoverSyncService` call through it
+- `BookStorageService` is the only service that creates or reads canonical book files
 - Each service patches only its owned fields — never overwrite fields owned by another service
 - No auto-sync, no background polling
-- Books stay in `Interesting/Books/` — do not merge into `Interesting/Entities/` until graph participation is explicitly planned
+- Books stay in `Interesting/Books/` — do not merge into `Interesting/Entities/`
 - `alias` is immutable after creation — never regenerate
 - `## Highlights` is append-only — never delete or reorder existing highlight blocks
 - `^rw{id}` block IDs are the Readwise deduplication mechanism — do not change format
+- **Author–entity linking (future)**: when ready, extend the `GetMyBooks` query to include `contributions { author { id, name } }` for stable Hardcover author IDs, add `author_entity_aliases` to book frontmatter, and cross-reference against `Entity` objects in the People category. Nothing in the current model blocks this.

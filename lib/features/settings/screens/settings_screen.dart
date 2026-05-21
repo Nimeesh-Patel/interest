@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../anki/services/anki_connect_service.dart';
-import '../../books/screens/hardcover_screen.dart';
 import '../../books/services/hardcover_service.dart';
 import '../../entities/services/letterboxd_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
@@ -422,15 +421,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.sync),
-            label: const Text('Open Hardcover Screen'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const HardcoverScreen()),
-            ),
-          ),
         ],
       )),
     );
