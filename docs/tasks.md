@@ -69,24 +69,25 @@ abstract class TaskNode
 
 All-static, all-catch, never throw.
 
-**Summary / flat (unchanged):**
+**Summary / flat:**
 - `loadTaskFiles()` — scans `Interesting/Tasks/*.md`; counts tasks via regex → `List<TaskFile>` (summary only)
 - `loadLines(filePath)` → `List<String>`
 - `toggleTask(filePath, lineIndex)` — flip `[ ]` ↔ `[x]` on one line
-- `addTask(filePath, text)` — append root-level task to end of file
-- `deleteTask(filePath, lineIndex)` — remove single line
+- `addTask(filePath, text)` — inserts new root-level task before the first completed root-level task (`^- \[[xX]\]`); appends to end if no completed tasks exist. Completed tasks are always anchored at the bottom of the file by `toggleBlockAndReorder`, so this keeps new tasks in the active region.
+- `deleteTask(filePath, lineIndex)` — remove single line (used for both task lines and individual note lines)
 - `updateTaskText(filePath, lineIndex, newText)` — preserve indent + state, replace text
 - `createTaskFile(name)` → `TaskFile?`; writes `# name\n\n`; null on collision
 - `deleteTaskFile(filePath)` — hard delete
 
-**Hierarchical (new):**
+**Hierarchical:**
 - `parseNodes(lines)` → `List<TaskNode>` — pure parser
 - `addNote(filePath, parent, noteText)` — insert `noteText` at `parent.startLine + 1` with `parent.indentSpaces + 2` indent; multiline text split on `\n`; each empty line stored as `''`
 - `addSubtask(filePath, parent, text)` — insert `' ' * (parent.indentSpaces + 2) + '- [ ] text'` at `parent.endLine + 1`
-- `addSiblingTask(filePath, block, text)` — insert `' ' * block.indentSpaces + '- [ ] text'` at `block.endLine + 1` (same indent level as `block`)
-- `deleteBlock(filePath, block)` — `removeRange(block.startLine, block.endLine + 1)`; removes full subtree
+- `deleteBlock(filePath, block)` — `removeRange(block.startLine, block.endLine + 1)`; removes full subtree including all notes and children
 - `updateBlockText(filePath, block, newText)` — thin wrapper: `updateTaskText(filePath, block.startLine, newText)`
-- `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing (caller must re-prepend original indentation)
+- `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing (caller re-prepends original indentation)
+- `toggleBlockAndReorder(filePath, block)` — toggle + auto-reorder: completing → move block to end of file; uncompleting → move before first completed root-level block
+- `reorderRootBlocks(filePath, nodes, oldIndex, newIndex)` — drag reorder for root-level blocks; mutates file order
 - `renameTaskFile(filePath, newName)` → `String?` — updates `# heading` in file, renames file on disk; null on collision or error
 
 All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never regenerate whole file.
@@ -101,38 +102,54 @@ All mutations: `readAsLines() → mutate → writeAsString(join('\n'))`. Never r
 - `_editingNoteLine` — `int?` line index of note being edited
 - `_addingChildOf` — `int?` startLine of parent for pending subtask add
 - `_addingNoteOf` — `int?` startLine of parent for pending note add; cleared by `_reload()`
-- `_addingSiblingOf` — `int?` startLine of source block for pending sibling add; sibling field renders outside the block's indent wrapper
 
 **Constructor params:** `filePath`, `title`, `onRenamed` (optional callback `(String newPath, String newTitle) → void`).
 
-**Rendering:**
-- `_buildNodeWidget` dispatches to header/prose/block renderers
-- `_buildBlockWidget(block, depth)`: `Padding(left: depth * 24px)` with collapse chevron, Checkbox, task text (or inline TextField), ⊕ add-subtask icon, ··· more-actions icon (→ sheet: Add note / Add sibling task / Delete)
-- Task text color: `Theme.of(context).colorScheme.onSurface` (explicit; `RichText` does not inherit `DefaultTextStyle`)
-- Notes: italic grey 13px, `left = 56px + depth * 24px`
-- Completed tasks: grey + strikethrough
-- Collapse chevron visible when `block.children.isNotEmpty || block.noteLineIndices.isNotEmpty`
+**Task row layout (left → right):**
+
+```
+[Chevron 24px] [Checkbox 32px] [Task Text Expanded] [⋯ More 32px] [⠿ Drag 32px]
+```
+
+- Collapse chevron: visible when `block.children.isNotEmpty || block.noteLineIndices.isNotEmpty`; shows `+N` descendant count badge when collapsed
+- Checkbox: toggles completion via `toggleBlockAndReorder`
+- Task text: `WikilinkText` in display mode (strikethrough + grey when completed); `TextField` in inline edit mode (tap to activate)
+- ⋯ More: opens `_showTaskActions` bottom sheet (see below)
+- Drag handle: `ReorderableDragStartListener` — root blocks only (`depth == 0`); 32×32 touch target; hidden during inline editing
+
+**`_showTaskActions` menu (progressive disclosure):**
+
+| Item | Action |
+|------|--------|
+| Add subtask | sets `_addingChildOf`; renders `_buildInlineAddField` below existing notes |
+| Add note | sets `_addingNoteOf`; renders `_buildInlineNoteAddField` |
+| Edit | sets `_editingLine`; activates inline text edit |
+| Delete | `showConfirmDialog` → `deleteBlock` |
 
 **Render order inside a block (top → bottom):**
-1. Task row (chevron / checkbox / text / ⊕ subtask-icon / ··· more-icon)
+1. Task row (chevron / checkbox / text / ⋯ more / drag)
 2. Inline note-add field (if `_addingNoteOf == block.startLine`)
 3. Existing notes (`noteLineIndices`)
 4. Inline subtask-add field (if `_addingChildOf == block.startLine`)
 5. Children (recursive)
 
-Sibling add field (`_addingSiblingOf == block.startLine`) renders **outside** the block's indent wrapper, as a sibling of the block in a wrapping `Column`.
+**Inline editing:**
+- Task text: tap → TextField in-place. Saves on `onSubmitted` and `onTapOutside`.
+- Note: tap → TextField in-place. Saves on `onSubmitted` only — no `onTapOutside` (tapping the inline delete button must not trigger a save before the delete). Note re-prepends original leading whitespace before writing (`_lines[lineIndex]` prefix).
+- Note delete: visible only in note edit mode — `delete_outline` IconButton (18px, `red.shade300`) calls `deleteTask(filePath, lineIndex)`. Hard delete; no undo.
 
-**Inline editing:** Tap task text → TextField in-place (no dialog). Tap note line → TextField in-place. Note edit re-prepends original leading whitespace before writing (`_lines[lineIndex]` prefix). Both save on `onSubmitted` and `onTapOutside`.
+**Completed task separation:**
+- `_firstCompleteRootNodeIdx()` finds the first completed root block in `_nodes`
+- A "Completed" divider (centered `Divider` + grey label) is inserted at that display index
+- `toggleBlockAndReorder` maintains the invariant: completing moves a block to end-of-file; uncompleting moves it before the first completed root block
 
-**Add note:** Tap 📝 icon → sets `_addingNoteOf`; renders `_buildInlineNoteAddField` — multiline TextField (`maxLines: null`, `TextInputAction.newline`) at note indent. Confirm (✓) calls `addNote(filePath, parent, text)`; inserted at `parent.startLine + 1`.
+**Bottom bar:** Persistent `TextField` at screen bottom. `SafeArea(top: false)` handles Android gesture nav bar. `Scaffold.resizeToAvoidBottomInset` (default true) handles keyboard. No manual `viewInsets.bottom` padding. Submitting calls `addTask()`, which inserts the new task before the completed section.
 
-**Add subtask:** Tap ⊕ icon → sets `_addingChildOf`; renders inline TextField below existing notes.
-
-**Bottom bar:** `SafeArea(top: false)` handles Android gesture nav bar. `Scaffold.resizeToAvoidBottomInset` (default true) handles keyboard. No manual `viewInsets.bottom` padding.
+**Drag reorder:** `ReorderableListView.builder` with `buildDefaultDragHandles: false`. Root-level blocks only are draggable. `onReorder` adjusts for the "Completed" divider offset, then calls `reorderRootBlocks()`.
 
 **Rename:** AppBar `PopupMenuButton` → `showInputDialog()` → `renameTaskFile()` → updates `_currentTitle` / `_currentPath` in state; calls `onRenamed`.
 
-## HomeScreen integration (`lib/screens/home_screen.dart` — stays at this path)
+## HomeScreen integration (`lib/screens/home_screen.dart`)
 
 `HomeScreen` owns `_taskFiles` state and all task-file CRUD:
 - `_reloadTaskFiles()` — refreshes from disk
@@ -149,5 +166,5 @@ Sibling add field (`_addingSiblingOf == block.startLine`) renders **outside** th
 - `parseNodes` is pure — call only after `loadLines()`; never call from `loadTaskFiles()` (summary scan, no tree needed)
 - `deleteBlock` is hard-delete with no trash — task files are not identity-bearing
 - Do NOT wire task wikilinks into `EntityLink` graph — task files have no `alias`
-- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, drag-to-reorder, or calendar
+- Do NOT add due dates, reminders, recurring tasks, priorities, notifications, or calendar integration
 - `TaskBlock.endLine` is computed from the live subtree — do not cache across reloads

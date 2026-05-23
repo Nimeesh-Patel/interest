@@ -60,11 +60,20 @@ class TaskStorageService {
   static Future<void> addTask(String filePath, String text) async {
     try {
       final file = File(filePath);
-      final content = await file.readAsString();
+      final lines = await file.readAsLines();
       final newLine = '- [ ] $text';
-      final updated =
-          content.endsWith('\n') ? '$content$newLine\n' : '$content\n$newLine\n';
-      await file.writeAsString(updated);
+      final completedRoot = RegExp(r'^- \[[xX]\]');
+      final insertIdx = lines.indexWhere((l) => completedRoot.hasMatch(l));
+      if (insertIdx == -1) {
+        final content = lines.join('\n');
+        final updated = content.endsWith('\n')
+            ? '$content$newLine\n'
+            : '$content\n$newLine\n';
+        await file.writeAsString(updated);
+      } else {
+        lines.insert(insertIdx, newLine);
+        await file.writeAsString('${lines.join('\n')}\n');
+      }
     } catch (_) {}
   }
 
@@ -274,17 +283,6 @@ class TaskStorageService {
       final lines = await File(filePath).readAsLines();
       final indent = ' ' * (parent.indentSpaces + 2);
       lines.insert(parent.endLine + 1, '$indent- [ ] $text');
-      await File(filePath).writeAsString(lines.join('\n'));
-    } catch (_) {}
-  }
-
-  // Insert a sibling task immediately after [block]'s full subtree (same indent level).
-  static Future<void> addSiblingTask(
-      String filePath, TaskBlock block, String text) async {
-    try {
-      final lines = await File(filePath).readAsLines();
-      final indent = ' ' * block.indentSpaces;
-      lines.insert(block.endLine + 1, '$indent- [ ] $text');
       await File(filePath).writeAsString(lines.join('\n'));
     } catch (_) {}
   }

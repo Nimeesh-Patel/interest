@@ -56,10 +56,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   int? _addingNoteOf;
   final _addNoteController = TextEditingController();
 
-  // Inline sibling add — value is source block's startLine
-  int? _addingSiblingOf;
-  final _addSiblingController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -76,7 +72,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     _editNoteController.dispose();
     _addChildController.dispose();
     _addNoteController.dispose();
-    _addSiblingController.dispose();
     super.dispose();
   }
 
@@ -92,7 +87,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       _editingNoteLine = null;
       _addingChildOf = null;
       _addingNoteOf = null;
-      _addingSiblingOf = null;
     });
   }
 
@@ -136,6 +130,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     await _reload();
   }
 
+  Future<void> _deleteNoteLine(int lineIndex) async {
+    await TaskStorageService.deleteTask(_currentPath, lineIndex);
+    await _reload();
+  }
+
   Future<void> _addSubtask(TaskBlock parent) async {
     final text = _addChildController.text.trim();
     if (text.isNotEmpty) {
@@ -151,15 +150,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       await TaskStorageService.addNote(_currentPath, parent, text);
     }
     setState(() => _addingNoteOf = null);
-    await _reload();
-  }
-
-  Future<void> _addSiblingTask(TaskBlock block) async {
-    final text = _addSiblingController.text.trim();
-    if (text.isNotEmpty) {
-      await TaskStorageService.addSiblingTask(_currentPath, block, text);
-    }
-    setState(() => _addingSiblingOf = null);
     await _reload();
   }
 
@@ -272,16 +262,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Drag handle (root blocks only)
-                if (depth == 0 && reorderIndex != null && !isEditing)
-                  ReorderableDragStartListener(
-                    index: reorderIndex,
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 2),
-                      child: Icon(Icons.drag_indicator,
-                          size: 16, color: Colors.grey.shade300),
-                    ),
-                  ),
                 // Collapse chevron
                 SizedBox(
                   width: 24,
@@ -362,19 +342,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                           ),
                         ),
                 ),
-                // ⊕ Add subtask button
-                if (!isEditing)
-                  IconButton(
-                    icon: Icon(Icons.add_circle_outline,
-                        size: 18, color: Colors.grey.shade400),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    tooltip: 'Add subtask',
-                    onPressed: () => setState(() {
-                      _addingChildOf = block.startLine;
-                      _addChildController.clear();
-                    }),
-                  ),
                 // ··· More actions button
                 if (!isEditing)
                   IconButton(
@@ -384,6 +351,17 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                     constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                     tooltip: 'More actions',
                     onPressed: () => _showTaskActions(block),
+                  ),
+                // Drag handle (root blocks only, right side)
+                if (depth == 0 && reorderIndex != null && !isEditing)
+                  ReorderableDragStartListener(
+                    index: reorderIndex,
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: Icon(Icons.drag_indicator,
+                          size: 20, color: Colors.grey.shade300),
+                    ),
                   ),
               ],
             ),
@@ -405,16 +383,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       ),
     );
 
-    // Sibling add field renders outside this block's indent wrapper
-    if (_addingSiblingOf == block.startLine) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          blockWidget,
-          _buildInlineSiblingAddField(block, depth),
-        ],
-      );
-    }
     return blockWidget;
   }
 
@@ -428,23 +396,38 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     return Padding(
       padding: EdgeInsets.only(left: 56.0 + (depth * 24.0), right: 8, top: 2, bottom: 2),
       child: isEditing
-          ? TextField(
-              controller: _editNoteController,
-              autofocus: true,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade700,
-                fontStyle: FontStyle.italic,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 2),
-              ),
-              maxLines: null,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _saveNoteEdit(lineIdx),
-              onTapOutside: (_) => _saveNoteEdit(lineIdx),
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _editNoteController,
+                    autofocus: true,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 2),
+                    ),
+                    maxLines: null,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _saveNoteEdit(lineIdx),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline,
+                      size: 18, color: Colors.red.shade300),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: 'Delete note',
+                  onPressed: () => _deleteNoteLine(lineIdx),
+                ),
+              ],
             )
           : GestureDetector(
               onTap: () => setState(() {
@@ -562,47 +545,16 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     );
   }
 
-  Widget _buildInlineSiblingAddField(TaskBlock block, int depth) {
-    return Padding(
-      padding: EdgeInsets.only(
-          left: (depth * 24.0) + 56.0, right: 8, top: 4, bottom: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _addSiblingController,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'Add sibling task…',
-                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 4),
-              ),
-              style: const TextStyle(fontSize: 14),
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _addSiblingTask(block),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.send, size: 16),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: () => _addSiblingTask(block),
-          ),
-          IconButton(
-            icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: () => setState(() => _addingSiblingOf = null),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showTaskActions(TaskBlock block) {
     showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.subdirectory_arrow_right,
+        label: 'Add subtask',
+        onTap: () => setState(() {
+          _addingChildOf = block.startLine;
+          _addChildController.clear();
+        }),
+      ),
       BottomSheetMenuItem(
         icon: Icons.sticky_note_2_outlined,
         label: 'Add note',
@@ -612,11 +564,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
         }),
       ),
       BottomSheetMenuItem(
-        icon: Icons.playlist_add,
-        label: 'Add sibling task',
+        icon: Icons.edit_outlined,
+        label: 'Edit',
         onTap: () => setState(() {
-          _addingSiblingOf = block.startLine;
-          _addSiblingController.clear();
+          _editingLine = block.startLine;
+          _editController.text = block.text;
         }),
       ),
       BottomSheetMenuItem(

@@ -118,6 +118,8 @@ Inline `TextField`s (entity notes/links, task text) commit on:
 - `onSubmitted` — explicit keyboard submit
 - `onTapOutside` — tap elsewhere
 
+**Exception — task note edit fields**: `onTapOutside` is intentionally absent. The note edit row includes an inline delete button; if `onTapOutside` were present, tapping delete would trigger a save before the delete fires, causing a redundant write. Note edits commit only on `onSubmitted`.
+
 After commit the keyboard dismisses naturally via `FocusScope.of(context).unfocus()` or the framework's default behavior.
 
 ---
