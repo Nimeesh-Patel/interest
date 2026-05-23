@@ -16,6 +16,7 @@ class RssScreen extends StatefulWidget {
 }
 
 class _RssScreenState extends State<RssScreen> {
+  String? _vaultPath;
   List<RssFeed> _feeds = [];
   // Maps feed id → whether that feed is currently syncing.
   final Map<String, bool> _syncing = {};
@@ -23,22 +24,27 @@ class _RssScreenState extends State<RssScreen> {
   @override
   void initState() {
     super.initState();
-    _loadFeeds();
+    _init();
   }
 
-  Future<void> _loadFeeds() async {
-    final feeds = await RssFeedStorageService.loadFeeds();
+  Future<void> _init() async {
+    final vaultPath = await VaultService.getVaultPath();
+    if (!mounted) return;
+    setState(() => _vaultPath = vaultPath);
+    if (vaultPath != null) _loadFeeds(vaultPath);
+  }
+
+  Future<void> _loadFeeds(String vaultPath) async {
+    final feeds = await RssFeedStorageService.loadFeeds(vaultPath);
     if (mounted) setState(() => _feeds = feeds);
   }
 
   Future<void> _syncFeed(RssFeed feed) async {
-    final vaultPath = await VaultService.getVaultPath();
-    if (!mounted) return;
+    final vaultPath = _vaultPath;
     if (vaultPath == null) {
       _showSnack('No vault configured.');
       return;
     }
-
     setState(() => _syncing[feed.id] = true);
     final result = await RssIngestionService.ingestFeed(feed, vaultPath);
     if (!mounted) return;
@@ -54,8 +60,10 @@ class _RssScreenState extends State<RssScreen> {
       confirmLabel: 'Remove',
     );
     if (!confirmed || !mounted) return;
-    await RssFeedStorageService.removeFeed(feed.id);
-    _loadFeeds();
+    final vaultPath = _vaultPath;
+    if (vaultPath == null) return;
+    await RssFeedStorageService.removeFeed(vaultPath, feed.id);
+    _loadFeeds(vaultPath);
   }
 
   void _showAddSheet() => _showFeedSheet(null);
@@ -147,22 +155,24 @@ class _RssScreenState extends State<RssScreen> {
                             final url = urlCtrl.text.trim();
                             if (name.isEmpty || url.isEmpty) return;
                             Navigator.pop(ctx);
+                            final vp = _vaultPath;
+                            if (vp == null) return;
                             if (existing == null) {
-                              await RssFeedStorageService.addFeed(RssFeed(
+                              await RssFeedStorageService.addFeed(vp, RssFeed(
                                 id: RssFeedStorageService.generateId(name),
                                 name: name,
                                 url: url,
                                 type: selectedType,
                               ));
                             } else {
-                              await RssFeedStorageService.updateFeed(RssFeed(
+                              await RssFeedStorageService.updateFeed(vp, RssFeed(
                                 id: existing.id,
                                 name: name,
                                 url: url,
                                 type: selectedType,
                               ));
                             }
-                            _loadFeeds();
+                            _loadFeeds(vp);
                           },
                           child: Text(existing == null ? 'Add' : 'Save'),
                         ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/vault_service.dart';
 import '../../anki/services/anki_connect_service.dart';
 import '../../books/services/hardcover_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
@@ -14,6 +15,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  String? _vaultPath;
+
   // AnkiConnect
   final _ankiUrlController = TextEditingController();
   bool _ankiTesting = false;
@@ -36,9 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAnkiUrl();
-    _loadReadwiseToken();
-    _loadHardcoverToken();
+    _loadAll();
   }
 
   @override
@@ -47,6 +48,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _readwiseTokenController.dispose();
     _hardcoverTokenController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAll() async {
+    _loadAnkiUrl();
+    final vaultPath = await VaultService.getVaultPath();
+    if (!mounted || vaultPath == null) return;
+    setState(() => _vaultPath = vaultPath);
+    final readwiseToken = await ReadwiseService.getToken(vaultPath);
+    if (mounted) setState(() => _readwiseTokenController.text = readwiseToken ?? '');
+    final hardcoverToken = await HardcoverService.getToken(vaultPath);
+    if (mounted) setState(() => _hardcoverTokenController.text = hardcoverToken ?? '');
   }
 
   Future<void> _loadAnkiUrl() async {
@@ -74,29 +86,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _loadReadwiseToken() async {
-    final token = await ReadwiseService.getToken();
-    if (mounted) setState(() => _readwiseTokenController.text = token ?? '');
-  }
-
   Future<void> _saveReadwiseToken() async {
+    final vaultPath = _vaultPath;
+    if (vaultPath == null) return;
     final token = _readwiseTokenController.text.trim();
     setState(() {
       _readwiseSaving = true;
       _readwiseSaveStatus = null;
     });
-    await ReadwiseService.setToken(token);
+    await ReadwiseService.setToken(vaultPath, token);
     if (mounted) {
       setState(() {
         _readwiseSaving = false;
         _readwiseSaveStatus = token.isEmpty ? 'Token cleared.' : 'Token saved.';
       });
     }
-  }
-
-  Future<void> _loadHardcoverToken() async {
-    final token = await HardcoverService.getToken();
-    if (mounted) setState(() => _hardcoverTokenController.text = token ?? '');
   }
 
   Future<void> _testHardcoverConnection() async {
@@ -118,12 +122,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveHardcoverToken() async {
+    final vaultPath = _vaultPath;
+    if (vaultPath == null) return;
     final token = _hardcoverTokenController.text.trim();
     setState(() {
       _hardcoverSaving = true;
       _hardcoverSaveStatus = null;
     });
-    await HardcoverService.setToken(token);
+    await HardcoverService.setToken(vaultPath, token);
     if (mounted) {
       setState(() {
         _hardcoverSaving = false;

@@ -1,30 +1,23 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/integrations_config_service.dart';
 import '../models/hardcover_book.dart';
 
 class HardcoverService {
-  static const _tokenKey = 'hardcover_api_token';
   static const _endpoint = 'https://api.hardcover.app/v1/graphql';
 
   // ── Token storage ─────────────────────────────────────────────────────────
 
-  static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_tokenKey);
-  }
+  static Future<String?> getToken(String vaultPath) =>
+      IntegrationsConfigService.getHardcoverToken(vaultPath);
 
-  static Future<void> setToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
-  }
+  static Future<void> setToken(String vaultPath, String token) =>
+      IntegrationsConfigService.setHardcoverToken(vaultPath, token);
 
-  static Future<void> clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-  }
+  static Future<void> clearToken(String vaultPath) =>
+      IntegrationsConfigService.setHardcoverToken(vaultPath, null);
 
   // ── Connectivity ──────────────────────────────────────────────────────────
 

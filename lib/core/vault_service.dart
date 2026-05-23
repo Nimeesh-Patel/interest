@@ -39,6 +39,8 @@ class VaultService {
     await _migrateBoardsToLists(vaultPath);
     final ldir = Directory(listsPath(vaultPath));
     if (!await ldir.exists()) await ldir.create(recursive: true);
+    final sysdir = Directory(systemPath(vaultPath));
+    if (!await sysdir.exists()) await sysdir.create(recursive: true);
     await _seedDefaultTemplates(tdir.path);
   }
 
@@ -78,6 +80,9 @@ class VaultService {
 
   static String articlesPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Articles');
+
+  static String systemPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'System');
 
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {

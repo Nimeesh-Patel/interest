@@ -15,6 +15,7 @@ A filesystem-native semantic knowledge layer: all data lives as plain Markdown f
     Tasks/      — one .md file per task topic; pure Markdown, no frontmatter
     Books/      — one .md file per book
     Articles/   — one .md file per RSS-imported article
+    System/     — vault-native configuration (integrations.md)
 ```
 
 All subdirectories are created on first launch (`VaultService.ensureVaultDirectories`). All other files in the vault are ignored.

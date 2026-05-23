@@ -31,22 +31,22 @@ class HardcoverScreenState extends State<HardcoverScreen> {
   }
 
   Future<void> _loadBooks() async {
-    final token = await HardcoverService.getToken();
-    if (token == null || token.isEmpty) {
+    final vaultPath = await VaultService.getVaultPath();
+    if (vaultPath == null) {
       if (mounted) {
         setState(() {
-          _noToken = 'No Hardcover token configured. Add one in Settings.';
+          _error = 'No vault path set.';
           _loading = false;
         });
       }
       return;
     }
 
-    final vaultPath = await VaultService.getVaultPath();
-    if (vaultPath == null) {
+    final token = await HardcoverService.getToken(vaultPath);
+    if (token == null || token.isEmpty) {
       if (mounted) {
         setState(() {
-          _error = 'No vault path set.';
+          _noToken = 'No Hardcover token configured. Add one in Settings.';
           _loading = false;
         });
       }
@@ -272,7 +272,8 @@ class _SearchSheetState extends State<_SearchSheet> {
       _results = null;
       _searchError = null;
     });
-    final token = await HardcoverService.getToken();
+    final vaultPath = await VaultService.getVaultPath();
+    final token = vaultPath != null ? await HardcoverService.getToken(vaultPath) : null;
     if (token == null || token.isEmpty) {
       if (mounted) setState(() { _searching = false; _searchError = 'No token configured.'; });
       return;
@@ -333,9 +334,10 @@ class _SearchSheetState extends State<_SearchSheet> {
       return;
     }
 
-    final token = await HardcoverService.getToken();
     final vaultPath = await VaultService.getVaultPath();
-    if (token == null || vaultPath == null) return;
+    if (vaultPath == null) return;
+    final token = await HardcoverService.getToken(vaultPath);
+    if (token == null) return;
 
     // Add to Hardcover library — tolerate failure (untested mutation; next sync reconciles)
     await HardcoverService.insertUserBook(token, hc.bookId, statusId);

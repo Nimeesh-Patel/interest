@@ -28,7 +28,9 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
   }
 
   Future<void> _init() async {
-    final token = await ReadwiseService.getToken();
+    final vaultPath = await VaultService.getVaultPath();
+    if (!mounted || vaultPath == null) return;
+    final token = await ReadwiseService.getToken(vaultPath);
     if (!mounted) return;
     setState(() => _token = token);
     if (token != null && token.isNotEmpty) _fetchBooks();

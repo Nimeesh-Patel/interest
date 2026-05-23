@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/entities/models/category.dart';
@@ -78,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final vault = await VaultService.getVaultPath();
     if (vault != null) {
+      await IntegrationsConfigService.migrateFromPrefs(vault);
       final lists = await ListStorageService.loadLists(vault);
       if (mounted) setState(() => _lists = lists);
     }

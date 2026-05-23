@@ -8,14 +8,14 @@ import 'hardcover_service.dart';
 class HardcoverSyncService {
   static Future<HardcoverSyncResult> sync() async {
     try {
-      final token = await HardcoverService.getToken();
-      if (token == null || token.isEmpty) {
-        return const HardcoverSyncResult(
-            error: 'No Hardcover token. Configure in Settings.');
-      }
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) {
         return const HardcoverSyncResult(error: 'No vault path set.');
+      }
+      final token = await HardcoverService.getToken(vaultPath);
+      if (token == null || token.isEmpty) {
+        return const HardcoverSyncResult(
+            error: 'No Hardcover token. Configure in Settings.');
       }
 
       // 1. Fetch from Hardcover

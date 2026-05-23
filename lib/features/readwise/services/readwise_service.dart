@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../books/models/book.dart';
@@ -13,25 +13,18 @@ import '../models/readwise_book.dart';
 import '../models/readwise_highlight.dart';
 
 class ReadwiseService {
-  static const _tokenKey = 'readwise_access_token';
   static const _apiBase = 'https://readwise.io/api/v2';
 
   // ── Token storage ─────────────────────────────────────────────────────────
 
-  static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_tokenKey);
-  }
+  static Future<String?> getToken(String vaultPath) =>
+      IntegrationsConfigService.getReadwiseToken(vaultPath);
 
-  static Future<void> setToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
-  }
+  static Future<void> setToken(String vaultPath, String token) =>
+      IntegrationsConfigService.setReadwiseToken(vaultPath, token);
 
-  static Future<void> clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-  }
+  static Future<void> clearToken(String vaultPath) =>
+      IntegrationsConfigService.setReadwiseToken(vaultPath, null);
 
   // ── API: fetch books (paginated) ──────────────────────────────────────────
 

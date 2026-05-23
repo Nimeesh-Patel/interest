@@ -36,7 +36,7 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`.
 
 ## Save semantics
 
@@ -58,6 +58,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | `TaskStorageService` | `Interesting/Tasks/` |
 | `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService` write only via this |
 | `ArticleStorageService` | `Interesting/Articles/` ← `SubstackAdapter`, `GenericAdapter` write only via this |
+| `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
 
 ## Identity anchors
 
@@ -78,6 +79,20 @@ Anki soft-delete rationale: a hard-deleted card re-synced from Anki would receiv
 - **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
 - **Spacing** — `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0), `kScreenHPad` (16.0). No magic numbers.
 
+## Configuration ownership
+
+Integration configuration lives in `Interesting/System/integrations.md` (vault-canonical), managed by `IntegrationsConfigService` in `lib/core/`. SharedPreferences is bootstrap/cache only:
+
+| Key | Location | Rationale |
+|---|---|---|
+| `vault_path` | SharedPreferences | Must be known before vault is accessible |
+| `anki_connect_url` | SharedPreferences | Device-specific LAN address; not portable |
+| Readwise token | `integrations.md` | Portable; syncs via Obsidian Sync |
+| Hardcover token | `integrations.md` | Portable; syncs via Obsidian Sync |
+| RSS feed configs | `integrations.md` | Portable; syncs via Obsidian Sync |
+
+Migration from SharedPreferences runs once on first `_loadData()` (idempotent: skipped if file already exists). All token/config methods on `ReadwiseService`, `HardcoverService`, and `RssFeedStorageService` require `vaultPath` — consistent with other storage services.
+
 ## Subsystem constraints
 
 **Anki** — `anki_id` immutable (see identity anchors table); soft-delete only; review metadata (intervals, ease, due dates) never written to Markdown. Full details: [docs/anki.md](docs/anki.md).
@@ -94,7 +109,7 @@ Anki soft-delete rationale: a hard-deleted card re-synced from Anki would receiv
 
 **Hardcover** — bidirectional sync via GraphQL; explicit sync only via `HardcoverSyncService.sync()` (no background); two-pass: HC→MD then MD→HC; identity reconciliation prevents duplicate files. `HardcoverScreen` is a tab (not a pushed route); `HardcoverScreenState` is public so `HomeScreen` can drive sync and search via `GlobalKey`. Token in SharedPreferences (`hardcover_api_token`). Critical API quirks (me-as-List, cached_contributors-as-scalar, no isbn_13): [docs/books.md § API quirks](docs/books.md).
 
-**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in SharedPreferences (`rss_feeds` JSON); migrates `letterboxd_rss_url` on first load. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
+**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService` (migrated from legacy SharedPreferences on first load). Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
 **Obsidian launch** — UI-only AppBar action; fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 
