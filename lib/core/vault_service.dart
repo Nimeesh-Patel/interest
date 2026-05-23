@@ -34,6 +34,8 @@ class VaultService {
     if (!await tsdir.exists()) await tsdir.create(recursive: true);
     final bkdir = Directory(booksPath(vaultPath));
     if (!await bkdir.exists()) await bkdir.create(recursive: true);
+    final artdir = Directory(articlesPath(vaultPath));
+    if (!await artdir.exists()) await artdir.create(recursive: true);
     await _migrateBoardsToLists(vaultPath);
     final ldir = Directory(listsPath(vaultPath));
     if (!await ldir.exists()) await ldir.create(recursive: true);
@@ -73,6 +75,9 @@ class VaultService {
 
   static String booksPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Books');
+
+  static String articlesPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Articles');
 
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {

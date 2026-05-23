@@ -1,61 +1,35 @@
 # Entity Tracker
 
-A filesystem-native semantic knowledge layer: all data lives as plain Markdown files in a user-chosen vault folder. The app is a projection over that vault — it reads, patches, and navigates Markdown without owning it. Compatible with Obsidian; readable by any text editor. Single-user Android app. No database, no cloud, no auth.
+A filesystem-native semantic knowledge layer: all data lives as plain Markdown files in a user-chosen vault. The app is a projection over that vault — it reads, patches, and navigates Markdown without owning it. Compatible with Obsidian; readable by any text editor. Single-user Android app. No database, no cloud, no auth.
 
 ## Vault layout
 
 ```
 <vault>/
   Interesting/
-    Entities/     — one .md file per entity
-    Lists/        — one .md file per list (flat item collection; items are arbitrary text/wikilinks)
-    Templates/    — category templates; seeded on first launch; user-editable
-    Anki/         — one .md file per Anki card
-      .trash/     — soft-deleted cards
-    Tasks/        — one .md file per task topic; pure Markdown, no frontmatter
-    Books/        — one .md file per Readwise book (highlights from that book)
+    Entities/   — one .md file per entity
+    Lists/      — one .md file per list (flat item collection; items are arbitrary text/wikilinks)
+    Templates/  — category templates; seeded on first launch; user-editable
+    Anki/       — one .md file per Anki card
+      .trash/   — soft-deleted cards
+    Tasks/      — one .md file per task topic; pure Markdown, no frontmatter
+    Books/      — one .md file per book
+    Articles/   — one .md file per RSS-imported article
 ```
 
 All subdirectories are created on first launch (`VaultService.ensureVaultDirectories`). All other files in the vault are ignored.
 
 ## Semantic storage model
 
-### Identity
+**Identity.** Every entity has an immutable `alias` in its YAML frontmatter — the stable id used in all EntityLinks. Filenames change on rename; the alias never does.
 
-Every entity has an immutable `alias` in its YAML frontmatter — the entity's stable id, used in all EntityLinks and board memberships. Filenames change on rename; the alias never does. Without this invariant, every rename would silently orphan all wikilinks and board memberships pointing to the renamed entity.
+**Patch-not-rebuild.** On save, the app patches the existing file: frontmatter and app-owned sections are rewritten from current data; every other `##` section the user wrote is preserved verbatim. Rebuilding from scratch would silently erase user prose on every save. New entities are instantiated from a category template once (at creation) and patched thereafter.
 
-### The patch-not-rebuild contract
+**Semantic sections.** The app owns three sections — `Why Interesting`, `Related`, `Sources` — defined in `_semanticSections` in `markdown_storage_service.dart`. Only these are rewritten on save; any other `##` section is user territory. Wikilinks are scanned from the entire Markdown body, not just `## Related` — a link anywhere creates the same graph edge.
 
-When the app saves an entity, it **patches** the existing file — it does not rebuild it from scratch. Patching means:
-- Frontmatter is rebuilt from current entity data
-- App-owned semantic sections are rewritten from current entity data
-- Every other `##` section the user wrote is preserved character-for-character
+**Save semantics.** Entities, categories, tags, and entity links load on startup and stay in-memory. Core entity fields defer to the explicit Save button so Cancel can restore the pre-edit snapshot atomically. EntityLink mutations save immediately because they mutate shared state the snapshot doesn't cover.
 
-If the app rebuilt the whole file from entity data, it would silently erase any prose the user had written outside the app's semantic sections on every save. The patch contract makes the app a safe cohabitant of the user's Markdown.
-
-New entities: a category template is instantiated once at creation (`{{title}}` → name), then patched on every subsequent save. Re-templating is never done — it would destroy user sections.
-
-### Semantic sections
-
-The app owns three sections, defined in `_semanticSections` in `markdown_storage_service.dart`:
-
-```dart
-const Map<String, SectionType> _semanticSections = {
-  'Why Interesting': SectionType.list,
-  'Related':         SectionType.wikilinks,
-  'Sources':         SectionType.list,
-};
-```
-
-Only these are rewritten on save. Any other `##` section is user territory.
-
-Wikilinks (`[[EntityName]]`) are scanned from the **entire Markdown body** — not just `## Related`. A link in any prose section creates the same graph edge as one in `## Related`. `## Related` is the curated list written back on save; links in other sections are preserved verbatim and still wire the graph.
-
-### AppData and save semantics
-
-Four types load on startup (entities, categories, tags, entity links) and stay in-memory. `saveData()` fires after every mutation. Core entity fields defer to the explicit Save button — required so Cancel can restore the pre-edit snapshot atomically. EntityLink mutations save immediately because they mutate shared lists the snapshot does not cover.
-
-File formats, frontmatter field reference, service methods, and EntityScreen interaction model: [docs/entities.md](docs/entities.md).
+File formats, frontmatter fields, and EntityScreen interaction model: [docs/entities.md](docs/entities.md).
 
 ## Architecture
 
@@ -68,38 +42,40 @@ lib/
   shared/constants/        — app-wide constants (app_spacing.dart)
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
-    lists/                 — ListModel, ListStorageService, ListDetailScreen (arbitrary text item collections)
-    tasks/                 — TaskBlock tree, TaskStorageService (no frontmatter, hard-delete, drag reorder)
+    lists/                 — ListModel, ListStorageService, ListDetailScreen
+    tasks/                 — TaskBlock tree, TaskStorageService
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
     books/                 — Book model, BookStorageService, HardcoverService/SyncService, HardcoverScreen
-    readwise/              — ReadwiseBook/Highlight models, ReadwiseService (enriches Books/), ReadwiseScreen
+    readwise/              — ReadwiseService, ReadwiseScreen (enriches Books/)
+    rss/                   — RssFetchService, adapters (letterboxd/substack/generic),
+                             ArticleStorageService, RssIngestionService, RssScreen
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
 ```
 
 ## Subsystems
 
-**Entities + graph.** Each entity is a node in a semantic graph. Categories are not stored separately — they are derived from distinct `category` frontmatter values at load time. List membership is inferred by scanning each list's items for `[[EntityName]]` wikilinks — no join table is maintained. Full details: [docs/entities.md](docs/entities.md).
+**Entities + graph.** Each entity is a node in a semantic graph. Categories are derived from distinct `category` frontmatter values at load time — not stored separately. List membership is inferred by wikilink scan, not a join table. Full details: [docs/entities.md](docs/entities.md).
 
-**Lists.** General-purpose semantic collections stored in `Interesting/Lists/`. Each `.md` file has an H1 title and a flat list of `- item` lines; items are arbitrary text and may contain `[[wikilinks]]`. `ListStorageService` is all-static, all-catch-null, never throws; it rebuilds the file from the items list on every save (safe because list files have no user prose sections). Drag reorder mutates the canonical file order. Entity membership in a list is inferred by wikilink scan, not a join table.
+**Lists.** Flat `- item` collections in `Interesting/Lists/`. Safe to rebuild on every save because list files have no user prose sections. Drag reorder mutates file order; file order is semantic order.
 
-**Tasks.** Task files are ephemeral working lists, not knowledge nodes. They have no `alias` and cannot participate in the entity graph. Deletion is hard (no trash) because there is no identity to preserve. The in-memory `TaskBlock` tree is a parsed projection; Markdown files remain canonical. `parseNodes()` is pure and stateless — called on freshly loaded lines, never cached. Completing a root block moves it to end-of-file (semantic, not just UI sort). Root blocks are drag-reorderable; reorder mutates file order. Full details: [docs/tasks.md](docs/tasks.md).
+**Tasks.** Ephemeral working lists with no identity anchor — hard-delete, no graph participation. The `TaskBlock` tree is a parsed projection; files remain canonical. Completing a root block moves it to end-of-file. Full details: [docs/tasks.md](docs/tasks.md).
 
-**Anki.** The one bidirectional integration. Markdown owns semantic content (front/back/text, tags, deck); Anki owns review scheduling (intervals, ease, due dates — never written to Markdown). `anki_id` is the immutable identity anchor, analogous to entity `alias`. Deletion is soft (`.trash/`) because a hard-deleted card re-synced would be recreated from Anki with a new `anki_id`, breaking the identity chain permanently. Full details: [docs/anki.md](docs/anki.md).
+**Anki.** The one bidirectional integration. Markdown owns semantic content (front/back/text, tags, deck); Anki owns scheduling (intervals, ease, due dates — never written to Markdown). Deletion is soft (`.trash/`) because a hard-deleted card re-synced from Anki would receive a new `anki_id`, breaking the identity chain permanently. Full details: [docs/anki.md](docs/anki.md).
 
-**Letterboxd.** Ingestion-only: RSS → Movie entities written directly to `Interesting/Entities/`, bypassing `saveData()`. The bypass is intentional — `saveData()` rebuilds semantic sections from the in-memory entity model, which doesn't include `## Thoughts` at import time; routing through `saveData()` would erase the imported review content immediately after writing it.
+**Books.** Each file in `Interesting/Books/` is a convergence point: Readwise enriches it with highlights, Hardcover enriches it with reading state, the user enriches it with prose. No external system owns the file — they all patch it. `BookStorageService` is the single I/O layer; field ownership is strictly partitioned. Full details: [docs/books.md](docs/books.md).
 
-**Grokipedia.** Read-only projection: the app searches for an article matching the entity name and displays it inline. Nothing is written to the vault. All network calls are all-catch-null; any failure degrades gracefully to "No article found."
+**Readwise.** Ingestion-only: Readwise API → `Interesting/Books/` via `BookStorageService`. Appends `^rw{id}` highlight blocks; re-import appends only new highlights. Full details: [docs/readwise.md](docs/readwise.md).
 
-**Android widget.** A native Android Activity (no Flutter engine at runtime). It reads the vault path directly from `FlutterSharedPreferences` using the `flutter.vault_path` key — the prefix Flutter's shared_preferences plugin uses — because VaultService and all Flutter APIs are unavailable outside the Flutter engine. Always writes `category: Default`.
+**Hardcover.** Bidirectional sync against the Hardcover GraphQL API. Pass 1 (HC→MD): patches status, rating, dates; creates files for new books. Pass 2 (MD→HC): pushes local changes back. Identity reconciliation links books arriving from both Readwise and Hardcover to the same file. Full details: [docs/books.md](docs/books.md).
 
-**Books (canonical semantic objects).** `Interesting/Books/` holds one `.md` file per book. Each file is a convergence point: Readwise enriches it with highlights, Hardcover enriches it with reading state and metadata, and the user enriches it with prose. No external system owns the file — they patch it. `BookStorageService` is the single I/O layer; `alias` provides stable identity. Full details: [docs/books.md](docs/books.md).
+**RSS ingestion.** Feed-agnostic semantic ingestion: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → source-specific `RssAdapter` → storage. `LetterboxdAdapter` projects movies into `Interesting/Entities/`; `SubstackAdapter`/`GenericAdapter` project articles into `Interesting/Articles/` via `ArticleStorageService`. Feed configs stored as JSON in SharedPreferences (`rss_feeds`); legacy `letterboxd_rss_url` auto-migrates on first load. Managed via Settings → RSS Feeds.
 
-**Readwise.** Highlight ingestion: Readwise API → `Interesting/Books/` via `BookStorageService`. Appends `^rw{id}` highlight blocks to `## Highlights`; patches only Readwise-owned frontmatter fields (`readwise_id`, `num_highlights`, `last_highlight_at`). Re-importing appends only new highlights. Token stored in SharedPreferences (`readwise_access_token`). No auto-sync. Full details: [docs/readwise.md](docs/readwise.md).
+**Grokipedia.** Read-only projection: searches for an article matching the entity name, displays it inline. Nothing is ever written to the vault.
 
-**Hardcover.** Bidirectional sync: Hardcover GraphQL API ↔ `Interesting/Books/` via `BookStorageService`. Explicit sync only (no background). Pass 1 (Hardcover → Markdown): patches `hardcover_id`, `status`, `rating`, `started_at`, `finished_at`; creates new book files for unmatched entries. Pass 2 (Markdown → Hardcover): pushes local status/rating changes back via `update_user_book` mutation. Identity reconciliation links books arriving from both Readwise and Hardcover to the same file. Token stored in SharedPreferences (`hardcover_api_token`). Full details: [docs/books.md](docs/books.md).
+**Android widget.** Native Android Activity (no Flutter engine at runtime). Reads `flutter.vault_path` directly from `FlutterSharedPreferences` — the `flutter.` prefix is what Flutter's shared_preferences plugin writes. Always writes `category: Default`.
 
-**Obsidian launch ergonomics.** A single AppBar action (`Icons.sync` in `home_screen.dart`) that launches the Obsidian app via `launchUrl(Uri.parse('obsidian://'), mode: LaunchMode.externalApplication)`. Purpose: Obsidian Sync only activates when Obsidian is foregrounded; this eliminates the manual switch after editing. The app itself remains sync-agnostic — it fires the URI and returns. Snackbar on failure (app not installed). No sync logic, no background launch, no state monitoring.
+**Obsidian launch.** A single AppBar action fires `obsidian://` via `url_launcher` and returns. Purpose: Obsidian Sync only activates when Obsidian is foregrounded. No sync logic, no background behavior, no state.
 
 ## Running
 
@@ -108,18 +84,18 @@ flutter pub get
 flutter run -d android
 ```
 
-First launch shows a vault folder picker. Select any folder (e.g. your Obsidian vault root). The app creates all `Interesting/` subdirectories and seeds five default templates.
+First launch shows a vault folder picker. The app creates all `Interesting/` subdirectories and seeds five default templates.
 
-**Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. A permission gate screen appears on first launch; the gate re-checks on every app resume.
+**Android:** Requires "All Files Access" (`MANAGE_EXTERNAL_STORAGE`) on Android 11+. A permission gate appears on first launch; re-checked on every app resume.
 
 ## Dependencies
 
-- `path_provider` — app documents dir (JSON migration check)
-- `file_picker` — vault folder picker (first launch)
+- `path_provider` — app documents directory (legacy JSON→Markdown migration)
+- `file_picker` — vault folder picker
 - `yaml` — YAML frontmatter parsing
 - `shared_preferences` — vault path and settings persistence
 - `path` — cross-platform path manipulation
 - `permission_handler` — Android All Files Access gate
-- `http` — Letterboxd RSS, AnkiConnect, Grokipedia, Readwise API (all user-triggered or non-blocking; no background polling)
-- `xml` — RSS/XML parsing (Letterboxd)
-- `url_launcher` — opens Grokipedia article URLs in external browser; launches Obsidian via `obsidian://` URI scheme
+- `http` — network requests (AnkiConnect, Grokipedia, Readwise, Hardcover, RSS feeds; all user-triggered, no background polling)
+- `xml` — RSS/XML parsing
+- `url_launcher` — Grokipedia article links; Obsidian `obsidian://` URI

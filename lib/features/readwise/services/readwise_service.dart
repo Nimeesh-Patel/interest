@@ -8,7 +8,7 @@ import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../books/models/book.dart';
 import '../../books/services/book_storage_service.dart';
-import '../../entities/services/letterboxd_service.dart' show ImportResult;
+import '../../rss/models/rss_import_result.dart';
 import '../models/readwise_book.dart';
 import '../models/readwise_highlight.dart';
 
