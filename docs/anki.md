@@ -322,6 +322,6 @@ Accessible via the **More** overflow menu (PopupMenuButton) in HomeScreen AppBar
 
 ### Settings section
 
-`SettingsScreen` has an "Anki" section below Letterboxd:
-- AnkiConnect URL text field (persisted; SharedPreferences key `'anki_connect_url'`)
+`SettingsScreen` has an "Anki" section (between RSS Feeds and Readwise):
+- AnkiConnect URL text field (SharedPreferences key `'anki_connect_url'`)
 - Test Connection button → `AnkiConnectService.testConnection()` → green/red status

@@ -10,7 +10,7 @@ Full book ontology, schema, and field-ownership rules: [docs/books.md](books.md)
 
 In the app: **Settings → Readwise → Access Token**
 
-Enter your Readwise access token from [readwise.io/access_token](https://readwise.io/access_token). Stored locally in SharedPreferences; never uploaded anywhere.
+Enter your Readwise access token from [readwise.io/access_token](https://readwise.io/access_token). Stored in `Interesting/System/integrations.md` via `IntegrationsConfigService` — portable across devices via Obsidian Sync.
 
 Tap **Open Import Screen** (Settings) to open the import screen.
 
@@ -98,9 +98,9 @@ All-static, all-catch-null. Never throws.
 
 | Method | Description |
 |--------|-------------|
-| `getToken()` | Reads from SharedPreferences key `readwise_access_token` |
-| `setToken(token)` | Writes to SharedPreferences |
-| `clearToken()` | Removes from SharedPreferences |
+| `getToken(vaultPath)` | Reads from `integrations.md` via `IntegrationsConfigService` |
+| `setToken(vaultPath, token)` | Writes to `integrations.md` |
+| `clearToken(vaultPath)` | Clears token in `integrations.md` |
 
 ### API methods
 
@@ -128,7 +128,7 @@ static Future<ImportResult> importBook(
 2. If not found → `BookStorageService.createBook()` → append all highlights.
 3. If found → `BookStorageService.patchFields({readwise_id, num_highlights, last_highlight_at, updated_at})`, then scan for existing `^rw{id}` blocks and append only new highlights.
 
-The `_patchBookFile` / `_buildFrontmatter` methods that previously rebuilt the whole frontmatter are removed. Readwise now patches only its owned fields.
+Readwise patches only its owned fields via `BookStorageService.patchFields()`.
 
 ---
 

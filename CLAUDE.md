@@ -15,6 +15,27 @@ This file is a **constraint registry**, not a narrative. Keep it:
 
 **Update `README.md` and `CLAUDE.md` when:** a new write path appears, an architectural invariant changes, an identity anchor is added, or a service standard changes. Don't update for UI layout changes, sort options, or internal refactors that preserve external behavior.
 
+---
+
+## Traversal guide
+
+Start here based on task class:
+
+| Task | Read first |
+|------|-----------|
+| Adding or modifying a book enrichment source | [docs/books.md](docs/books.md), then `BookStorageService` |
+| Understanding the book enrichment source pattern | [docs/readwise.md](docs/readwise.md) (Readwise), [docs/readera.md](docs/readera.md) (ReadEra) |
+| Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
+| Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
+| Modifying Anki sync | [docs/anki.md](docs/anki.md), then `AnkiSyncService` |
+| Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
+| Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
+| Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
+| Touching shared Markdown utilities | `lib/shared/markdown/md_utils.dart` (pure, no I/O) |
+| Understanding save/cancel/snapshot semantics | CLAUDE.md § Save semantics, then `entity_screen.dart` |
+
+---
+
 ## Architectural invariants
 
 These five rules define the system's identity. Violating any changes what it fundamentally is.
@@ -36,7 +57,7 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`.
 
 ## Save semantics
 
@@ -56,7 +77,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | `ListStorageService` | `Interesting/Lists/` |
 | `AnkiStorageService` | `Interesting/Anki/` + `.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` |
-| `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService` write only via this |
+| `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService`, `ReaderaIngestionService` write only via this |
 | `ArticleStorageService` | `Interesting/Articles/` ← `SubstackAdapter`, `GenericAdapter` write only via this |
 | `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
 
@@ -103,13 +124,15 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Grokipedia** — never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 
-**Books** — schema: `type: book`, `alias`, `authors`, `hardcover_id`, `readwise_id`, `isbn`; books do NOT participate in entity graph yet; lazy migration from `type: book_highlights` on first load; field ownership strictly partitioned (Readwise owns `readwise_id`/`num_highlights`/`last_highlight_at`; Hardcover owns `hardcover_id`/`status`/`rating`/`started_at`/`finished_at`); `BookStorageService.patchFields()` is the minimal-patch primitive — all enrichment writes call through it. Full details: [docs/books.md](docs/books.md).
+**Books** — canonical semantic containers enriched by multiple independent sources. Schema: `type: book`, `alias`, `authors`, `hardcover_id`, `readwise_id`, `isbn`; books do NOT participate in entity graph yet; lazy migration from `type: book_highlights` on first load; field ownership strictly partitioned (Readwise owns `readwise_id`/`num_highlights`/`last_highlight_at`; Hardcover owns `hardcover_id`/`status`/`rating`/`started_at`/`finished_at`); `BookStorageService.patchFields()` is the minimal-patch primitive — all enrichment writes call through it. `appendReaderaHighlights()` is the ReadEra highlight append primitive. Full details: [docs/books.md](docs/books.md).
 
-**Readwise** — token in SharedPreferences (`readwise_access_token`); patches only Readwise-owned fields; re-import appends only new `^rw{id}` highlight blocks, never overwrites. Full details: [docs/readwise.md](docs/readwise.md).
+**Readwise** — token in `integrations.md` via `IntegrationsConfigService`; patches only Readwise-owned fields; re-import appends only new `^rw{id}` highlight blocks, never overwrites. Full details: [docs/readwise.md](docs/readwise.md).
 
-**Hardcover** — bidirectional sync via GraphQL; explicit sync only via `HardcoverSyncService.sync()` (no background); two-pass: HC→MD then MD→HC; identity reconciliation prevents duplicate files. `HardcoverScreen` is a tab (not a pushed route); `HardcoverScreenState` is public so `HomeScreen` can drive sync and search via `GlobalKey`. Token in SharedPreferences (`hardcover_api_token`). Critical API quirks (me-as-List, cached_contributors-as-scalar, no isbn_13): [docs/books.md § API quirks](docs/books.md).
+**ReadEra** — import-only; parses `.bak` (ZIP archive containing `library.json`); merges highlights into canonical `Books/*.md` via `BookStorageService.appendReaderaHighlights()`; dedup anchor `^re{uuid}` in `## Highlights (ReadEra)` section; reconciles by title slug (no ISBN in ReadEra exports); no vault config required. Full details: [docs/readera.md](docs/readera.md).
 
-**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService` (migrated from legacy SharedPreferences on first load). Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
+**Hardcover** — bidirectional sync via GraphQL; explicit sync only via `HardcoverSyncService.sync()` (no background); two-pass: HC→MD then MD→HC; identity reconciliation prevents duplicate files. `HardcoverScreen` is a tab (not a pushed route); `HardcoverScreenState` is public so `HomeScreen` can drive sync and search via `GlobalKey`. Token in `integrations.md` via `IntegrationsConfigService`. Critical API quirks (me-as-List, cached_contributors-as-scalar, no isbn_13): [docs/books.md § API quirks](docs/books.md).
+
+**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
 **Obsidian launch** — UI-only AppBar action; fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 
@@ -117,7 +140,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **State management** — `setState` only. No `Provider`, `Riverpod`, `Bloc`.
 
-**Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then `DropdownMenuItem` entries in screens. Entity/board pickers are pre-sorted A→Z inline (not via `sortEntities`).
+**Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then `DropdownMenuItem` entries in screens. Entity pickers are pre-sorted A→Z inline (not via `sortEntities`).
 
 **Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding category-specific fields requires updating both `_parseEntityFile` and `_buildFrontmatter` in `markdown_storage_service.dart`.
 

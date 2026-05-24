@@ -50,6 +50,7 @@ lib/
     readwise/              — ReadwiseService, ReadwiseScreen (enriches Books/)
     rss/                   — RssFetchService, adapters (letterboxd/substack/generic),
                              ArticleStorageService, RssIngestionService, RssScreen
+    readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
 ```
@@ -70,7 +71,9 @@ lib/
 
 **Hardcover.** Bidirectional sync against the Hardcover GraphQL API. Pass 1 (HC→MD): patches status, rating, dates; creates files for new books. Pass 2 (MD→HC): pushes local changes back. Identity reconciliation links books arriving from both Readwise and Hardcover to the same file. Full details: [docs/books.md](docs/books.md).
 
-**RSS ingestion.** Feed-agnostic semantic ingestion: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → source-specific `RssAdapter` → storage. `LetterboxdAdapter` projects movies into `Interesting/Entities/`; `SubstackAdapter`/`GenericAdapter` project articles into `Interesting/Articles/` via `ArticleStorageService`. Feed configs stored as JSON in SharedPreferences (`rss_feeds`); legacy `letterboxd_rss_url` auto-migrates on first load. Managed via Settings → RSS Feeds.
+**RSS ingestion.** Feed-agnostic semantic ingestion: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → source-specific `RssAdapter` → storage. `LetterboxdAdapter` projects movies into `Interesting/Entities/`; `SubstackAdapter`/`GenericAdapter` project articles into `Interesting/Articles/` via `ArticleStorageService`. Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Managed via Settings → RSS Feeds.
+
+**ReadEra ingestion.** Import-only enrichment source for canonical book objects. Parses a ReadEra `.bak` backup file (ZIP archive containing `library.json`), extracts highlights/citations, and merges them into existing `Interesting/Books/*.md` files via `BookStorageService.appendReaderaHighlights()`. Dedup anchor: `^re{uuid}`. No API, no config. Triggered manually via Settings → ReadEra → "Import from .bak".
 
 **Grokipedia.** Read-only projection: searches for an article matching the entity name, displays it inline. Nothing is ever written to the vault.
 
@@ -100,3 +103,4 @@ First launch shows a vault folder picker. The app creates all `Interesting/` sub
 - `http` — network requests (AnkiConnect, Grokipedia, Readwise, Hardcover, RSS feeds; all user-triggered, no background polling)
 - `xml` — RSS/XML parsing
 - `url_launcher` — Grokipedia article links; Obsidian `obsidian://` URI
+- `archive` — ZIP decoding for ReadEra `.bak` backup import

@@ -37,14 +37,14 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
 
   void _saveEdit(int index) async {
     final text = _editController.text.trim();
-    if (text.isEmpty) {
-      setState(() => _editingIndex = null);
-      return;
-    }
+    // Clear editing state before any await so the TextField (and its controller
+    // dependency) is removed from the tree before disposal can race with it.
+    setState(() => _editingIndex = null);
+    if (text.isEmpty) return;
     final vault = await _vault;
     if (vault == null) return;
     await ListStorageService.updateItem(vault, _list, index, text);
-    if (mounted) setState(() => _editingIndex = null);
+    if (mounted) setState(() {});
   }
 
   void _deleteItem(int index) async {
@@ -63,6 +63,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
       hintText: 'Item text',
       confirmLabel: 'Add',
     );
+    if (!mounted) return;
     if (text == null || text.trim().isEmpty) return;
     await ListStorageService.addItem(vault, _list, text.trim());
     if (mounted) setState(() {});

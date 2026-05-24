@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../readera/models/readera_highlight.dart';
 import '../models/book.dart';
 
 class BookStorageService {
@@ -234,6 +235,119 @@ class BookStorageService {
     buf.writeln();
     buf.writeln('*No highlights imported.*');
     return '${buf.toString().trimRight()}\n';
+  }
+
+  // ── ReadEra highlight appending ───────────────────────────────────────────
+
+  /// Appends new ReadEra highlights to the `## Highlights (ReadEra)` section,
+  /// creating it if absent. All other sections are preserved verbatim.
+  /// Deduplication (^re anchors) must be handled by the caller before invoking.
+  static Future<void> appendReaderaHighlights(
+    String filePath,
+    List<ReaderaHighlight> highlights,
+  ) async {
+    if (highlights.isEmpty) return;
+    final file = File(filePath);
+    if (!await file.exists()) return;
+
+    final content = await file.readAsString();
+    final split = splitFrontmatter(content);
+    final sections = parseSectionsH2(split.body);
+
+    final buf = StringBuffer();
+
+    if (split.frontmatter != null) {
+      buf.writeln('---');
+      buf.writeln(split.frontmatter);
+      buf.writeln('---');
+    }
+
+    final h1 = extractH1(split.body);
+    if (h1 != null) {
+      buf.writeln();
+      buf.writeln('# $h1');
+      final preamble = _extractPreamble(split.body);
+      if (preamble.isNotEmpty) {
+        buf.writeln();
+        buf.writeln(preamble);
+      }
+    }
+
+    bool wroteSection = false;
+    for (final entry in sections.entries) {
+      buf.writeln();
+      buf.writeln('## ${entry.key}');
+      if (entry.key == 'Highlights (ReadEra)') {
+        wroteSection = true;
+        if (entry.value.isNotEmpty) {
+          buf.writeln();
+          buf.write(entry.value);
+          buf.writeln();
+        }
+        for (final h in highlights) {
+          buf.write(_buildReaderaHighlightBlock(h));
+        }
+      } else {
+        if (entry.value.isNotEmpty) {
+          buf.writeln();
+          buf.write(entry.value);
+          buf.writeln();
+        }
+      }
+    }
+
+    if (!wroteSection) {
+      buf.writeln();
+      buf.writeln('## Highlights (ReadEra)');
+      buf.writeln();
+      for (final h in highlights) {
+        buf.write(_buildReaderaHighlightBlock(h));
+      }
+    }
+
+    await file.writeAsString('${buf.toString().trimRight()}\n');
+  }
+
+  static String _buildReaderaHighlightBlock(ReaderaHighlight h) {
+    final buf = StringBuffer();
+
+    for (final line in h.text.trim().split('\n')) {
+      buf.writeln('> $line');
+    }
+    buf.writeln();
+
+    buf.writeln('^re${h.id}');
+
+    final meta = StringBuffer();
+    if (h.page != null) meta.write('Page ${h.page}');
+    if (h.createdAt != null) {
+      if (meta.isNotEmpty) meta.write(' · ');
+      meta.write('Added: ${h.createdAt!.substring(0, 10)}');
+    }
+    if (meta.isNotEmpty) buf.writeln(meta.toString());
+
+    buf.writeln();
+    buf.writeln('---');
+    buf.writeln();
+
+    return buf.toString();
+  }
+
+  static String _extractPreamble(String body) {
+    final lines = body.split('\n');
+    final result = <String>[];
+    bool pastH1 = false;
+    for (final line in lines) {
+      final t = line.trimLeft();
+      if (!pastH1 && t.startsWith('# ') && !t.startsWith('## ')) {
+        pastH1 = true;
+        continue;
+      }
+      if (!pastH1) continue;
+      if (t.startsWith('## ')) break;
+      result.add(line);
+    }
+    return result.join('\n').trim();
   }
 
   // ── Migration ─────────────────────────────────────────────────────────────

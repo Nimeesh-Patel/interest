@@ -1,8 +1,10 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../anki/services/anki_connect_service.dart';
 import '../../books/services/hardcover_service.dart';
+import '../../readera/services/readera_ingestion_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
 import '../../rss/screens/rss_screen.dart';
@@ -35,6 +37,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hardcoverTesting = false;
   String? _hardcoverTestStatus;
   bool _hardcoverTestOk = false;
+
+  // ReadEra
+  bool _readeraImporting = false;
+  String? _readeraStatus;
 
   @override
   void initState() {
@@ -119,6 +125,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             error == null ? 'Connected' : 'Failed — $error';
       });
     }
+  }
+
+  Future<void> _importReadera() async {
+    final vaultPath = _vaultPath;
+    if (vaultPath == null) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['bak'],
+    );
+    if (result == null || result.files.single.path == null) return;
+    if (!mounted) return;
+    setState(() {
+      _readeraImporting = true;
+      _readeraStatus = null;
+    });
+    final importResult = await ReaderaIngestionService.ingest(
+        result.files.single.path!, vaultPath);
+    if (!mounted) return;
+    setState(() {
+      _readeraImporting = false;
+      _readeraStatus = importResult.error != null
+          ? 'Error: ${importResult.error}'
+          : importResult.summary;
+    });
   }
 
   Future<void> _saveHardcoverToken() async {
@@ -351,6 +381,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: _hardcoverTestOk
                       ? Colors.green.shade700
                       : Colors.red.shade700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+
+            // ── ReadEra ──────────────────────────────────────────────────────
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 16),
+            const Text(
+              'ReadEra',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Import highlights from a ReadEra .bak backup file into your '
+              'Books vault. Highlights are merged into existing book files '
+              'without overwriting Readwise or Hardcover data.',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 44,
+              child: ElevatedButton(
+                onPressed: _readeraImporting ? null : _importReadera,
+                child: _readeraImporting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Import from .bak'),
+              ),
+            ),
+            if (_readeraStatus != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _readeraStatus!,
+                style: TextStyle(
+                  color: (_readeraStatus!.startsWith('Error'))
+                      ? Colors.red.shade700
+                      : Colors.grey.shade700,
                   fontSize: 13,
                 ),
               ),
