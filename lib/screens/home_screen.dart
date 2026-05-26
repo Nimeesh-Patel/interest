@@ -19,6 +19,7 @@ import '../shared/widgets/empty_state.dart';
 import '../shared/widgets/input_dialog.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/anki/screens/anki_screen.dart';
+import '../features/resurface/screens/resurface_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/tasks/screens/task_file_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
@@ -203,6 +204,13 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AnkiScreen()),
+    );
+  }
+
+  Future<void> _openResurface() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ResurfaceScreen()),
     );
   }
 
@@ -769,11 +777,13 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'anki') { _openAnki(); }
+              else if (v == 'resurface') { _openResurface(); }
               else if (v == 'settings') { _openSettings(); }
               else if (v == 'templates') { _openTemplates(); }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'anki', child: Text('Anki')),
+              PopupMenuItem(value: 'resurface', child: Text('Resurface')),
               PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(value: 'templates', child: Text('Templates')),
             ],

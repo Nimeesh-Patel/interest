@@ -8,15 +8,22 @@ import 'package:yaml/yaml.dart';
 import '../shared/markdown/md_utils.dart';
 
 class IntegrationsConfig {
+  static const _defaultExcluded = [
+    'Interesting', '.obsidian', 'Templates', 'Attachments'
+  ];
+
   final String? readwiseToken;
   final String? hardcoverToken;
   final List<Map<String, dynamic>> rssFeeds;
+  final List<String> resurfaceExcludedFolders;
 
   const IntegrationsConfig({
     this.readwiseToken,
     this.hardcoverToken,
     List<Map<String, dynamic>>? rssFeeds,
-  }) : rssFeeds = rssFeeds ?? const [];
+    List<String>? resurfaceExcludedFolders,
+  }) : rssFeeds = rssFeeds ?? const [],
+       resurfaceExcludedFolders = resurfaceExcludedFolders ?? _defaultExcluded;
 }
 
 class IntegrationsConfigService {
@@ -36,6 +43,7 @@ class IntegrationsConfigService {
         readwiseToken: _parseTokenSection(sections['Readwise'] ?? ''),
         hardcoverToken: _parseTokenSection(sections['Hardcover'] ?? ''),
         rssFeeds: _parseRssSection(sections['RSS'] ?? ''),
+        resurfaceExcludedFolders: _parseResurfaceSection(sections['Resurface'] ?? ''),
       );
     } catch (_) {
       return const IntegrationsConfig();
@@ -63,6 +71,7 @@ class IntegrationsConfigService {
       readwiseToken: token,
       hardcoverToken: c.hardcoverToken,
       rssFeeds: c.rssFeeds,
+      resurfaceExcludedFolders: c.resurfaceExcludedFolders,
     ));
   }
 
@@ -75,6 +84,7 @@ class IntegrationsConfigService {
       readwiseToken: c.readwiseToken,
       hardcoverToken: token,
       rssFeeds: c.rssFeeds,
+      resurfaceExcludedFolders: c.resurfaceExcludedFolders,
     ));
   }
 
@@ -91,6 +101,18 @@ class IntegrationsConfigService {
       readwiseToken: c.readwiseToken,
       hardcoverToken: c.hardcoverToken,
       rssFeeds: feeds,
+      resurfaceExcludedFolders: c.resurfaceExcludedFolders,
+    ));
+  }
+
+  static Future<void> setResurfaceExcludedFolders(
+      String vaultPath, List<String> folders) async {
+    final c = await load(vaultPath);
+    await save(vaultPath, IntegrationsConfig(
+      readwiseToken: c.readwiseToken,
+      hardcoverToken: c.hardcoverToken,
+      rssFeeds: c.rssFeeds,
+      resurfaceExcludedFolders: folders,
     ));
   }
 
@@ -141,6 +163,20 @@ class IntegrationsConfigService {
       }
     } catch (_) {}
     return null;
+  }
+
+  static List<String> _parseResurfaceSection(String sectionContent) {
+    if (sectionContent.trim().isEmpty) return IntegrationsConfig._defaultExcluded;
+    try {
+      final yaml = loadYaml(sectionContent.trim());
+      if (yaml is! YamlMap) return IntegrationsConfig._defaultExcluded;
+      final raw = yaml['excluded_folders'];
+      if (raw is! YamlList) return IntegrationsConfig._defaultExcluded;
+      final result = raw.map((e) => e.toString()).toList();
+      return result.isEmpty ? IntegrationsConfig._defaultExcluded : result;
+    } catch (_) {
+      return IntegrationsConfig._defaultExcluded;
+    }
   }
 
   static List<Map<String, dynamic>> _parseRssSection(String sectionContent) {
@@ -196,6 +232,14 @@ class IntegrationsConfigService {
       buf.writeln('  name: ${_yamlQuote(feed['name']?.toString() ?? '')}');
       buf.writeln('  url: ${_yamlQuote(feed['url']?.toString() ?? '')}');
       buf.writeln('  type: ${feed['type']}');
+    }
+
+    buf.writeln();
+    buf.writeln('## Resurface');
+    buf.writeln();
+    buf.writeln('excluded_folders:');
+    for (final folder in config.resurfaceExcludedFolders) {
+      buf.writeln('  - $folder');
     }
 
     return '${buf.toString().trimRight()}\n';

@@ -1,5 +1,28 @@
 # Entities subsystem
 
+## Purpose
+
+The entity subsystem is the core semantic graph of the vault. It models named things the user finds meaningful — people, ideas, products, concepts, films — as nodes in a graph, with edges derived from wikilinks. The primary semantic questions this subsystem answers: what exists, how things relate, and what is interesting about them.
+
+## Architectural role
+
+Entities are the canonical semantic objects of the `Interesting/` namespace. All other subsystems (Lists, Anki cards, Books) are adjacent or enrichment layers; entities are the center of gravity. The entity graph is an **inferred graph** — edges are not stored, they are derived from wikilink scans on every load.
+
+## Ontology
+
+- **Entity**: a named epistemic node. Has an `alias` (immutable identity), a `category` (free-form grouping), optional `tags`, an optional `score`, and three app-owned semantic sections (`Why Interesting`, `Related`, `Sources`).
+- **Category**: not a stored object — derived at load time from distinct `category` values across all entity files. There is no category table.
+- **EntityLink**: a directed graph edge inferred from `[[wikilink]]` syntax anywhere in the entity body. Not stored; rebuilt on every load.
+- **Tag**: a flat label, stored as a YAML list in frontmatter. Tags are aggregated into a global tag list at load time.
+
+## Non-goals
+
+- Entities are not tasks. They have no completion state, no due dates.
+- Entities are not books. Books have a separate schema and write path.
+- The entity graph is not a general-purpose knowledge base with typed relations. All edges are untyped wikilinks; semantic typing lives in the user's prose.
+
+---
+
 Core subsystem. Entities live in `Interesting/Entities/` as `.md` files. The in-memory model is a parsed projection over those files. `MarkdownStorageService` is the single I/O layer. For architectural invariants (immutable alias, patch-not-rebuild, semantic sections, full-body wikilink scan) see [CLAUDE.md](../CLAUDE.md).
 
 ---

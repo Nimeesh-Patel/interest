@@ -1,5 +1,29 @@
 # Books Subsystem
 
+## Purpose
+
+Model books as canonical Markdown objects that multiple independent systems can enrich without conflict. Readwise owns highlights. Hardcover owns reading state. ReadEra owns a separate highlight section. The user owns all other prose. None of them own the file — `BookStorageService` does.
+
+## Architectural role
+
+Books are **convergence objects**. The same `.md` file is the integration point for data arriving from multiple sources on different schedules. No source needs to know about the others. Field ownership strictly partitions the file into non-overlapping territories. The Markdown file is the integration bus.
+
+This model is the correct response to the problem: "multiple enrichment sources need to enrich the same document without clobbering each other." The alternative — keeping sources in separate files and merging on display — creates a hidden database problem (where is the canonical state?). The convergence model keeps Markdown canonical.
+
+## Ontology
+
+- **Book**: a Markdown file in `Interesting/Books/` with `type: book`. It is the canonical record. External system IDs (`hardcover_id`, `readwise_id`) and user prose coexist in the same file.
+- **Field ownership**: each field belongs to exactly one system. Writing a field you don't own corrupts state silently. The ownership table is the invariant.
+- **`patchFields()`**: the minimal-patch primitive. Writes only specified frontmatter keys; leaves everything else untouched. All enrichment writes call this.
+- **Reconciliation**: before creating a new file, check for an existing one by `hardcover_id → readwise_id → isbn → title slug`. This prevents duplicates when the same book arrives from multiple sources.
+
+## Non-goals
+
+- Books do not participate in the entity graph (no `alias`-based wikilinks yet; not `type: entity`).
+- `BookStorageService` does not arbitrate between conflicting field values from different sources. If Hardcover and Readwise both claim authorship of a field, that is a schema design error — fix field ownership, not the service.
+
+---
+
 Books are **canonical semantic objects** — Markdown files in `Interesting/Books/` that serve as convergence points for multiple external systems (Readwise highlights, Hardcover reading states, ReadEra highlights) and local user prose. No external system owns the file; each enriches the same Markdown object independently.
 
 ---

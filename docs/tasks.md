@@ -1,5 +1,19 @@
 # Tasks subsystem
 
+## Purpose
+
+Ephemeral working lists for active, in-progress thinking. Tasks are not epistemic artifacts — they are operational scratch space. They carry no identity anchor, participate in no graph, and are hard-deleted when done. The subsystem is intentionally limited to prevent it from becoming a second productivity system layered on top of the semantic graph.
+
+## Architectural role
+
+Tasks are the one subsystem explicitly designed to NOT accumulate semantic weight. Everything else in `Interesting/` — entities, books, Anki cards — has an `alias` or `anki_id` and participates in identity management. Task files have neither. This is a design choice: if a task becomes a durable knowledge node, it should become an entity.
+
+## Non-goals
+
+Do not add: due dates, reminders, recurring tasks, priorities, notifications, calendar integration, time tracking, or productivity statistics. These features would transform the tasks subsystem from a lightweight working list into a second-order planning system — a role that violates the subsystem's intended scope.
+
+---
+
 Hierarchical Markdown-native task layer. Files in `Interesting/Tasks/` — one per topic, no YAML frontmatter. Fully Obsidian-compatible; can be edited directly.
 
 Task files are ephemeral working lists, not knowledge nodes. They carry no `alias` and cannot participate in the entity graph. Because there is no stable identity to preserve, deletion is hard (no `.trash/`) — in contrast to Anki cards, which have an `anki_id` that must survive across syncs and therefore require soft-delete.

@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
 import '../../anki/services/anki_connect_service.dart';
 import '../../books/services/hardcover_service.dart';
@@ -42,6 +43,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _readeraImporting = false;
   String? _readeraStatus;
 
+  // Resurface
+  final _resurfaceExcludedController = TextEditingController();
+  bool _resurfaceSaving = false;
+  String? _resurfaceSaveStatus;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ankiUrlController.dispose();
     _readwiseTokenController.dispose();
     _hardcoverTokenController.dispose();
+    _resurfaceExcludedController.dispose();
     super.dispose();
   }
 
@@ -65,6 +72,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _readwiseTokenController.text = readwiseToken ?? '');
     final hardcoverToken = await HardcoverService.getToken(vaultPath);
     if (mounted) setState(() => _hardcoverTokenController.text = hardcoverToken ?? '');
+    final config = await IntegrationsConfigService.load(vaultPath);
+    if (mounted) {
+      setState(() => _resurfaceExcludedController.text =
+          config.resurfaceExcludedFolders.join(', '));
+    }
+  }
+
+  Future<void> _saveResurfaceExcluded() async {
+    final vaultPath = _vaultPath;
+    if (vaultPath == null) return;
+    final folders = _resurfaceExcludedController.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    setState(() { _resurfaceSaving = true; _resurfaceSaveStatus = null; });
+    await IntegrationsConfigService.setResurfaceExcludedFolders(vaultPath, folders);
+    if (mounted) {
+      setState(() { _resurfaceSaving = false; _resurfaceSaveStatus = 'Saved.'; });
+    }
   }
 
   Future<void> _loadAnkiUrl() async {
@@ -425,6 +452,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : Colors.grey.shade700,
                   fontSize: 13,
                 ),
+              ),
+            ],
+
+            // ── Resurface ────────────────────────────────────────────────────
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 16),
+            const Text(
+              'Resurface',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Vault-wide semantic resurfacing viewer. '
+              'Scans notes for --- separators and surfaces them as front/back pairs. '
+              'Enter folder names to exclude (comma-separated).',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _resurfaceExcludedController,
+              decoration: const InputDecoration(
+                labelText: 'Excluded folders',
+                hintText: 'Interesting, .obsidian, Templates, Attachments',
+                border: OutlineInputBorder(),
+              ),
+              autocorrect: false,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _saveResurfaceExcluded(),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 44,
+              child: ElevatedButton(
+                onPressed: _resurfaceSaving ? null : _saveResurfaceExcluded,
+                child: _resurfaceSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save'),
+              ),
+            ),
+            if (_resurfaceSaveStatus != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _resurfaceSaveStatus!,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
               ),
             ],
           ],

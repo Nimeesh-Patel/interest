@@ -1,8 +1,28 @@
 # Anki Subsystem
 
-Bidirectional synchronization between Markdown cards in `Interesting/Anki/` and Anki notes via the AnkiConnect API. Self-contained subsystem (three services + two screens) that follows the same filesystem-native, no-database philosophy as the rest of the app.
+## Purpose
 
-**Why Anki is the one bidirectional exception.** Most integrations in this app are unidirectional: Letterboxd ingests in, Grokipedia reads out. Anki is different because it has its own independent state — review scheduling (intervals, ease, due dates) that the app has no business owning. The design response is a clean ownership split: Markdown owns semantic content (front/back/text, tags, deck); Anki owns scheduling. The app never writes review metadata to Markdown. This is also why deletion must be soft: a hard-deleted card re-synced from Anki would be recreated with a new `anki_id`, permanently breaking the identity chain.
+Bidirectional synchronization between Markdown card files and the Anki desktop application, via the AnkiConnect API. The app authors and owns card content; Anki owns review scheduling. These two responsibilities are cleanly separated — neither system touches the other's domain.
+
+## Architectural role
+
+Anki is the one bidirectional integration in the app. Most integrations are unidirectional (RSS ingests in, Grokipedia reads out). Anki requires bidirectionality because both sides can independently modify card content: the user may edit a card in Anki, and separately edit it in Markdown. The sync algorithm resolves conflicts by last-modified-wins with a 5-second tolerance.
+
+The ownership split is:
+- **Markdown owns**: semantic content (`Front`, `Back`, `Text`), tags, deck assignment.
+- **Anki owns**: review scheduling (intervals, ease factors, due dates, review history).
+
+The app never writes review metadata to Markdown. This is not an implementation gap — it is a deliberate invariant. Review metadata is Anki's business; it is meaningless outside Anki's scheduling engine.
+
+## Non-goals
+
+- This subsystem is not a spaced repetition implementation. Scheduling logic lives entirely in Anki.
+- This subsystem is not a card database with its own storage layer. The Markdown files are the database.
+- This is not intended to be a general-purpose flashcard system for arbitrary content. It is a Markdown-first authoring surface with Anki as the review engine.
+
+---
+
+Bidirectional synchronization between Markdown cards in `Interesting/Anki/` and Anki notes via the AnkiConnect API. Self-contained subsystem (three services + two screens) that follows the same filesystem-native, no-database philosophy as the rest of the app.
 
 ---
 
