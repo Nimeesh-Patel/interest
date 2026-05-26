@@ -6,22 +6,14 @@ import '../features/books/screens/hardcover_screen.dart';
 import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/models/entity_link.dart';
-import '../features/lists/models/list_model.dart';
-import '../features/lists/services/list_storage_service.dart';
-import '../features/lists/screens/list_detail_screen.dart';
-import '../features/tasks/models/task.dart';
 import '../features/entities/services/markdown_storage_service.dart';
-import '../features/tasks/services/task_storage_service.dart';
-import '../shared/constants/app_spacing.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
-import '../shared/widgets/confirm_dialog.dart';
-import '../shared/widgets/empty_state.dart';
 import '../shared/widgets/input_dialog.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/anki/screens/anki_screen.dart';
+import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
-import '../features/tasks/screens/task_file_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -34,12 +26,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final MarkdownStorageService _storage = MarkdownStorageService();
   final _hardcoverKey = GlobalKey<HardcoverScreenState>();
+  final _projectsKey = GlobalKey<ProjectsScreenState>();
   List<Entity> _entities = [];
   List<Category> _categories = [];
   List<String> _tags = [];
   List<EntityLink> _entityLinks = [];
-  List<ListModel> _lists = [];
-  List<TaskFile> _taskFiles = [];
   String? _selectedCategoryId;
   String _searchQuery = '';
   String _sortOrder = 'latest';
@@ -81,11 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final vault = await VaultService.getVaultPath();
     if (vault != null) {
       await IntegrationsConfigService.migrateFromPrefs(vault);
-      final lists = await ListStorageService.loadLists(vault);
-      if (mounted) setState(() => _lists = lists);
     }
-    final taskFiles = await TaskStorageService.loadTaskFiles();
-    if (mounted) setState(() => _taskFiles = taskFiles);
   }
 
   Future<void> _reloadData() async {
@@ -98,19 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _entityLinks = data.entityLinks;
       });
     }
-  }
-
-  Future<void> _reloadLists() async {
-    final vault = await VaultService.getVaultPath();
-    if (vault != null) {
-      final lists = await ListStorageService.loadLists(vault);
-      if (mounted) setState(() => _lists = lists);
-    }
-  }
-
-  Future<void> _reloadTaskFiles() async {
-    final taskFiles = await TaskStorageService.loadTaskFiles();
-    if (mounted) setState(() => _taskFiles = taskFiles);
   }
 
   void _save() {
@@ -177,12 +151,11 @@ class _HomeScreenState extends State<HomeScreen> {
           allCategories: _categories,
           allTags: _tags,
           allEntityLinks: _entityLinks,
-          allLists: _lists,
+          allLists: const [],
         ),
       ),
     );
     await _reloadData();
-    await _reloadLists();
   }
 
   Future<void> _openTemplates() async {
@@ -204,13 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AnkiScreen()),
-    );
-  }
-
-  Future<void> _openResurface() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ResurfaceScreen()),
     );
   }
 
@@ -496,249 +462,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Lists tab operations ──────────────────────────────────────────────────
-
-  void _showCreateList() async {
-    final vault = await VaultService.getVaultPath();
-    if (vault == null) return;
-    if (!mounted) return;
-    final name = await showInputDialog(context,
-      title: 'New list',
-      hintText: 'Name',
-      confirmLabel: 'Create',
-      capitalization: TextCapitalization.words,
-    );
-    if (name == null) return;
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
-    final list = await ListStorageService.createList(vault, trimmed);
-    if (list != null) {
-      setState(() => _lists.add(list));
-      _lists.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    }
-  }
-
-  void _showRenameList(ListModel list) async {
-    final vault = await VaultService.getVaultPath();
-    if (vault == null) return;
-    if (!mounted) return;
-    final name = await showInputDialog(context,
-      title: 'Rename list',
-      initialValue: list.name,
-      confirmLabel: 'Rename',
-      capitalization: TextCapitalization.words,
-    );
-    if (name == null) return;
-    final trimmed = name.trim();
-    if (trimmed.isEmpty || trimmed == list.name) return;
-    final updated = await ListStorageService.renameList(vault, list, trimmed);
-    if (!mounted) return;
-    if (updated == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rename failed — name already in use.')),
-      );
-      return;
-    }
-    await _reloadLists();
-  }
-
-  void _showDeleteList(ListModel list) async {
-    final confirmed = await showConfirmDialog(context,
-      title: 'Delete list?',
-      message: 'Delete "${list.name}"? This cannot be undone.',
-    );
-    if (!confirmed) return;
-    final vault = await VaultService.getVaultPath();
-    if (vault == null) return;
-    await ListStorageService.deleteList(vault, list);
-    await _reloadLists();
-  }
-
-  void _showListOptions(ListModel list) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.drive_file_rename_outline,
-        label: 'Rename',
-        onTap: () => _showRenameList(list),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _showDeleteList(list),
-      ),
-    ]);
-  }
-
-  // ── Lists tab UI ──────────────────────────────────────────────────────────
-
-  Widget _buildListsTab() {
-    if (_lists.isEmpty) {
-      return const EmptyState(
-        icon: Icons.format_list_bulleted,
-        message: 'No lists yet.\nTap + to create one.',
-      );
-    }
-    return SafeArea(
-      top: false,
-      child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: kFabListBottomPad),
-        itemCount: _lists.length,
-        itemBuilder: (ctx, i) {
-          final list = _lists[i];
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: ListTile(
-              leading: Icon(Icons.format_list_bulleted, color: Colors.grey.shade400),
-              title: Text(list.name),
-              subtitle: Text(
-                list.items.isEmpty ? 'Empty' : '${list.items.length} item${list.items.length == 1 ? '' : 's'}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ListDetailScreen(list: list),
-                  ),
-                );
-                await _reloadLists();
-              },
-              onLongPress: () => _showListOptions(list),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  // ── ToDos tab operations ──────────────────────────────────────────────────
-
-  void _showCreateTaskFile() async {
-    final name = await showInputDialog(context,
-      title: 'New task file',
-      hintText: 'Name',
-      confirmLabel: 'Create',
-      capitalization: TextCapitalization.words,
-    );
-    if (name != null) _createTaskFile(name);
-  }
-
-  Future<void> _createTaskFile(String name) async {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
-    await TaskStorageService.createTaskFile(trimmed);
-    await _reloadTaskFiles();
-  }
-
-  void _showDeleteTaskFileConfirm(TaskFile tf) async {
-    final confirmed = await showConfirmDialog(context,
-      title: 'Delete task file?',
-      message: 'Delete "${tf.name}"? This cannot be undone.',
-    );
-    if (confirmed) {
-      await TaskStorageService.deleteTaskFile(tf.filePath);
-      await _reloadTaskFiles();
-    }
-  }
-
-  void _showTaskFileOptions(TaskFile tf) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.drive_file_rename_outline,
-        label: 'Rename',
-        onTap: () => _showRenameTaskFile(tf),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _showDeleteTaskFileConfirm(tf),
-      ),
-    ]);
-  }
-
-  void _showRenameTaskFile(TaskFile tf) async {
-    final name = await showInputDialog(context,
-      title: 'Rename task file',
-      initialValue: tf.name,
-      hintText: 'Name',
-      confirmLabel: 'Rename',
-      capitalization: TextCapitalization.words,
-    );
-    if (name != null) _renameTaskFile(tf, name);
-  }
-
-  Future<void> _renameTaskFile(TaskFile tf, String newName) async {
-    final trimmed = newName.trim();
-    if (trimmed.isEmpty || trimmed == tf.name) return;
-    final result = await TaskStorageService.renameTaskFile(tf.filePath, trimmed);
-    if (!mounted) return;
-    if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rename failed — name already in use.')),
-      );
-      return;
-    }
-    await _reloadTaskFiles();
-  }
-
-  // ── ToDos tab UI ──────────────────────────────────────────────────────────
-
-  Widget _buildTodosTab() {
-    if (_taskFiles.isEmpty) {
-      return const EmptyState(
-        icon: Icons.check_box_outline_blank,
-        message: 'No task files yet.\nTap + to create one.',
-      );
-    }
-    return ListView.builder(
-      itemCount: _taskFiles.length,
-      itemBuilder: (ctx, i) {
-        final tf = _taskFiles[i];
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: ListTile(
-            leading: Icon(Icons.check_box_outline_blank,
-                color: Colors.grey.shade400),
-            title: Text(tf.name),
-            subtitle: tf.totalTasks == 0
-                ? const Text('No tasks', style: TextStyle(fontSize: 12))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      LinearProgressIndicator(
-                        value: tf.progress,
-                        minHeight: 5,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${tf.completedTasks} / ${tf.totalTasks} done',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => TaskFileScreen(
-                    filePath: tf.filePath,
-                    title: tf.name,
-                    onRenamed: (newPath, newTitle) => _reloadTaskFiles(),
-                  ),
-                ),
-              );
-              await _reloadTaskFiles();
-            },
-            onLongPress: () => _showTaskFileOptions(tf),
-          ),
-        );
-      },
-    );
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -746,28 +469,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
     final tabTitle = switch (_currentTab) {
       0 => 'Entities',
-      1 => 'Hardcover',
-      2 => 'Lists',
-      _ => 'Todos',
+      1 => 'Notes',
+      2 => 'Hardcover',
+      _ => 'Projects',
     };
+
     return Scaffold(
       appBar: AppBar(
         title: Text(tabTitle),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (_currentTab == 1)
+          if (_currentTab == 2)
             IconButton(
               icon: const Icon(Icons.sync),
               tooltip: 'Sync with Hardcover',
               onPressed: () => _hardcoverKey.currentState?.sync(),
-            ),
-          if (_currentTab == 3)
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _showCreateTaskFile,
-              tooltip: 'New task file',
             ),
           IconButton(
             icon: const Icon(Icons.sync),
@@ -777,13 +496,11 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'anki') { _openAnki(); }
-              else if (v == 'resurface') { _openResurface(); }
               else if (v == 'settings') { _openSettings(); }
               else if (v == 'templates') { _openTemplates(); }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'anki', child: Text('Anki')),
-              PopupMenuItem(value: 'resurface', child: Text('Resurface')),
               PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(value: 'templates', child: Text('Templates')),
             ],
@@ -794,20 +511,20 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentTab,
         children: [
           _buildEntitiesTab(),
+          const ResurfaceScreen(),
           HardcoverScreen(key: _hardcoverKey),
-          _buildListsTab(),
-          _buildTodosTab(),
+          ProjectsScreen(key: _projectsKey),
         ],
       ),
       floatingActionButton: switch (_currentTab) {
-        1 => FloatingActionButton(
+        2 => FloatingActionButton(
             onPressed: () => _hardcoverKey.currentState?.openSearchSheet(),
             tooltip: 'Search Hardcover',
             child: const Icon(Icons.search),
           ),
-        2 => FloatingActionButton(
-            onPressed: _showCreateList,
-            tooltip: 'New list',
+        3 => FloatingActionButton(
+            onPressed: () => _projectsKey.currentState?.showCreateDialog(context),
+            tooltip: 'New project',
             child: const Icon(Icons.add),
           ),
         _ => null,
@@ -820,9 +537,9 @@ class _HomeScreenState extends State<HomeScreen> {
         unselectedItemColor: Colors.grey.shade600,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Entities'),
+          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Notes'),
           BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Hardcover'),
-          BottomNavigationBarItem(icon: Icon(Icons.format_list_bulleted), label: 'Lists'),
-          BottomNavigationBarItem(icon: Icon(Icons.check_box_outline_blank), label: 'Todos'),
+          BottomNavigationBarItem(icon: Icon(Icons.folder_outlined), label: 'Projects'),
         ],
       ),
     );

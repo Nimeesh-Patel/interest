@@ -39,7 +39,9 @@ class ResurfaceService {
 
   static ResurfaceCard? _extractFrontBack(String filePath, String content) {
     try {
-      final body = splitFrontmatter(content).body;
+      final split = splitFrontmatter(content);
+      final body = split.body;
+      final decks = parseDeckMetadata(split.frontmatter);
       final lines = body.split('\n');
       bool inCodeFence = false;
       int? separatorIdx;
@@ -70,6 +72,7 @@ class ResurfaceService {
         sourceFile: p.basename(filePath),
         front: front,
         back: back,
+        decks: decks,
       );
     } catch (_) {
       return null;

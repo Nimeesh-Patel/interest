@@ -41,6 +41,8 @@ class VaultService {
     if (!await ldir.exists()) await ldir.create(recursive: true);
     final sysdir = Directory(systemPath(vaultPath));
     if (!await sysdir.exists()) await sysdir.create(recursive: true);
+    final prdir = Directory(projectsPath(vaultPath));
+    if (!await prdir.exists()) await prdir.create(recursive: true);
     await _seedDefaultTemplates(tdir.path);
   }
 
@@ -83,6 +85,9 @@ class VaultService {
 
   static String systemPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'System');
+
+  static String projectsPath(String vaultPath) =>
+      p.join(vaultPath, 'Interesting', 'Projects');
 
   static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
     try {

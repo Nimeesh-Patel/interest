@@ -16,11 +16,12 @@ The architecture consistently rejects two alternatives: (1) treating Markdown as
 <vault>/
   Interesting/
     Entities/   — one .md file per entity; semantic graph lives here
-    Lists/      — one .md file per list (flat item collection)
+    Projects/   — one .md file per project (canonical); migrated from Lists/ + Tasks/
+    Lists/      — legacy flat item collections (migrated to Projects/ on first load)
     Templates/  — category templates; seeded on first launch; user-editable
     Anki/       — one .md file per Anki card
       .trash/   — soft-deleted cards
-    Tasks/      — one .md file per task topic; pure Markdown, no frontmatter
+    Tasks/      — legacy task files (migrated to Projects/ on first load)
     Books/      — one .md file per book; convergence point for multiple enrichment sources
     Articles/   — one .md file per RSS-imported article
     System/     — vault-native configuration (integrations.md)
@@ -78,20 +79,19 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | Subsystem | Directory | Role |
 |---|---|---|
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
-| Lists | `Interesting/Lists/` | Flat item collections; membership inferred by wikilink |
-| Tasks | `Interesting/Tasks/` | Ephemeral working lists; no identity anchor |
+| Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
+| Notes / Resurface | vault-wide (read-only) | Semantic resurfacing projection over `***`-separated notes; deck list navigation; `deck:` frontmatter groups notes; undecked notes appear as "Default" deck |
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
 | Hardcover | → Books | Bidirectional reading-state sync; patches HC-owned fields only |
 | ReadEra | → Books | Highlight import from `.bak`; patches ReadEra section only |
 | RSS | `Interesting/Articles/`, `Interesting/Entities/` | Feed ingestion; adapter-dispatched by source type |
-| Resurface | vault-wide (read-only) | Semantic resurfacing projection over `***`-separated notes |
 | Templates | `Interesting/Templates/` | One-time entity instantiation templates |
 | Android widget | native | Reads vault path from SharedPreferences; creates entities |
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
 
-Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/anki.md](docs/anki.md), [docs/tasks.md](docs/tasks.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md).
+Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/anki.md](docs/anki.md), [docs/projects.md](docs/projects.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md).
 
 ---
 
@@ -108,14 +108,17 @@ lib/
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
     lists/                 — ListModel, ListStorageService, ListDetailScreen
-    tasks/                 — TaskBlock tree, TaskStorageService
+    projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
+                             TaskFileScreen (todo-style) + ProjectListDetailScreen (list-style)
+    tasks/                 — TaskBlock tree, TaskStorageService, TaskFileScreen (shared with projects)
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
     books/                 — Book model, BookStorageService, HardcoverService/SyncService
     readwise/              — ReadwiseService, ReadwiseScreen (enriches Books/)
     rss/                   — RssFetchService, adapters (letterboxd/substack/generic),
                              ArticleStorageService, RssIngestionService, RssScreen
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
-    resurface/             — ResurfaceService (vault scan), ResurfaceScreen (viewer)
+    resurface/             — ResurfaceService (vault scan), ResurfaceScreen (deck list, Notes tab),
+                             NoteCardViewerScreen (per-deck card viewer, pushed route)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
 ```

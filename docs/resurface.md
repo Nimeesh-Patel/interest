@@ -1,8 +1,10 @@
-# Resurface Subsystem
+# Notes / Resurface Subsystem
 
 ## Purpose
 
-Vault-wide semantic resurfacing viewer. Scans notes across the broader vault for `***` horizontal-rule separators and projects them into lightweight front/back pairs — surfacing problem-situation structures already latent in the user's notes, without modifying them.
+Vault-wide semantic resurfacing viewer. The resurfacing layer is a **projection over notes** — it surfaces problem-situation structures, ideas, and conjectures already latent in the user's epistemic artifacts, without modifying them.
+
+Notes are primary. The resurfacing viewer is secondary: a read-only projection that emerges from notes, not a card-authoring system imposed on top of them.
 
 This is a **read-only semantic projection**. The vault is never modified.
 
@@ -15,8 +17,9 @@ The resurfacing viewer sits at the read-only projection end of the architecture:
 ```
 vault notes (unchanged)
   → ResurfaceService.scan()       — recursive read + separator extraction
-  → List<ResurfaceCard>           — in-memory projection, shuffled
-  → ResurfaceScreen               — viewer UI; discarded on close
+  → List<ResurfaceCard>           — in-memory projection (filesystem order, unshuffled)
+  → ResurfaceScreen               — deck list; tap a deck to push NoteCardViewerScreen
+      → NoteCardViewerScreen      — card viewer; shuffles cards on open; discarded on pop
 ```
 
 Nothing about the session is written to the vault or to SharedPreferences.
@@ -33,6 +36,55 @@ A `ResurfaceCard` is a transient view derived from a single note at read time. I
 | `sourceFile` | Basename of the source file (e.g. `epistemology.md`) |
 | `front` | Content above the first `***` separator, trimmed |
 | `back` | Content below the first `***` separator, trimmed |
+| `decks` | List of deck names from `deck:` frontmatter; `[]` if absent |
+
+---
+
+## Deck metadata
+
+Notes may declare optional deck membership via the `deck:` YAML frontmatter field:
+
+```yaml
+---
+deck: epistemology
+---
+```
+
+or for multiple decks:
+
+```yaml
+---
+deck:
+  - epistemology
+  - programming
+---
+```
+
+**Decks are resurfacing projection labels, not ownership containers.** A note belongs to its canonical Markdown file — decks only affect how the resurfacing viewer filters its display.
+
+Deck membership is parsed at scan time via `parseDeckMetadata()` in `md_utils.dart`. Supports: absent → `[]`, String scalar → single-element list, YAML list → all elements as strings.
+
+**A note may belong to zero, one, or many decks.** No exclusive ownership; overlapping semantic topology is expected.
+
+### Deck navigation (ResurfaceScreen)
+
+`ResurfaceScreen` shows a deck list. Each row is a deck name and card count. Tapping a row pushes `NoteCardViewerScreen` with the cards pre-filtered to that deck.
+
+The deck list always contains:
+1. **All Notes** (bold) — all cards from the scan, regardless of `deck:` metadata
+2. **Default** — cards whose `decks` list is empty (i.e., no `deck:` frontmatter); shown only if at least one such card exists
+3. Named decks, one per distinct `deck:` value found, sorted A→Z
+
+A note may appear in multiple named deck rows (if its `deck:` list has multiple entries) and also in "All Notes". The "Default" and named deck rows are mutually exclusive — a card either has decks or it doesn't.
+
+`NoteCardViewerScreen` receives the filtered `List<ResurfaceCard>` and the deck name. It shuffles the cards in `initState` (unseed random; order is different each session). The viewer is discarded when the user navigates back to the deck list.
+
+### What decks are NOT
+
+- No deck database. Decks are frontmatter strings; they are not stored, indexed, or managed by the app.
+- No deck hierarchy. There are no parent/child deck relationships.
+- No scheduling by deck. Deck membership has no effect on review order, intervals, or due dates (none of which exist).
+- No card ownership transfer. The canonical owner of a note is the file; decks are labels for projection filtering only.
 
 ---
 
@@ -60,7 +112,7 @@ A `ResurfaceCard` is a transient view derived from a single note at read time. I
 
 Default excluded folders: `Interesting`, `.obsidian`, `Templates`, `Attachments`.
 
-- `Interesting` is excluded because it contains the app's structured semantic objects (entities, books, Anki cards) — schema-driven files with YAML frontmatter and semantic sections that are not the raw epistemic material the resurfacing viewer is designed for.
+- `Interesting` is excluded because it contains the app's structured semantic objects (entities, books, Anki cards, projects) — schema-driven files with YAML frontmatter and semantic sections that are not the raw epistemic material the resurfacing viewer is designed for.
 - `.obsidian` and `Templates` and `Attachments` are excluded because they contain configuration, templates, and binary assets rather than notes.
 
 **Changing the exclusion list:** Settings → Resurface. Stored in `Interesting/System/integrations.md` under `## Resurface → excluded_folders:` via `IntegrationsConfigService`. The default list is used if the section is absent or empty.
@@ -86,35 +138,51 @@ class ResurfaceService {
 
 ## ResurfaceScreen behaviour
 
+`ResurfaceScreen` is a primary navigation tab ("Notes"). It has **no Scaffold of its own** — HomeScreen provides the AppBar (title: "Notes"). `ResurfaceScreen` renders a deck list body only.
+
 ### Load
 
-On `initState`, the screen calls `VaultService.getVaultPath()` then `IntegrationsConfigService.load()` to read the excluded folders, then `ResurfaceService.scan()`. The resulting card list is shuffled in memory before display. The shuffle is not seeded — order is random each session.
+On `initState`, the screen calls `VaultService.getVaultPath()`, then `IntegrationsConfigService.load()` to read the excluded folders, then `ResurfaceService.scan()`. The card list is stored as-is (filesystem order, unshuffled) in `_cards`.
 
 ### States
 
 | Condition | Displayed |
 |---|---|
 | Vault path not configured | `EmptyState` with error message |
-| Scan complete, zero cards | `EmptyState` with hint to add a `***` separator |
 | Scan in progress | `CircularProgressIndicator` |
-| Cards loaded | Viewer (see below) |
+| Scan complete, zero cards | `EmptyState` with hint to add a `***` separator |
+| Cards loaded | `ListView` of deck rows |
 
-### Viewer layout
+### Deck list layout
 
-- **AppBar**: title "Resurface"; counter `N / total` in the trailing position (hidden while loading or when no cards).
-- **Source title**: the filename without extension, rendered as an H1 heading above the front content.
-- **Front**: always visible once a card is displayed. Rendered via `MarkdownBody`.
-- **Back**: hidden on initial display. A centred italic "tap to reveal" hint appears in its place. Tap anywhere on the screen to reveal the back. Tapping again hides it.
-- **Divider**: a 1px horizontal rule appears between front and back when the back is revealed.
-- **Navigation**: prev/next `IconButton`s at the bottom. Prev is disabled at index 0; next is disabled at the last card. Swipe left (velocity < −200) advances; swipe right (velocity > +200) retreats. Navigation resets `_backRevealed` to `false`.
+`SafeArea(top: false)` → `ListView.builder` of `ListTile`s, one per deck:
+- **"All Notes"** row (always first, bold title): total card count
+- **"Default"** row (second, if any undecked cards exist): count of cards with `decks: []`
+- **Named deck rows** (A→Z): count of cards that include that deck name
 
-### Session state
+Trailing text shows the card count in `Colors.grey`. Tapping any row pushes `NoteCardViewerScreen`.
 
-The screen holds: `_cards` (shuffled list), `_currentIndex`, `_backRevealed`, `_loading`, `_error`. All state is session-only. Closing the screen discards it entirely.
+### NoteCardViewerScreen
+
+A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `List<ResurfaceCard> cards` (pre-filtered, unshuffled) and `String deckName`.
+
+**AppBar**: title = `deckName`; trailing counter `"N / total"` (e.g. `"3 / 12"`).
+
+**initState**: `_cards = List.of(widget.cards)..shuffle()` — shuffle is unseeded; order is random each session.
+
+**Card layout** (`SingleChildScrollView` with 20px padding):
+- **Source title**: filename without extension, rendered as `# heading` via `MarkdownBody`
+- **Front**: rendered via `MarkdownBody` (theme `onSurface` colour)
+- **"tap to reveal"** hint when back is hidden (centred italic grey text)
+- **Divider** + **back** when revealed (back rendered in `Colors.grey.shade800`)
+
+**Interaction**: tap anywhere on the card area toggles `_backRevealed`. Swipe left (velocity < −200) advances; swipe right (velocity > +200) retreats. Prev/next `IconButton`s at the bottom (disabled at boundaries). Navigation resets `_backRevealed` to `false`.
+
+**Session state**: `_cards` (shuffled), `_currentIndex`, `_backRevealed`. Popping back to the deck list discards all viewer state.
 
 ### Markdown rendering
 
-All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit heading sizes (H1: 26px bold; H2: 19px semi-bold; H3: 16px semi-bold; body: 15px). The back uses `Colors.grey.shade800` as the text colour; the front and title use the theme's `onSurface` colour.
+All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit sizes: H1 26px bold, H2 19px semi-bold, H3 16px semi-bold, body/listBullet 15px (line height 1.55). Front and title use `onSurface`; back uses `Colors.grey.shade800`.
 
 ---
 
@@ -126,6 +194,8 @@ All content — source title, front, back — is rendered via `flutter_markdown`
 - No card authoring. There is no UI for creating or editing notes from within this screen.
 - No ordering beyond the in-session shuffle. The shuffle is not persisted.
 - No per-card actions (mark known, snooze, rate). The only interactions are tap-to-reveal and prev/next navigation.
+- No deck state persistence. Which deck was last viewed and card position within it are discarded when `NoteCardViewerScreen` is popped.
+- No deck management UI. Decks are added by editing the `deck:` field directly in the note file.
 
 ---
 
@@ -136,3 +206,5 @@ All content — source title, front, back — is rendered via `flutter_markdown`
 - The separator pattern `^\*{3,}\s*$` must not be silently expanded to match `---` or `___`.
 - Folder exclusion is segment-exact: `Interesting` must not match `interesting-notes` or similar.
 - Card order must not be persisted between sessions.
+- Deck filter state must not be persisted between sessions.
+- Do NOT add scheduling, FSRS, deck hierarchy, or any operational card-state machinery.

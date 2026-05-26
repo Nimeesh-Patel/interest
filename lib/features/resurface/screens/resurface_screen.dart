@@ -7,17 +7,17 @@ import '../../../shared/widgets/empty_state.dart';
 import '../models/resurface_card.dart';
 import '../services/resurface_service.dart';
 
+// ── Deck list (no Scaffold — HomeScreen provides AppBar) ─────────────────────
+
 class ResurfaceScreen extends StatefulWidget {
   const ResurfaceScreen({super.key});
 
   @override
-  State<ResurfaceScreen> createState() => _ResurfaceScreenState();
+  State<ResurfaceScreen> createState() => ResurfaceScreenState();
 }
 
-class _ResurfaceScreenState extends State<ResurfaceScreen> {
+class ResurfaceScreenState extends State<ResurfaceScreen> {
   List<ResurfaceCard> _cards = [];
-  int _currentIndex = 0;
-  bool _backRevealed = false;
   bool _loading = true;
   String? _error;
 
@@ -43,11 +43,119 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
       excludedFolders: config.resurfaceExcludedFolders,
     );
     if (!mounted) return;
-    cards.shuffle();
     setState(() {
       _cards = cards;
       _loading = false;
     });
+  }
+
+  List<_DeckInfo> get _deckItems {
+    final named = <String, int>{};
+    int defaultCount = 0;
+    for (final c in _cards) {
+      if (c.decks.isEmpty) {
+        defaultCount++;
+      } else {
+        for (final d in c.decks) {
+          named[d] = (named[d] ?? 0) + 1;
+        }
+      }
+    }
+    final namedList = named.entries.map((e) => _DeckInfo(e.key, e.value)).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return [
+      _DeckInfo('All Notes', _cards.length),
+      if (defaultCount > 0) _DeckInfo('Default', defaultCount),
+      ...namedList,
+    ];
+  }
+
+  List<ResurfaceCard> _cardsForDeck(String deckName) {
+    if (deckName == 'All Notes') return List.of(_cards);
+    if (deckName == 'Default') return _cards.where((c) => c.decks.isEmpty).toList();
+    return _cards.where((c) => c.decks.contains(deckName)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return EmptyState(icon: Icons.error_outline, message: _error!);
+    }
+    if (_cards.isEmpty) {
+      return const EmptyState(
+        icon: Icons.auto_awesome_outlined,
+        message: 'No notes found.\nAdd a *** separator to a note.',
+      );
+    }
+
+    final items = _deckItems;
+    return SafeArea(
+      top: false,
+      child: ListView.builder(
+        itemCount: items.length,
+        itemBuilder: (ctx, i) {
+          final deck = items[i];
+          return ListTile(
+            title: Text(
+              deck.name,
+              style: i == 0
+                  ? const TextStyle(fontWeight: FontWeight.bold)
+                  : null,
+            ),
+            trailing: Text(
+              '${deck.count}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            ),
+            onTap: () {
+              Navigator.push(
+                ctx,
+                MaterialPageRoute(
+                  builder: (_) => NoteCardViewerScreen(
+                    cards: _cardsForDeck(deck.name),
+                    deckName: deck.name,
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DeckInfo {
+  final String name;
+  final int count;
+  const _DeckInfo(this.name, this.count);
+}
+
+// ── Card viewer (pushed route with own Scaffold) ──────────────────────────────
+
+class NoteCardViewerScreen extends StatefulWidget {
+  final List<ResurfaceCard> cards;
+  final String deckName;
+
+  const NoteCardViewerScreen({
+    super.key,
+    required this.cards,
+    required this.deckName,
+  });
+
+  @override
+  State<NoteCardViewerScreen> createState() => _NoteCardViewerScreenState();
+}
+
+class _NoteCardViewerScreenState extends State<NoteCardViewerScreen> {
+  late List<ResurfaceCard> _cards;
+  int _currentIndex = 0;
+  bool _backRevealed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cards = List.of(widget.cards)..shuffle();
   }
 
   String _stripExtension(String filename) {
@@ -65,8 +173,6 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
       listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
     );
   }
-
-  void _toggleBack() => setState(() => _backRevealed = !_backRevealed);
 
   void _goNext() {
     if (_currentIndex < _cards.length - 1) {
@@ -90,49 +196,35 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Resurface'),
+        title: Text(widget.deckName),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (!_loading && _cards.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  '${_currentIndex + 1} / ${_cards.length}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                '${_currentIndex + 1} / ${_cards.length}',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               ),
             ),
+          ),
         ],
       ),
       body: SafeArea(
         top: false,
-        child: _buildBody(),
+        child: Column(
+          children: [
+            Expanded(child: _buildCard(_cards[_currentIndex])),
+            _buildNavBar(),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildBody() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return EmptyState(icon: Icons.error_outline, message: _error!);
-    }
-    if (_cards.isEmpty) {
-      return const EmptyState(
-        icon: Icons.auto_awesome_outlined,
-        message: 'No resurfaceable notes found.\nAdd a *** separator to a note.',
-      );
-    }
-
-    final card = _cards[_currentIndex];
-
+  Widget _buildCard(ResurfaceCard card) {
     return GestureDetector(
-      onTap: _toggleBack,
+      onTap: () => setState(() => _backRevealed = !_backRevealed),
       onHorizontalDragEnd: (details) {
         final v = details.primaryVelocity ?? 0;
         if (v < -200) {
@@ -142,58 +234,55 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
         }
       },
       behavior: HitTestBehavior.opaque,
-      child: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  MarkdownBody(
-                    data: '# ${_stripExtension(card.sourceFile)}',
-                    styleSheet: _mdStyle(context),
-                  ),
-                  const SizedBox(height: 16),
-                  MarkdownBody(
-                    data: card.front,
-                    styleSheet: _mdStyle(context),
-                  ),
-                  const SizedBox(height: 24),
-                  if (!_backRevealed)
-                    _TapToRevealHint()
-                  else ...[
-                    Divider(thickness: 1, color: Colors.grey.shade300),
-                    const SizedBox(height: 16),
-                    MarkdownBody(
-                      data: card.back,
-                      styleSheet: _mdStyle(context, textColor: Colors.grey.shade800),
-                    ),
-                  ],
-                ],
-              ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            MarkdownBody(
+              data: '# ${_stripExtension(card.sourceFile)}',
+              styleSheet: _mdStyle(context),
             ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-                    onPressed: _currentIndex > 0 ? _goPrev : null,
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.arrow_forward_ios, size: 18),
-                    onPressed: _currentIndex < _cards.length - 1 ? _goNext : null,
-                  ),
-                ],
-              ),
+            const SizedBox(height: 16),
+            MarkdownBody(
+              data: card.front,
+              styleSheet: _mdStyle(context),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            if (!_backRevealed)
+              _TapToRevealHint()
+            else ...[
+              Divider(thickness: 1, color: Colors.grey.shade300),
+              const SizedBox(height: 16),
+              MarkdownBody(
+                data: card.back,
+                styleSheet: _mdStyle(context, textColor: Colors.grey.shade800),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavBar() {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+              onPressed: _currentIndex > 0 ? _goPrev : null,
+            ),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.arrow_forward_ios, size: 18),
+              onPressed: _currentIndex < _cards.length - 1 ? _goNext : null,
+            ),
+          ],
+        ),
       ),
     );
   }

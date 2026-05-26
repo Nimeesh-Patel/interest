@@ -28,7 +28,8 @@ Start here based on task class:
 | Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
 | Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
 | Modifying Anki sync | [docs/anki.md](docs/anki.md), then `AnkiSyncService` |
-| Modifying resurfacing extraction or viewer | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` |
+| Modifying resurfacing extraction, deck metadata, or viewer | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` |
+| Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
 | Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
 | Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
 | Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
@@ -58,7 +59,7 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `ProjectStorageService`.
 
 ## Save semantics
 
@@ -75,9 +76,10 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 |---|---|
 | `MarkdownStorageService` | `Interesting/Entities/` (user entities) |
 | `LetterboxdAdapter` | `Interesting/Entities/` (RSS movies; bypasses `MarkdownStorageService`) |
-| `ListStorageService` | `Interesting/Lists/` |
+| `ListStorageService` | `Interesting/Lists/` (legacy; new files no longer created here) |
 | `AnkiStorageService` | `Interesting/Anki/` + `.trash/` |
-| `TaskStorageService` | `Interesting/Tasks/` |
+| `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
+| `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
 | `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService`, `ReaderaIngestionService` write only via this |
 | `ArticleStorageService` | `Interesting/Articles/` ← `SubstackAdapter`, `GenericAdapter` write only via this |
 | `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
@@ -123,7 +125,9 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Lists** — `saveList` rebuilds the file from items (safe — list files have no user prose sections). Item order in file = semantic order. Entity membership inferred by wikilink scan, no join table. Do not add due dates, priorities, or subtasks to list items.
 
-**Tasks** — no YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`, never from `loadTaskFiles()`); `_collapsed` is session-only, never persist; `deleteBlock` hard-deletes with no trash; completing a root block calls `toggleBlockAndReorder`, which moves it to end-of-file; root blocks drag-reorderable via `reorderRootBlocks`. Do not add due dates, reminders, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
+**Projects** — unified semantic workspaces replacing Lists + Todos. New project files land in `Interesting/Projects/`. On first `ProjectStorageService.loadAll()`, existing files in `Lists/` and `Tasks/` are migrated to `Projects/` (best-effort, idempotent). Detail screen is always `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
+
+**Tasks (parser)** — `TaskStorageService.parseNodes()` is shared by both the legacy Tasks subsystem and `ProjectsScreen`. No YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`); `_collapsed` is session-only, never persist; `deleteBlock` hard-deletes with no trash; completing a root block calls `toggleBlockAndReorder`, which moves it to end-of-file; root blocks drag-reorderable via `reorderRootBlocks`. Do not add due dates, reminders, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
 
 **Grokipedia** — never writes to vault; no caching; state (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives only in `_EntityScreenState`.
 
@@ -137,7 +141,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
-**Resurface** — strictly read-only; never writes to the vault; scans vault recursively for `***` horizontal-rule separators outside code fences; `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor; excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`); the `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters in the author's writing context. Do NOT add scheduling, review history, due dates, FSRS, or any persistent card state — this is a projection, not a database. Full details: [docs/resurface.md](docs/resurface.md).
+**Resurface / Notes** — strictly read-only; never writes to the vault; scans vault recursively for `***` horizontal-rule separators outside code fences; `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor; excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`); the `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters in the author's writing context. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state — this is a projection, not a database. Full details: [docs/resurface.md](docs/resurface.md).
 
 **Obsidian launch** — UI-only AppBar action; fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 

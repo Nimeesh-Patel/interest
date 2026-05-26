@@ -182,3 +182,15 @@ YamlMap? parseYamlMap(String? frontmatter) {
     return null;
   }
 }
+
+/// Extracts `deck:` membership from frontmatter YAML.
+/// Supports scalar (`deck: name`) and list (`deck: [a, b]`) forms.
+/// Returns [] when absent or unparseable.
+List<String> parseDeckMetadata(String? frontmatter) {
+  final map = parseYamlMap(frontmatter);
+  if (map == null || !map.containsKey('deck')) return [];
+  final d = map['deck'];
+  if (d is String) return [d];
+  if (d is YamlList) return d.map((e) => e.toString()).toList();
+  return [];
+}
