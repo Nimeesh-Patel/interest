@@ -2,147 +2,137 @@
 
 ## Purpose
 
-Vault-wide semantic resurfacing viewer. Scans notes across the broader vault (outside `Interesting/`) for `***` horizontal-rule separators and projects them into lightweight front/back pairs — surfacing problem-situation structures already latent in the user's notes, without modifying them.
+Vault-wide semantic resurfacing viewer. Scans notes across the broader vault for `***` horizontal-rule separators and projects them into lightweight front/back pairs — surfacing problem-situation structures already latent in the user's notes, without modifying them.
 
-This is a **read-only semantic projection**. The vault is not altered in any way.
+This is a **read-only semantic projection**. The vault is never modified.
 
 ---
 
-## Architectural Role
+## Architectural role
 
 The resurfacing viewer sits at the read-only projection end of the architecture: it discovers structure already encoded in notes, rather than imposing structure from outside.
 
 ```
 vault notes (unchanged)
-  → ResurfaceService.scan()         — recursive read + separator extraction
-  → List<ResurfaceCard>             — in-memory projection
-  → ResurfaceScreen                 — viewer UI
+  → ResurfaceService.scan()       — recursive read + separator extraction
+  → List<ResurfaceCard>           — in-memory projection, shuffled
+  → ResurfaceScreen               — viewer UI; discarded on close
 ```
 
-The projection is ephemeral: it is recomputed on every open and discarded on close. Nothing about the resurfacing session is written to the vault or to SharedPreferences.
+Nothing about the session is written to the vault or to SharedPreferences.
 
 ---
 
 ## Ontology
 
-### Canonical objects: the vault notes themselves
+A `ResurfaceCard` is a transient view derived from a single note at read time. It has no identity anchor and is not stored or indexed.
 
-The Markdown files in the vault are the canonical objects. The `***`-separated structure is authored content — the app merely recognizes and surfaces it.
-
-### Derived objects: ResurfaceCard
-
-A `ResurfaceCard` is a temporary projection derived from a single note at read time:
-
-| Field | Meaning |
+| Field | Value |
 |---|---|
-| `sourcePath` | Absolute path to the source note |
-| `sourceFile` | Basename of the source note (shown in UI as provenance) |
-| `front` | Content above the first `***` separator (trimmed) |
-| `back` | Content below the first `***` separator (trimmed) |
-
-`ResurfaceCard` has no identity anchor. It is not stored, indexed, or versioned. It is a transient view.
-
-### The `***` separator as epistemic structure
-
-The `***` horizontal rule is not arbitrary visual formatting. It encodes a structural relationship within a note:
-
-```
-[problem-situation / question / unresolved tension]
-
-***
-
-[current conjecture / partial resolution / working answer]
-```
-
-This is not question-answer formatting. It represents the natural epistemic structure of evolving notes: a problem that has been at least partially engaged with. The resurfacing system revisits these structures — asking: does the current resolution still hold? Has the situation evolved?
-
-This distinction matters for future evolution: the system is converging toward **problem resurfacing infrastructure**, not fact memorization infrastructure.
+| `sourcePath` | Absolute path to the source file |
+| `sourceFile` | Basename of the source file (e.g. `epistemology.md`) |
+| `front` | Content above the first `***` separator, trimmed |
+| `back` | Content below the first `***` separator, trimmed |
 
 ---
 
-## Extraction Algorithm
+## Separator detection
 
-### Separator detection
+**Trigger:** a line matching `^\*{3,}\s*$` — three or more asterisks, optional trailing whitespace, nothing else on the line.
 
-After `splitFrontmatter()` strips the YAML block:
+**Only the first matching separator is used.** If a note contains multiple `***` lines, extraction stops at the first one.
 
-1. Walk the body lines.
-2. Toggle `inCodeFence` on any line starting with ` ``` ` — prevents false matches inside code blocks.
-3. First line matching `^\*{3,}\s*$` (three or more asterisks) that is outside a code fence = separator.
-4. `front` = lines before separator, trimmed. `back` = lines after separator, trimmed.
-5. Either empty → skip (no card produced).
+**Code-fence exclusion:** the scanner tracks code fence state. Any line whose left-trimmed content starts with ` ``` ` toggles `inCodeFence`. A `***` line inside a code fence is not treated as a separator.
 
-### Why `***` not `---`
+**Empty-block guard:** if either `front` or `back` is empty after trimming, no card is produced. A `***` at the very start of the body (empty front) or at the very end (empty back) is silently skipped.
 
-`---` is the YAML frontmatter delimiter. Even though `splitFrontmatter()` strips the YAML block before scanning, `---` in the body creates visual ambiguity when authoring notes: the author's eye may conflate the semantic separator with the YAML structure. `***` carries no such dual reading. It is visually distinct and unambiguous as a semantic separator.
+**YAML frontmatter:** `splitFrontmatter()` strips the YAML block before scanning. A `---` delimiter in the frontmatter is invisible to the extractor. `***` is used — not `---` — to avoid visual ambiguity with frontmatter delimiters when authoring.
 
-### Exclusion model
+**Exception handling:** any file that cannot be read, or whose content causes a parse error, is silently skipped. `ResurfaceService` never throws.
 
-`ResurfaceService.scan()` respects a configurable exclusion list (folder names, not paths). Any file whose relative path contains an excluded folder segment is skipped.
+---
+
+## Vault scan scope
+
+`ResurfaceService.scan()` calls `Directory(vaultPath).list(recursive: true)` and processes every `.md` file found.
+
+**Excluded folders:** any file whose relative path contains a segment matching an excluded folder name is skipped. Matching is exact and segment-based — the full path is split on the OS separator, the filename (last segment) is dropped, and each remaining segment is checked against the exclusion list.
 
 Default excluded folders: `Interesting`, `.obsidian`, `Templates`, `Attachments`.
 
-**Why `Interesting/` is excluded by default:** `Interesting/` contains the app's structured semantic objects (entities, books, Anki cards). These are schema-driven Markdown files with YAML frontmatter and semantic sections — not the raw epistemic material the resurfacing viewer is designed for. The broader vault (journals, reading notes, working documents) is where problem-oriented `***`-separated structures naturally emerge.
+- `Interesting` is excluded because it contains the app's structured semantic objects (entities, books, Anki cards) — schema-driven files with YAML frontmatter and semantic sections that are not the raw epistemic material the resurfacing viewer is designed for.
+- `.obsidian` and `Templates` and `Attachments` are excluded because they contain configuration, templates, and binary assets rather than notes.
 
-Excluded folders are stored in `integrations.md` under `## Resurface` → `excluded_folders:`. User-configurable via Settings → Resurface.
-
----
-
-## Invariants
-
-- `ResurfaceService` never writes to any file.
-- Only the first `***` separator in a note is used (conservative extraction).
-- Code fences are tracked — `***` inside a fenced block is not treated as a separator.
-- The `***` dedup key is `^\*{3,}\s*$`. Do not silently expand this to match `---` or `___`.
-- Excluded folder matching is segment-based (checks each path component), not substring-based (prevents false exclusions like `interesting-notes/` matching `Interesting`).
-- Cards are shuffled in memory on each open — no ordering is persisted.
+**Changing the exclusion list:** Settings → Resurface. Stored in `Interesting/System/integrations.md` under `## Resurface → excluded_folders:` via `IntegrationsConfigService`. The default list is used if the section is absent or empty.
 
 ---
 
-## Non-goals
+## ResurfaceService API
 
-This subsystem is intentionally not:
+```dart
+class ResurfaceService {
+  static Future<List<ResurfaceCard>> scan(
+    String vaultPath, {
+    List<String> excludedFolders = _defaultExcludedFolders,
+  }) async
+}
+```
 
-- A spaced repetition system. No intervals, ease factors, due dates, or FSRS.
-- An Anki clone. No deck management, no scheduling state, no review history.
-- A card authoring workflow. Notes are not authored as flashcards — the separator structure is discovered in existing prose.
-- A card database. `ResurfaceCard` has no ID, no persistent state, no indexing.
-- A statistics or productivity dashboard. No streaks, counts, or gamification.
+`scan()` is the only public method. It returns all `ResurfaceCard` projections found across the vault, in filesystem iteration order (the caller is responsible for shuffling). Returns an empty list on any top-level I/O error; never throws.
 
-Adding any of these would shift the subsystem from **semantic projection** to **operational review machinery** — a category change that conflicts with the vault-native philosophy.
-
----
-
-## Tensions and Tradeoffs
-
-**Tension: `Interesting/` excluded by default, but some notes there may have `***` separators.**
-
-Resolution: the exclusion list is user-configurable. The default prioritizes signal quality over completeness. A user who writes epistemic notes inside `Interesting/` can remove the exclusion.
-
-**Tension: only first separator is used.**
-
-A note may have multiple `***` separators encoding multiple problem-resolution pairs. Using only the first is conservative. The tradeoff: using all separators would require a multi-card-per-note model, increasing extraction complexity and potentially fragmenting notes in ways that lose context. The first pair is the primary one. This constraint is easy to relax in future.
-
-**Tension: no review history means the viewer cannot avoid reshowing recently-seen cards.**
-
-The shuffle provides variety but not avoidance. This is acceptable for Phase 1, where the goal is to validate the ontology (problem-oriented resurfacing) rather than optimize review efficiency. Future: vault-native review events written as Markdown could enable history without hidden state.
+`_extractFrontBack()` is private. It takes a file path and raw file content and returns a `ResurfaceCard?`. Returns `null` on any of: no separator found, empty front, empty back, any exception during parsing.
 
 ---
 
-## Non-obvious implementation notes
+## ResurfaceScreen behaviour
 
-`splitFrontmatter()` in `md_utils.dart` handles frontmatter by detecting `---` only at the file start. Notes without YAML frontmatter pass through with their full content as the body — including any `***` separators. This is correct behavior.
+### Load
 
-The code-fence toggle uses `line.trimLeft().startsWith('``\`')` to handle rare indented fence openings. The toggle is simple: any line starting with three backticks (opening or closing) flips the state. Nested fences are not supported by this model, but nested fences are not valid in standard Markdown and are not encountered in practice.
+On `initState`, the screen calls `VaultService.getVaultPath()` then `IntegrationsConfigService.load()` to read the excluded folders, then `ResurfaceService.scan()`. The resulting card list is shuffled in memory before display. The shuffle is not seeded — order is random each session.
+
+### States
+
+| Condition | Displayed |
+|---|---|
+| Vault path not configured | `EmptyState` with error message |
+| Scan complete, zero cards | `EmptyState` with hint to add a `***` separator |
+| Scan in progress | `CircularProgressIndicator` |
+| Cards loaded | Viewer (see below) |
+
+### Viewer layout
+
+- **AppBar**: title "Resurface"; counter `N / total` in the trailing position (hidden while loading or when no cards).
+- **Source title**: the filename without extension, rendered as an H1 heading above the front content.
+- **Front**: always visible once a card is displayed. Rendered via `MarkdownBody`.
+- **Back**: hidden on initial display. A centred italic "tap to reveal" hint appears in its place. Tap anywhere on the screen to reveal the back. Tapping again hides it.
+- **Divider**: a 1px horizontal rule appears between front and back when the back is revealed.
+- **Navigation**: prev/next `IconButton`s at the bottom. Prev is disabled at index 0; next is disabled at the last card. Swipe left (velocity < −200) advances; swipe right (velocity > +200) retreats. Navigation resets `_backRevealed` to `false`.
+
+### Session state
+
+The screen holds: `_cards` (shuffled list), `_currentIndex`, `_backRevealed`, `_loading`, `_error`. All state is session-only. Closing the screen discards it entirely.
+
+### Markdown rendering
+
+All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit heading sizes (H1: 26px bold; H2: 19px semi-bold; H3: 16px semi-bold; body: 15px). The back uses `Colors.grey.shade800` as the text colour; the front and title use the theme's `onSurface` colour.
 
 ---
 
-## Future evolution direction
+## What is not implemented
 
-Future additions should preserve the **semantic projection** architecture:
+- No scheduler, no review intervals, no due dates, no FSRS.
+- No review history. The session is stateless; which cards were seen is not recorded anywhere.
+- No mutation of vault files. The vault is opened read-only.
+- No card authoring. There is no UI for creating or editing notes from within this screen.
+- No ordering beyond the in-session shuffle. The shuffle is not persisted.
+- No per-card actions (mark known, snooze, rate). The only interactions are tap-to-reveal and prev/next navigation.
 
-- **Vault-native review history**: reviewing a card could append a small event block to the source note (e.g., a `## Resurface history` section). This would keep review state in the vault without a hidden database.
-- **FSRS or scheduling**: if added, it should be computed from vault-native review events, not stored in a separate database.
-- **Multiple separators per note**: straightforward extension — extract all pairs, not just the first.
+---
 
-What must remain true regardless of future changes: `ResurfaceService` reads the vault and produces a projection. It does not own data. The vault remains canonical.
+## Boundaries (do not violate)
+
+- `ResurfaceService` must never write to any file.
+- `_extractFrontBack` must return `null` rather than throw on any malformed input.
+- The separator pattern `^\*{3,}\s*$` must not be silently expanded to match `---` or `___`.
+- Folder exclusion is segment-exact: `Interesting` must not match `interesting-notes` or similar.
+- Card order must not be persisted between sessions.

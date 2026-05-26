@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
@@ -47,6 +48,22 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
       _cards = cards;
       _loading = false;
     });
+  }
+
+  String _stripExtension(String filename) {
+    final dot = filename.lastIndexOf('.');
+    return dot > 0 ? filename.substring(0, dot) : filename;
+  }
+
+  MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
+    final color = textColor ?? Theme.of(context).colorScheme.onSurface;
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      h1: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, height: 1.3, color: color),
+      h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
+      h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
+      p: TextStyle(fontSize: 15, height: 1.55, color: color),
+      listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
+    );
   }
 
   void _toggleBack() => setState(() => _backRevealed = !_backRevealed);
@@ -133,18 +150,14 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    card.sourceFile,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                      letterSpacing: 0.2,
-                    ),
+                  MarkdownBody(
+                    data: '# ${_stripExtension(card.sourceFile)}',
+                    styleSheet: _mdStyle(context),
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    card.front,
-                    style: const TextStyle(fontSize: 16, height: 1.55),
+                  MarkdownBody(
+                    data: card.front,
+                    styleSheet: _mdStyle(context),
                   ),
                   const SizedBox(height: 24),
                   if (!_backRevealed)
@@ -152,13 +165,9 @@ class _ResurfaceScreenState extends State<ResurfaceScreen> {
                   else ...[
                     Divider(thickness: 1, color: Colors.grey.shade300),
                     const SizedBox(height: 16),
-                    Text(
-                      card.back,
-                      style: TextStyle(
-                        fontSize: 15,
-                        height: 1.55,
-                        color: Colors.grey.shade800,
-                      ),
+                    MarkdownBody(
+                      data: card.back,
+                      styleSheet: _mdStyle(context, textColor: Colors.grey.shade800),
                     ),
                   ],
                 ],
