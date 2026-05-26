@@ -80,7 +80,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 |---|---|---|
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
-| Notes / Resurface | vault-wide (read-only) | Semantic resurfacing projection over `***`-separated notes; deck list navigation; `deck:` frontmatter groups notes; undecked notes appear as "Default" deck |
+| Notes / Resurface | vault-wide (read-only) | Semantic resurfacing projection over `***`-separated notes; deck list navigation; `deck:` frontmatter groups notes; undecked notes appear as "Default" deck; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |

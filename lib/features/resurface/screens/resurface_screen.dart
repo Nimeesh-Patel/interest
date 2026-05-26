@@ -3,9 +3,11 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/resurface_card.dart';
 import '../services/resurface_service.dart';
+import 'note_detail_screen.dart';
 
 // ── Deck list (no Scaffold — HomeScreen provides AppBar) ─────────────────────
 
@@ -20,6 +22,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   List<ResurfaceCard> _cards = [];
   bool _loading = true;
   String? _error;
+  String? _vaultPath;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       });
       return;
     }
+    _vaultPath = vaultPath;
     final config = await IntegrationsConfigService.load(vaultPath);
     final cards = await ResurfaceService.scan(
       vaultPath,
@@ -114,6 +118,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
                   builder: (_) => NoteCardViewerScreen(
                     cards: _cardsForDeck(deck.name),
                     deckName: deck.name,
+                    vaultPath: _vaultPath!,
                   ),
                 ),
               );
@@ -136,11 +141,13 @@ class _DeckInfo {
 class NoteCardViewerScreen extends StatefulWidget {
   final List<ResurfaceCard> cards;
   final String deckName;
+  final String vaultPath;
 
   const NoteCardViewerScreen({
     super.key,
     required this.cards,
     required this.deckName,
+    required this.vaultPath,
   });
 
   @override
@@ -173,6 +180,38 @@ class _NoteCardViewerScreenState extends State<NoteCardViewerScreen> {
       listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
     );
   }
+
+  void _onTapLink(String text, String? href, String title) {
+    if (href == null || !href.startsWith('wikilink:')) return;
+    final target = Uri.decodeComponent(href.substring('wikilink:'.length));
+    _navigateToNote(target);
+  }
+
+  Future<void> _navigateToNote(String targetName) async {
+    final path = await ResurfaceService.resolveWikilink(widget.vaultPath, targetName);
+    if (!mounted) return;
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Note not found: $targetName')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailScreen(
+          vaultPath: widget.vaultPath,
+          filePath: path,
+        ),
+      ),
+    );
+  }
+
+  Widget _mdBody(String data, {Color? textColor}) => MarkdownBody(
+        data: substituteWikilinks(data),
+        styleSheet: _mdStyle(context, textColor: textColor),
+        onTapLink: _onTapLink,
+      );
 
   void _goNext() {
     if (_currentIndex < _cards.length - 1) {
@@ -244,20 +283,14 @@ class _NoteCardViewerScreenState extends State<NoteCardViewerScreen> {
               styleSheet: _mdStyle(context),
             ),
             const SizedBox(height: 16),
-            MarkdownBody(
-              data: card.front,
-              styleSheet: _mdStyle(context),
-            ),
+            _mdBody(card.front),
             const SizedBox(height: 24),
             if (!_backRevealed)
               _TapToRevealHint()
             else ...[
               Divider(thickness: 1, color: Colors.grey.shade300),
               const SizedBox(height: 16),
-              MarkdownBody(
-                data: card.back,
-                styleSheet: _mdStyle(context, textColor: Colors.grey.shade800),
-              ),
+              _mdBody(card.back, textColor: Colors.grey.shade800),
             ],
           ],
         ),

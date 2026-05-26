@@ -37,6 +37,26 @@ class ResurfaceService {
     return cards;
   }
 
+  /// Searches the whole vault (no folder exclusions) for a .md file whose
+  /// basename without extension matches [targetName] case-insensitively.
+  /// Returns the absolute path on match, null otherwise. Never throws.
+  static Future<String?> resolveWikilink(
+    String vaultPath,
+    String targetName,
+  ) async {
+    try {
+      final target = targetName.toLowerCase();
+      final vaultDir = Directory(vaultPath);
+      await for (final entry in vaultDir.list(recursive: true)) {
+        if (entry is! File || !entry.path.endsWith('.md')) continue;
+        if (p.basenameWithoutExtension(entry.path).toLowerCase() == target) {
+          return entry.path;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   static ResurfaceCard? _extractFrontBack(String filePath, String content) {
     try {
       final split = splitFrontmatter(content);

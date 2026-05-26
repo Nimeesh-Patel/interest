@@ -20,6 +20,7 @@ vault notes (unchanged)
   → List<ResurfaceCard>           — in-memory projection (filesystem order, unshuffled)
   → ResurfaceScreen               — deck list; tap a deck to push NoteCardViewerScreen
       → NoteCardViewerScreen      — card viewer; shuffles cards on open; discarded on pop
+          → NoteDetailScreen      — full note view; pushed on wikilink tap; recursive
 ```
 
 Nothing about the session is written to the vault or to SharedPreferences.
@@ -77,7 +78,7 @@ The deck list always contains:
 
 A note may appear in multiple named deck rows (if its `deck:` list has multiple entries) and also in "All Notes". The "Default" and named deck rows are mutually exclusive — a card either has decks or it doesn't.
 
-`NoteCardViewerScreen` receives the filtered `List<ResurfaceCard>` and the deck name. It shuffles the cards in `initState` (unseed random; order is different each session). The viewer is discarded when the user navigates back to the deck list.
+`NoteCardViewerScreen` receives the filtered `List<ResurfaceCard>`, the deck name, and `vaultPath` (used for wikilink resolution). It shuffles the cards in `initState` (unseeded random; order is different each session). The viewer is discarded when the user navigates back to the deck list.
 
 ### What decks are NOT
 
@@ -127,10 +128,17 @@ class ResurfaceService {
     String vaultPath, {
     List<String> excludedFolders = _defaultExcludedFolders,
   }) async
+
+  static Future<String?> resolveWikilink(
+    String vaultPath,
+    String targetName,
+  ) async
 }
 ```
 
-`scan()` is the only public method. It returns all `ResurfaceCard` projections found across the vault, in filesystem iteration order (the caller is responsible for shuffling). Returns an empty list on any top-level I/O error; never throws.
+`scan()` returns all `ResurfaceCard` projections found across the vault, in filesystem iteration order (the caller is responsible for shuffling). Returns an empty list on any top-level I/O error; never throws.
+
+`resolveWikilink()` searches the whole vault recursively — no folder exclusions — for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first matching absolute path, or `null` on no match or any I/O error. Never throws.
 
 `_extractFrontBack()` is private. It takes a file path and raw file content and returns a `ResurfaceCard?`. Returns `null` on any of: no separator found, empty front, empty back, any exception during parsing.
 
@@ -164,7 +172,7 @@ Trailing text shows the card count in `Colors.grey`. Tapping any row pushes `Not
 
 ### NoteCardViewerScreen
 
-A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `List<ResurfaceCard> cards` (pre-filtered, unshuffled) and `String deckName`.
+A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `List<ResurfaceCard> cards` (pre-filtered, unshuffled), `String deckName`, and `String vaultPath` (used for wikilink resolution).
 
 **AppBar**: title = `deckName`; trailing counter `"N / total"` (e.g. `"3 / 12"`).
 
@@ -183,6 +191,43 @@ A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `Li
 ### Markdown rendering
 
 All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit sizes: H1 26px bold, H2 19px semi-bold, H3 16px semi-bold, body/listBullet 15px (line height 1.55). Front and title use `onSurface`; back uses `Colors.grey.shade800`.
+
+`[[wikilinks]]` in front and back are pre-processed by `substituteWikilinks()` before rendering. They appear as tappable links in the theme's primary/accent colour. See [§ Wikilink navigation](#wikilink-navigation) below.
+
+### NoteDetailScreen
+
+A pushed route opened when the user taps a wikilink in the card viewer. Receives `vaultPath` and `filePath`. Renders the note's full body (frontmatter stripped) via `MarkdownBody` with the same wikilink handling, enabling recursive navigation. Displays the filename (without extension) as the AppBar title.
+
+---
+
+## Wikilink navigation
+
+Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks. These are recognized in card front/back content and in `NoteDetailScreen`.
+
+### Pre-processing
+
+`substituteWikilinks(text)` in `md_utils.dart` rewrites wikilinks to standard Markdown links before the text reaches `flutter_markdown`:
+
+- `[[Target]]` → `[Target](wikilink:Target%20Encoded)`
+- `[[Target|Display]]` → `[Display](wikilink:Target%20Encoded)`
+
+`flutter_markdown` renders these as styled links (theme primary colour, underlined) and fires `onTapLink` on tap. The `wikilink:` URI scheme is a sentinel — it is never opened by a URL launcher.
+
+### Resolution
+
+`ResurfaceService.resolveWikilink(vaultPath, targetName)` searches the whole vault recursively (no folder exclusions) for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first match's absolute path, or `null`.
+
+### Navigation
+
+- **Match found:** pushes `NoteDetailScreen(vaultPath, filePath)` onto the Navigator stack.
+- **No match:** shows a `SnackBar` — `"Note not found: <targetName>"`.
+- `NoteDetailScreen` itself also processes wikilinks, enabling recursive navigation.
+
+### Boundaries
+
+- Wikilinks are never written to any file.
+- Resolution never throws; `null` on any I/O error.
+- No backlinks, no graph UI, no vault mutation.
 
 ---
 

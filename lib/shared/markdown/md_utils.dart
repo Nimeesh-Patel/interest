@@ -108,6 +108,20 @@ List<String> extractWikilinks(String text) =>
 List<String> parseSectionAsWikilinks(String sectionContent) =>
     extractWikilinks(sectionContent);
 
+/// Rewrites [[Target]] and [[Target|Display]] as standard Markdown links
+/// using the `wikilink:` URI scheme so flutter_markdown can render and
+/// dispatch them via onTapLink.
+String substituteWikilinks(String text) {
+  return text.replaceAllMapped(
+    RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+    (m) {
+      final target = m.group(1)!.trim();
+      final display = m.group(2)?.trim() ?? target;
+      return '[$display](wikilink:${Uri.encodeComponent(target)})';
+    },
+  );
+}
+
 /// Returns list items from a pre-parsed section content string.
 /// Handles `- item`, `* item`, and bare non-empty lines.
 List<String> parseSectionAsList(String sectionContent) {
