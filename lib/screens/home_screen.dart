@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final MarkdownStorageService _storage = MarkdownStorageService();
   final _hardcoverKey = GlobalKey<HardcoverScreenState>();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
+  final _resurfaceKey = GlobalKey<ResurfaceScreenState>();
   List<Entity> _entities = [];
   List<Category> _categories = [];
   List<String> _tags = [];
@@ -469,15 +470,24 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final tabTitle = switch (_currentTab) {
-      0 => 'Entities',
-      1 => 'Notes',
-      2 => 'Hardcover',
-      _ => 'Projects',
-    };
+    final notesState = _resurfaceKey.currentState;
+    final notesCanGoBack = _currentTab == 1 && (notesState?.canGoBack ?? false);
+    final tabTitle = _currentTab == 1
+        ? (notesState?.navTitle ?? 'Notes')
+        : switch (_currentTab) {
+            0 => 'Entities',
+            2 => 'Hardcover',
+            _ => 'Projects',
+          };
 
     return Scaffold(
       appBar: AppBar(
+        leading: notesCanGoBack
+            ? BackButton(onPressed: () {
+                notesState!.goBack();
+                setState(() {});
+              })
+            : null,
         title: Text(tabTitle),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
@@ -510,7 +520,10 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentTab,
         children: [
           _buildEntitiesTab(),
-          const ResurfaceScreen(),
+          ResurfaceScreen(
+            key: _resurfaceKey,
+            onNavigationChanged: () => setState(() {}),
+          ),
           HardcoverScreen(key: _hardcoverKey),
           ProjectsScreen(key: _projectsKey),
         ],
@@ -531,7 +544,12 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentTab,
-        onTap: (i) => setState(() => _currentTab = i),
+        onTap: (i) {
+          if (i == 1 && _currentTab == 1) {
+            _resurfaceKey.currentState?.resetStack();
+          }
+          setState(() => _currentTab = i);
+        },
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey.shade600,
         items: const [

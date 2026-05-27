@@ -27,6 +27,34 @@ import 'package:yaml/yaml.dart';
   return (frontmatter: frontmatter, body: body);
 }
 
+// ── Front/back separator ──────────────────────────────────────────────────────
+
+/// Splits [body] into front/back at the first `***` separator outside code fences.
+/// Returns null if no valid separator found or either side is empty after trim.
+/// Mirrors ResurfaceService._extractFrontBack scanning logic (pure, no I/O).
+({String front, String back})? splitFrontBack(String body) {
+  final hrPattern = RegExp(r'^\*{3,}\s*$');
+  final lines = body.split('\n');
+  bool inCodeFence = false;
+  int? separatorIdx;
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    if (line.trimLeft().startsWith('```')) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (!inCodeFence && hrPattern.hasMatch(line)) {
+      separatorIdx = i;
+      break;
+    }
+  }
+  if (separatorIdx == null) return null;
+  final front = lines.sublist(0, separatorIdx).join('\n').trim();
+  final back = lines.sublist(separatorIdx + 1).join('\n').trim();
+  if (front.isEmpty || back.isEmpty) return null;
+  return (front: front, back: back);
+}
+
 // ── Section parsers ───────────────────────────────────────────────────────────
 
 /// Parses H2 (`##`) sections from a Markdown body.

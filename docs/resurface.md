@@ -18,9 +18,9 @@ The resurfacing viewer sits at the read-only projection end of the architecture:
 vault notes (unchanged)
   → ResurfaceService.scan()       — recursive read + separator extraction
   → List<ResurfaceCard>           — in-memory projection (filesystem order, unshuffled)
-  → ResurfaceScreen               — deck list; tap a deck to push NoteCardViewerScreen
-      → NoteCardViewerScreen      — card viewer; shuffles cards on open; discarded on pop
-          → NoteDetailScreen      — full note view; pushed on wikilink tap; recursive
+  → ResurfaceScreen               — deck list; tap a deck to push onto internal nav stack
+      → _NoteCardViewerBody       — card viewer body; state lives in ResurfaceScreenState; no Scaffold
+      → NoteDetailScreen          — note body; render mode chosen at load time; no Scaffold; recursive
 ```
 
 Nothing about the session is written to the vault or to SharedPreferences.
@@ -78,7 +78,7 @@ The deck list always contains:
 
 A note may appear in multiple named deck rows (if its `deck:` list has multiple entries) and also in "All Notes". The "Default" and named deck rows are mutually exclusive — a card either has decks or it doesn't.
 
-`NoteCardViewerScreen` receives the filtered `List<ResurfaceCard>`, the deck name, and `vaultPath` (used for wikilink resolution). It shuffles the cards in `initState` (unseeded random; order is different each session). The viewer is discarded when the user navigates back to the deck list.
+Tapping a row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack (no `Navigator.push`). Card state — shuffled cards, current index, back-revealed flag — lives in `ResurfaceScreenState` and is preserved while navigating into and back from note details within the same session. Cards are shuffled when the deck is opened (unseeded random; order is random each session). Card state is discarded when returning to the deck list.
 
 ### What decks are NOT
 
@@ -168,15 +168,13 @@ On `initState`, the screen calls `VaultService.getVaultPath()`, then `Integratio
 - **"Default"** row (second, if any undecked cards exist): count of cards with `decks: []`
 - **Named deck rows** (A→Z): count of cards that include that deck name
 
-Trailing text shows the card count in `Colors.grey`. Tapping any row pushes `NoteCardViewerScreen`.
+Trailing text shows the card count in `Colors.grey`. Tapping any row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack and shows the card viewer.
 
-### NoteCardViewerScreen
+### Card viewer (`_NoteCardViewerBody`)
 
-A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `List<ResurfaceCard> cards` (pre-filtered, unshuffled), `String deckName`, and `String vaultPath` (used for wikilink resolution).
+An in-place body widget (`_NoteCardViewerBody`, private stateless). No Scaffold — HomeScreen's AppBar shows the deck name as title. All mutable state (`_viewerCards`, `_viewerIndex`, `_viewerBackRevealed`) lives in `ResurfaceScreenState` and is passed in as props; this lets card position survive wikilink navigation into and back from note detail without losing the current card.
 
-**AppBar**: title = `deckName`; trailing counter `"N / total"` (e.g. `"3 / 12"`).
-
-**initState**: `_cards = List.of(widget.cards)..shuffle()` — shuffle is unseeded; order is random each session.
+**AppBar**: provided by HomeScreen; title = deck name.
 
 **Card layout** (`SingleChildScrollView` with 20px padding):
 - **Source title**: filename without extension, rendered as `# heading` via `MarkdownBody`
@@ -184,9 +182,11 @@ A pushed route (`Navigator.push`) with its own Scaffold and AppBar. Receives `Li
 - **"tap to reveal"** hint when back is hidden (centred italic grey text)
 - **Divider** + **back** when revealed (back rendered in `Colors.grey.shade800`)
 
-**Interaction**: tap anywhere on the card area toggles `_backRevealed`. Swipe left (velocity < −200) advances; swipe right (velocity > +200) retreats. Prev/next `IconButton`s at the bottom (disabled at boundaries). Navigation resets `_backRevealed` to `false`.
+**Bottom row**: prev `IconButton` — counter `"N / total"` — next `IconButton`. Counter is in this row, not in the AppBar.
 
-**Session state**: `_cards` (shuffled), `_currentIndex`, `_backRevealed`. Popping back to the deck list discards all viewer state.
+**Interaction**: tap anywhere on the card area toggles `_backRevealed`. Swipe left (velocity < −200) advances; swipe right (velocity > +200) retreats. Navigation resets `_backRevealed` to `false`.
+
+**Session state**: all card viewer state is owned by `ResurfaceScreenState`. Returning to the deck list (back to root or tapping the Notes tab icon) clears the viewer state via `resetStack()`.
 
 ### Markdown rendering
 
@@ -194,9 +194,17 @@ All content — source title, front, back — is rendered via `flutter_markdown`
 
 `[[wikilinks]]` in front and back are pre-processed by `substituteWikilinks()` before rendering. They appear as tappable links in the theme's primary/accent colour. See [§ Wikilink navigation](#wikilink-navigation) below.
 
+**Render mode detection** — `splitFrontBack(body)` in `md_utils.dart` is called at render time on every note body, regardless of how the note was reached (deck list, card flip, or wikilink tap). If the body contains a valid `***` separator outside code fences with non-empty front and back, the note renders as a flashcard (front visible, back hidden until tap). If no separator is found, or either side is empty, the note renders as plain Markdown. This is a pure body-level check, separate from the scan-time `ResurfaceService._extractFrontBack()` which only determines whether to include a note as a `ResurfaceCard` during vault scan.
+
+**External URLs** — `_onTapLink` in both `_NoteCardViewerBody` (`resurface_screen.dart`) and `NoteDetailScreen` (`note_detail_screen.dart`) handles `http:` and `https:` hrefs by calling `launchUrl(uri, mode: LaunchMode.externalApplication)` via `url_launcher`. `wikilink:` scheme links are routed to note navigation (see [§ Wikilink navigation](#wikilink-navigation)). Any other scheme is silently ignored.
+
 ### NoteDetailScreen
 
-A pushed route opened when the user taps a wikilink in the card viewer. Receives `vaultPath` and `filePath`. Renders the note's full body (frontmatter stripped) via `MarkdownBody` with the same wikilink handling, enabling recursive navigation. Displays the filename (without extension) as the AppBar title.
+An in-place body widget. No Scaffold — HomeScreen's AppBar shows the note's filename (without extension) as title. Receives `filePath` and an `onNavigateToNote` callback; does not hold a vault path.
+
+On load, `splitFrontBack(body)` is called (see [§ Markdown rendering → Render mode detection](#markdown-rendering)). If the note has a valid `***` separator, it renders as a single flashcard with tap-to-reveal. If not, it renders the full body as plain Markdown.
+
+Wikilink taps call `onNavigateToNote(targetName)` → `ResurfaceScreenState._handleWikilinkTap()`, which resolves the path and pushes a new `_NoteDetailRoute` onto the internal stack. Multiple wikilink hops accumulate as stacked `_NoteDetailRoute` entries; each press of the AppBar back button pops one level.
 
 ---
 
@@ -219,9 +227,10 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 ### Navigation
 
-- **Match found:** pushes `NoteDetailScreen(vaultPath, filePath)` onto the Navigator stack.
+- **Match found:** `ResurfaceScreenState._handleWikilinkTap()` pushes a `_NoteDetailRoute(filePath)` onto the internal nav stack. HomeScreen's AppBar updates to show the new note's filename as title and exposes a back button.
 - **No match:** shows a `SnackBar` — `"Note not found: <targetName>"`.
-- `NoteDetailScreen` itself also processes wikilinks, enabling recursive navigation.
+- **Recursive navigation:** each wikilink tap from within a `NoteDetailScreen` adds another `_NoteDetailRoute` to the stack. Back presses pop one level at a time. The bottom navigation bar remains visible throughout all depths.
+- **Returning to deck list:** tapping the Notes tab icon at any stack depth calls `ResurfaceScreenState.resetStack()`, which collapses the entire stack to `[_DeckListRoute]` in a single tap.
 
 ### Boundaries
 
@@ -239,7 +248,7 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 - No card authoring. There is no UI for creating or editing notes from within this screen.
 - No ordering beyond the in-session shuffle. The shuffle is not persisted.
 - No per-card actions (mark known, snooze, rate). The only interactions are tap-to-reveal and prev/next navigation.
-- No deck state persistence. Which deck was last viewed and card position within it are discarded when `NoteCardViewerScreen` is popped.
+- No deck state persistence between sessions. Card position and back-revealed state are preserved within a session while navigating into and back from note details, but are discarded when returning to the deck list or switching tabs.
 - No deck management UI. Decks are added by editing the `deck:` field directly in the note file.
 
 ---
