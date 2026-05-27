@@ -143,7 +143,7 @@ class BookStorageService {
     final merged = Map<String, dynamic>.from(yaml);
     merged.addAll(updates);
 
-    final newContent = '${_buildFrontmatterFromMap(merged)}\n${split.body}';
+    final newContent = '${buildFrontmatterBlock(merged, _knownOrder)}\n${split.body}';
     await file.writeAsString(newContent);
   }
 
@@ -164,45 +164,12 @@ class BookStorageService {
 
   // ── Frontmatter builder ───────────────────────────────────────────────────
 
-  /// Builds a frontmatter block from a map of fields in canonical key order.
-  /// Unknown keys are appended after known ones for forward compatibility.
-  static String _buildFrontmatterFromMap(Map<String, dynamic> fields) {
-    const knownOrder = [
-      'type', 'alias', 'title', 'authors', 'isbn',
-      'hardcover_id', 'readwise_id', 'status', 'rating',
-      'started_at', 'finished_at', 'num_highlights',
-      'last_highlight_at', 'updated_at',
-    ];
-
-    final buf = StringBuffer('---\n');
-
-    for (final key in knownOrder) {
-      if (!fields.containsKey(key)) continue;
-      final val = fields[key];
-      if (val == null) continue;
-      _writeYamlField(buf, key, val);
-    }
-
-    for (final entry in fields.entries) {
-      if (knownOrder.contains(entry.key)) continue;
-      if (entry.value == null) continue;
-      _writeYamlField(buf, entry.key, entry.value);
-    }
-
-    buf.write('---');
-    return buf.toString();
-  }
-
-  static void _writeYamlField(StringBuffer buf, String key, dynamic val) {
-    if (val is List) {
-      buf.writeln('$key:');
-      for (final item in val) {
-        buf.writeln('  - ${_yamlValue(item.toString())}');
-      }
-    } else {
-      buf.writeln('$key: ${_yamlValue(val.toString())}');
-    }
-  }
+  static const _knownOrder = [
+    'type', 'alias', 'title', 'authors', 'isbn',
+    'hardcover_id', 'readwise_id', 'status', 'rating',
+    'started_at', 'finished_at', 'num_highlights',
+    'last_highlight_at', 'updated_at',
+  ];
 
   static String _buildNewBookContent(Book book) {
     final now = DateTime.now().toUtc().toIso8601String();
@@ -224,7 +191,7 @@ class BookStorageService {
     };
 
     final buf = StringBuffer();
-    buf.writeln(_buildFrontmatterFromMap(fields));
+    buf.writeln(buildFrontmatterBlock(fields, _knownOrder));
     buf.writeln('# ${book.title}');
     if (book.authors.isNotEmpty) {
       buf.writeln();
@@ -395,7 +362,7 @@ class BookStorageService {
       if (book.lastHighlightAt != null) 'last_highlight_at': book.lastHighlightAt,
       'updated_at': now,
     };
-    final newContent = '${_buildFrontmatterFromMap(fields)}\n$body';
+    final newContent = '${buildFrontmatterBlock(fields, _knownOrder)}\n$body';
     await File(filePath).writeAsString(newContent);
   }
 
@@ -444,16 +411,4 @@ class BookStorageService {
   static String _normalizeIsbn(String isbn) =>
       isbn.replaceAll(RegExp(r'[-\s]'), '').toLowerCase();
 
-  static String _yamlValue(String value) {
-    if (value.isEmpty) return '""';
-    if (value.contains(': ') ||
-        value.contains(' #') ||
-        value.startsWith('"') ||
-        value.startsWith("'") ||
-        value.startsWith('[') ||
-        value.startsWith('{')) {
-      return '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-    }
-    return value;
-  }
 }

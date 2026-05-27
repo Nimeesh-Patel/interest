@@ -76,16 +76,9 @@ class ProjectStorageService {
     final split = splitFrontmatter(content);
     final yamlMap = parseYamlMap(split.frontmatter);
     final isListStyle = yamlMap != null && yamlMap['type'] == 'list';
-    final lines = split.body.split('\n');
-    String name = p.basenameWithoutExtension(filePath);
-    bool nameFound = false;
+    final name = extractH1(split.body) ?? p.basenameWithoutExtension(filePath);
     int total = 0, completed = 0;
-    for (final line in lines) {
-      if (!nameFound && line.startsWith('# ') && !line.startsWith('## ')) {
-        name = line.substring(2).trim();
-        nameFound = true;
-        continue;
-      }
+    for (final line in split.body.split('\n')) {
       final m = _taskRegex.firstMatch(line);
       if (m != null) {
         total++;

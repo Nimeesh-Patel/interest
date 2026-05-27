@@ -184,6 +184,49 @@ String generateUniqueId(
   return '$base-$n';
 }
 
+// ── Frontmatter builder ───────────────────────────────────────────────────────
+
+/// Builds a `---`-delimited frontmatter block from [fields].
+/// Fields listed in [knownOrder] are written first; any remaining fields follow.
+/// List values are emitted as YAML block sequences; scalars are quoted when needed.
+/// Null values and empty strings are skipped silently.
+String buildFrontmatterBlock(
+    Map<String, dynamic> fields, List<String> knownOrder) {
+  final buf = StringBuffer('---\n');
+  final knownSet = knownOrder.toSet();
+  for (final key in knownOrder) {
+    if (fields.containsKey(key)) _writeFmField(buf, key, fields[key]);
+  }
+  for (final entry in fields.entries) {
+    if (!knownSet.contains(entry.key)) _writeFmField(buf, entry.key, entry.value);
+  }
+  buf.write('---');
+  return buf.toString();
+}
+
+void _writeFmField(StringBuffer buf, String key, dynamic val) {
+  if (val == null) return;
+  if (val is List) {
+    if (val.isEmpty) return;
+    buf.writeln('$key:');
+    for (final item in val) {
+      buf.writeln('  - ${_yamlScalar(item.toString())}');
+    }
+  } else {
+    final s = val.toString();
+    if (s.isEmpty) return;
+    buf.writeln('$key: ${_yamlScalar(s)}');
+  }
+}
+
+String _yamlScalar(String s) {
+  if (s.contains(':') || s.contains('#') || s.contains("'") ||
+      s.startsWith(' ') || s.endsWith(' ')) {
+    return '"${s.replaceAll('"', '\\"')}"';
+  }
+  return s;
+}
+
 // ── YAML helper ───────────────────────────────────────────────────────────────
 
 /// Parses a frontmatter string into a [YamlMap]. Returns null on any failure.

@@ -59,12 +59,12 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `ListStorageService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `ProjectStorageService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `ProjectStorageService`.
 
 ## Save semantics
 
 - **Deferred save for core entity fields** (name, category, tags, score, notes, links) — explicit Save button via `_saveEdit()`. WHY: Cancel must restore the pre-edit snapshot atomically.
-- **Immediate save for shared mutations** (`_createEntityLink`, `_deleteEntityLink`, `_addToList`, `_removeFromList`). WHY: they mutate shared state the entity snapshot doesn't cover.
+- **Immediate save for shared mutations** (`_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared state the entity snapshot doesn't cover.
 - `saveData()` snapshots all entity lists before the async gap to prevent partial-save races.
 - `updated_at` stamped on every mutation: entities in `_save()`, Anki cards in `AnkiStorageService.saveCard()` and `createNewCard()`.
 
@@ -76,7 +76,6 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 |---|---|
 | `MarkdownStorageService` | `Interesting/Entities/` (user entities) |
 | `LetterboxdAdapter` | `Interesting/Entities/` (RSS movies; bypasses `MarkdownStorageService`) |
-| `ListStorageService` | `Interesting/Lists/` (legacy; new files no longer created here) |
 | `AnkiStorageService` | `Interesting/Anki/` + `.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
@@ -93,14 +92,13 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | Anki card | `anki_id` (frontmatter) | Immutable after first Anki sync | Soft (`.trash/`) |
 | Book | `alias` (frontmatter) | Stable | Hard |
 | Article | `alias` (frontmatter); GUID as dedup key | Stable | Hard |
-| List | `slugify(name)` derived at load | Not preserved across rename | Hard |
 | Task file | None | — | Hard |
 
 Anki soft-delete rationale: a hard-deleted card re-synced from Anki would receive a new `anki_id`, permanently breaking the identity chain.
 
 ## Shared utilities — do not duplicate
 
-- **Markdown parsing** — `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, `slugify`, `sanitizeFilename`, timestamp helpers. Never reimplement in services or screens.
+- **Markdown parsing and YAML serialization** — `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, `slugify`, `sanitizeFilename`, timestamp helpers, `buildFrontmatterBlock(fields, knownOrder)` (canonical YAML frontmatter builder — pass a field map and an ordered key list; handles scalar quoting, YAML lists, and unknown-key overflow). Never reimplement in services or screens.
 - **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
 - **Spacing** — `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0), `kScreenHPad` (16.0). No magic numbers.
 
@@ -122,8 +120,6 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 ## Subsystem constraints
 
 **Anki** — `anki_id` immutable (see identity anchors table); soft-delete only; review metadata (intervals, ease, due dates) never written to Markdown. Full details: [docs/anki.md](docs/anki.md).
-
-**Lists** — `saveList` rebuilds the file from items (safe — list files have no user prose sections). Item order in file = semantic order. Entity membership inferred by wikilink scan, no join table. Do not add due dates, priorities, or subtasks to list items.
 
 **Projects** — unified semantic workspaces replacing Lists + Todos. New project files land in `Interesting/Projects/`. On first `ProjectStorageService.loadAll()`, existing files in `Lists/` and `Tasks/` are migrated to `Projects/` (best-effort, idempotent). Detail screen is always `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 

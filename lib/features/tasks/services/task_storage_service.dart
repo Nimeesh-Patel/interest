@@ -2,33 +2,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../models/task.dart';
 import '../models/task_block.dart';
-import '../../../core/vault_service.dart';
 
 class TaskStorageService {
   static final _taskRegex = RegExp(r'^\s*-\s+\[([ xX])\]\s+(.+)$');
-
-  static Future<List<TaskFile>> loadTaskFiles() async {
-    try {
-      final vault = await VaultService.getVaultPath();
-      if (vault == null) return [];
-      final dir = Directory(VaultService.tasksPath(vault));
-      if (!await dir.exists()) return [];
-      final results = <TaskFile>[];
-      await for (final entity in dir.list()) {
-        if (entity is! File || !entity.path.endsWith('.md')) continue;
-        try {
-          final content = await entity.readAsString();
-          results.add(_parseTaskFile(entity.path, content));
-        } catch (_) {}
-      }
-      results.sort((a, b) => a.name.compareTo(b.name));
-      return results;
-    } catch (_) {
-      return [];
-    }
-  }
 
   static Future<List<String>> loadLines(String filePath) async {
     try {
@@ -99,59 +76,6 @@ class TaskStorageService {
       lines[lineIndex] = '$indent- [$checkState] $newText';
       await File(filePath).writeAsString(lines.join('\n'));
     } catch (_) {}
-  }
-
-  static Future<TaskFile?> createTaskFile(String name) async {
-    try {
-      final vault = await VaultService.getVaultPath();
-      if (vault == null) return null;
-      final dir = Directory(VaultService.tasksPath(vault));
-      await dir.create(recursive: true);
-      final safeName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final file = File(p.join(dir.path, '$safeName.md'));
-      if (await file.exists()) return null;
-      await file.writeAsString('# $name\n\n');
-      return TaskFile(
-        filePath: file.path,
-        name: name,
-        totalTasks: 0,
-        completedTasks: 0,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> deleteTaskFile(String filePath) async {
-    try {
-      final file = File(filePath);
-      if (await file.exists()) await file.delete();
-    } catch (_) {}
-  }
-
-  static TaskFile _parseTaskFile(String filePath, String content) {
-    final lines = content.split('\n');
-    String name = p.basenameWithoutExtension(filePath);
-    bool nameFound = false;
-    int total = 0, completed = 0;
-    for (final line in lines) {
-      if (!nameFound && line.startsWith('# ') && !line.startsWith('## ')) {
-        name = line.substring(2).trim();
-        nameFound = true;
-        continue;
-      }
-      final m = _taskRegex.firstMatch(line);
-      if (m != null) {
-        total++;
-        if (m.group(1)!.toLowerCase() == 'x') completed++;
-      }
-    }
-    return TaskFile(
-      filePath: filePath,
-      name: name,
-      totalTasks: total,
-      completedTasks: completed,
-    );
   }
 
   // ── Hierarchical block parser ──────────────────────────────────────────────

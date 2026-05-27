@@ -57,7 +57,6 @@ Every semantic object has an identity anchor that survives renames and file move
 | Anki card | `anki_id` (frontmatter) | Immutable after first sync |
 | Book | `alias` (frontmatter) | Stable |
 | Article | `alias` + GUID dedup key | Stable |
-| List | `slugify(name)` | Not preserved across rename |
 | Task file | None | — |
 
 ### Patch-not-rebuild
@@ -102,15 +101,14 @@ lib/
   main.dart                — permission gate + routing
   core/                    — vault path (SharedPreferences) + directory bootstrap
                              + IntegrationsConfigService (vault-native integration config)
-  shared/markdown/         — pure Markdown parsing (md_utils) + filesystem I/O (md_io)
+  shared/markdown/         — pure Markdown parsing + YAML frontmatter builder (md_utils) + filesystem I/O (md_io)
   shared/widgets/          — 6 reusable UI primitives
   shared/constants/        — app-wide constants (app_spacing.dart)
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
-    lists/                 — ListModel, ListStorageService, ListDetailScreen
     projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
                              TaskFileScreen (todo-style) + ProjectListDetailScreen (list-style)
-    tasks/                 — TaskBlock tree, TaskStorageService, TaskFileScreen (shared with projects)
+    tasks/                 — TaskBlock tree, TaskStorageService (block mutations only), TaskFileScreen (shared with projects)
     anki/                  — AnkiCard, three services (connect/storage/sync), two screens
     books/                 — Book model, BookStorageService, HardcoverService/SyncService
     readwise/              — ReadwiseService, ReadwiseScreen (enriches Books/)

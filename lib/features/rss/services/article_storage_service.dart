@@ -48,6 +48,11 @@ class ArticleIndex {
 }
 
 class ArticleStorageService {
+  static const _articleKnownOrder = [
+    'type', 'alias', 'feed_id', 'guid', 'url',
+    'author', 'published_at', 'created_at', 'updated_at',
+  ];
+
   // ── Index ─────────────────────────────────────────────────────────────────
 
   static Future<ArticleIndex> buildIndex(String vaultPath) async {
@@ -92,7 +97,8 @@ class ArticleStorageService {
       final merged = Map<String, dynamic>.from(yaml);
       merged.addAll(updates);
 
-      final newContent = '${_buildFrontmatter(merged)}\n${split.body}';
+      final newContent =
+          '${buildFrontmatterBlock(merged, _articleKnownOrder)}\n${split.body}';
       await file.writeAsString(newContent);
     } catch (_) {}
   }
@@ -164,35 +170,6 @@ class ArticleStorageService {
       buf.writeln('- ${article.url}');
     }
     return buf.toString();
-  }
-
-  static String _buildFrontmatter(Map<String, dynamic> fields) {
-    const knownOrder = [
-      'type', 'alias', 'feed_id', 'guid', 'url',
-      'author', 'published_at', 'created_at', 'updated_at',
-    ];
-
-    final buf = StringBuffer('---\n');
-    final written = <String>{};
-
-    for (final key in knownOrder) {
-      if (!fields.containsKey(key)) continue;
-      _writeField(buf, key, fields[key]);
-      written.add(key);
-    }
-    for (final key in fields.keys) {
-      if (written.contains(key)) continue;
-      _writeField(buf, key, fields[key]);
-    }
-    buf.write('---');
-    return buf.toString();
-  }
-
-  static void _writeField(StringBuffer buf, String key, dynamic value) {
-    if (value == null) return;
-    final s = value.toString();
-    if (s.isEmpty) return;
-    buf.writeln('$key: ${_yamlValue(s)}');
   }
 
   static String _yamlValue(String s) {

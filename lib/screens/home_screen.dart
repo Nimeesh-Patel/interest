@@ -151,7 +151,6 @@ class _HomeScreenState extends State<HomeScreen> {
           allCategories: _categories,
           allTags: _tags,
           allEntityLinks: _entityLinks,
-          allLists: const [],
         ),
       ),
     );

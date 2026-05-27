@@ -49,16 +49,12 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
       final content = await File(widget.filePath).readAsString();
       final split = splitFrontmatter(content);
       final body = split.body;
-      String title = _title;
-      final lines = body.split('\n');
-      final items = <String>[];
-      for (final line in lines) {
-        if (line.startsWith('# ') && !line.startsWith('## ')) {
-          title = line.substring(2).trim();
-        } else if (line.startsWith('- ')) {
-          items.add(line.substring(2));
-        }
-      }
+      final title = extractH1(body) ?? _title;
+      final items = body
+          .split('\n')
+          .where((l) => l.startsWith('- '))
+          .map((l) => l.substring(2))
+          .toList();
       if (mounted) {
         setState(() {
           _title = title;

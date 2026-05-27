@@ -5,9 +5,6 @@ import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
-import '../../../core/vault_service.dart';
-import '../../../features/lists/models/list_model.dart';
-import '../../../features/lists/services/list_storage_service.dart';
 import '../../../shared/widgets/section_header.dart';
 
 class EntityScreen extends StatefulWidget {
@@ -17,7 +14,6 @@ class EntityScreen extends StatefulWidget {
   final List<Category> allCategories;
   final List<String> allTags;
   final List<EntityLink> allEntityLinks;
-  final List<ListModel> allLists;
 
   const EntityScreen({
     super.key,
@@ -27,7 +23,6 @@ class EntityScreen extends StatefulWidget {
     required this.allCategories,
     required this.allTags,
     required this.allEntityLinks,
-    required this.allLists,
   });
 
   @override
@@ -209,79 +204,6 @@ class _EntityScreenState extends State<EntityScreen> {
 
   void _setScore(double value) {
     setState(() => _entity.score = (value * 10).round() / 10);
-  }
-
-  // ── List mutations ────────────────────────────────────────────────────────
-
-  List<ListModel> get _entityLists => widget.allLists
-      .where((l) => l.items.any((item) => item.contains('[[${_entity.name}]]')))
-      .toList();
-
-  void _addToList(String listId) async {
-    final list = widget.allLists.firstWhere((l) => l.id == listId,
-        orElse: () => ListModel(id: '', name: '', items: []));
-    if (list.id.isEmpty) return;
-    final ref = '[[${_entity.name}]]';
-    if (list.items.contains(ref)) return;
-    final vault = await VaultService.getVaultPath();
-    if (vault == null) return;
-    await ListStorageService.addItem(vault, list, ref);
-    if (mounted) setState(() {});
-  }
-
-  void _removeFromList(String listId) async {
-    final list = widget.allLists.firstWhere((l) => l.id == listId,
-        orElse: () => ListModel(id: '', name: '', items: []));
-    if (list.id.isEmpty) return;
-    final ref = '[[${_entity.name}]]';
-    final idx = list.items.indexOf(ref);
-    if (idx == -1) return;
-    final vault = await VaultService.getVaultPath();
-    if (vault == null) return;
-    await ListStorageService.removeItem(vault, list, idx);
-    if (mounted) setState(() {});
-  }
-
-  void _showAddToList() {
-    final alreadyIn = _entityLists.map((l) => l.id).toSet();
-    final candidates = widget.allLists
-        .where((l) => !alreadyIn.contains(l.id))
-        .toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Add to list',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              ),
-            ),
-            if (candidates.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No lists available.',
-                    style: TextStyle(color: Colors.grey)),
-              )
-            else
-              for (final list in candidates)
-                ListTile(
-                  title: Text(list.name),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _addToList(list.id);
-                  },
-                ),
-          ],
-        ),
-      ),
-    );
   }
 
   // ── Entity link mutations (immediate save) ────────────────────────────────
@@ -512,7 +434,6 @@ class _EntityScreenState extends State<EntityScreen> {
           ? widget.allCategories.first
           : Category(id: '', name: ''),
     );
-    final lists = _entityLists;
     final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
@@ -565,25 +486,6 @@ class _EntityScreenState extends State<EntityScreen> {
         else
           Text('No score set.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-        const SizedBox(height: 12),
-        // Lists
-        if (lists.isEmpty)
-          Text('Not in any list.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
-        else
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: lists
-                .map((l) => Chip(
-                      label: Text(l.name, style: const TextStyle(fontSize: 12)),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ))
-                .toList(),
-          ),
-
         const Divider(height: 32),
 
         const SectionHeader(title: 'Why it matters'),
@@ -638,7 +540,6 @@ class _EntityScreenState extends State<EntityScreen> {
                     allCategories: widget.allCategories,
                     allTags: _allTags,
                     allEntityLinks: widget.allEntityLinks,
-                    allLists: widget.allLists,
                   ),
                 ),
               ).then((_) => setState(() {})),
@@ -701,8 +602,6 @@ class _EntityScreenState extends State<EntityScreen> {
         _buildTagsSection(),
         const Divider(height: 24),
         _buildScoreSection(),
-        const Divider(height: 24),
-        _buildListsSection(),
         const Divider(height: 24),
         _buildNotesSection(),
         const Divider(height: 24),
@@ -862,64 +761,6 @@ class _EntityScreenState extends State<EntityScreen> {
               divisions: 100,
               label: _entity.score!.toStringAsFixed(1),
               onChanged: _setScore,
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildListsSection() {
-    final lists = _entityLists;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Row(
-            children: [
-              const Text('Lists',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              const Spacer(),
-              if (widget.allLists.isNotEmpty)
-                TextButton.icon(
-                  onPressed: _showAddToList,
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Add to list', style: TextStyle(fontSize: 13)),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        if (lists.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              widget.allLists.isEmpty
-                  ? 'No lists yet.'
-                  : 'Not in any list.',
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                for (final list in lists)
-                  Chip(
-                    label: Text(list.name, style: const TextStyle(fontSize: 12)),
-                    deleteIcon: const Icon(Icons.close, size: 14),
-                    onDeleted: () => _removeFromList(list.id),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-              ],
             ),
           ),
       ],
@@ -1230,7 +1071,6 @@ class _EntityScreenState extends State<EntityScreen> {
                     allCategories: widget.allCategories,
                     allTags: _allTags,
                     allEntityLinks: widget.allEntityLinks,
-                    allLists: widget.allLists,
                   ),
                 ),
               ).then((_) => setState(() {})),
