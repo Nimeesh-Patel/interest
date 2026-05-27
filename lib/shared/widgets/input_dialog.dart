@@ -9,6 +9,7 @@ Future<String?> showInputDialog(
   String initialValue = '',
   String? hintText,
   String confirmLabel = 'OK',
+  String cancelLabel = 'Cancel',
   TextCapitalization capitalization = TextCapitalization.sentences,
 }) async {
   final ctrl = TextEditingController(text: initialValue);
@@ -23,6 +24,7 @@ Future<String?> showInputDialog(
         autofocus: true,
         decoration: InputDecoration(labelText: hintText),
         textCapitalization: capitalization,
+        textInputAction: TextInputAction.done,
         onSubmitted: (v) {
           final trimmed = v.trim();
           if (trimmed.isNotEmpty) result = trimmed;
@@ -30,7 +32,7 @@ Future<String?> showInputDialog(
         },
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: Text(cancelLabel)),
         TextButton(
           onPressed: () {
             final trimmed = ctrl.text.trim();

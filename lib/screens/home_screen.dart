@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
@@ -13,6 +14,9 @@ import '../features/entities/screens/entity_screen.dart';
 import '../features/anki/screens/anki_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
+import '../features/bookmarks/x_bookmark_service.dart';
+import '../features/bookmarks/x_bookmark_storage_service.dart';
+import '../shared/markdown/md_utils.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 
@@ -24,6 +28,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static final _shareChannel = MethodChannel('people.nimee/share');
+
   final MarkdownStorageService _storage = MarkdownStorageService();
   final _hardcoverKey = GlobalKey<HardcoverScreenState>();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
@@ -48,6 +54,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _shareChannel.setMethodCallHandler(_onShareMethod);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final url =
+          await _shareChannel.invokeMethod<String?>('getInitialShareUrl');
+      if (url != null && mounted) _ingestShareUrl(url);
+    });
   }
 
   @override
@@ -74,6 +86,60 @@ class _HomeScreenState extends State<HomeScreen> {
     if (vault != null) {
       await IntegrationsConfigService.migrateFromPrefs(vault);
     }
+  }
+
+  Future<void> _onShareMethod(MethodCall call) async {
+    if (call.method == 'onShareIntent') {
+      final url = call.arguments as String?;
+      if (url != null && mounted) _ingestShareUrl(url);
+    }
+  }
+
+  Future<void> _ingestShareUrl(String url) async {
+    final vault = await VaultService.getVaultPath();
+    if (vault == null || !mounted) return;
+
+    final (error, meta) = await XBookmarkService.fetchMetadata(url);
+    if (error != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error)));
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    final name = await showInputDialog(
+      context,
+      title: 'Save bookmark',
+      hintText: 'Note name (optional)',
+      confirmLabel: 'Save',
+      cancelLabel: 'Skip',
+      capitalization: TextCapitalization.none,
+    );
+    if (!mounted) return;
+
+    final String baseSlug;
+    if (name != null && name.isNotEmpty) {
+      baseSlug = slugify(name);
+    } else if (meta?.tweetText != null && meta!.tweetText!.isNotEmpty) {
+      final words =
+          meta.tweetText!.trim().split(RegExp(r'\s+')).take(7).join(' ');
+      baseSlug = slugify(words);
+    } else {
+      baseSlug = 'x-${meta?.tweetId ?? 'bookmark'}';
+    }
+
+    final dirPath = VaultService.bookmarksPath(vault);
+    final slug = XBookmarkStorageService.uniqueSlug(
+        baseSlug.isNotEmpty ? baseSlug : 'x-${meta?.tweetId ?? 'bookmark'}',
+        dirPath);
+
+    if (meta == null) return;
+    final saveError = await XBookmarkStorageService.save(vault, slug, meta);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(saveError ?? 'Saved to Bookmarks')));
   }
 
   Future<void> _reloadData() async {
