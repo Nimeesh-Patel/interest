@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
+
 /// Renders [text] as a [RichText] with `[[wikilinks]]` highlighted in the
 /// theme's primary color with an underline. Non-link spans use [style].
 ///
@@ -19,7 +21,7 @@ class WikilinkText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final linkColor = Theme.of(context).colorScheme.primary;
+    const linkColor = AppColors.accent;
     final baseDecoration =
         strikethrough ? TextDecoration.lineThrough : TextDecoration.none;
 
@@ -38,9 +40,8 @@ class WikilinkText extends StatelessWidget {
         style: style.copyWith(
           color: linkColor,
           decoration: strikethrough
-              ? TextDecoration.combine(
-                  [TextDecoration.lineThrough, TextDecoration.underline])
-              : TextDecoration.underline,
+              ? TextDecoration.lineThrough
+              : TextDecoration.none,
         ),
       ));
       lastEnd = match.end;

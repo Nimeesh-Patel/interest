@@ -4,6 +4,7 @@ import '../../../core/vault_service.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/readwise_book.dart';
 import '../services/readwise_service.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class ReadwiseScreen extends StatefulWidget {
   const ReadwiseScreen({super.key});
@@ -114,7 +115,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Readwise'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: AppColors.background,
         actions: [
           if (_books != null && _books!.isNotEmpty)
             _importingAll
@@ -157,8 +158,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style:
-                    TextStyle(color: Colors.red.shade700, fontSize: 14),
+                style: const TextStyle(color: AppColors.destructive, fontSize: 14),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
@@ -205,7 +205,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
             const SizedBox(height: 2),
             Text(book.author,
                 style:
-                    const TextStyle(fontSize: 13, color: Colors.black87)),
+                    const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
           ],
           const SizedBox(height: 4),
           Row(
@@ -226,7 +226,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
               style: TextStyle(
                 fontSize: 12,
                 color: result.startsWith('Error')
-                    ? Colors.red.shade700
+                    ? AppColors.destructive
                     : Colors.green.shade700,
               ),
             ),
@@ -248,11 +248,11 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
   Widget _chip(String label) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: Colors.grey.shade200,
+          color: AppColors.border,
           borderRadius: BorderRadius.circular(4),
         ),
         child: Text(label,
-            style: const TextStyle(fontSize: 11, color: Colors.black54)),
+            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
       );
 
   String _formatDate(String? isoDate) {

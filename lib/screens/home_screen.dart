@@ -3,11 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
-import '../features/books/screens/hardcover_screen.dart';
 import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/models/entity_link.dart';
 import '../features/entities/services/markdown_storage_service.dart';
+import '../shared/constants/app_theme.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
 import '../shared/widgets/input_dialog.dart';
 import '../features/entities/screens/entity_screen.dart';
@@ -18,6 +18,7 @@ import '../features/bookmarks/x_bookmark_service.dart';
 import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
+import 'sources_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,7 +31,6 @@ class _HomeScreenState extends State<HomeScreen> {
   static final _shareChannel = MethodChannel('people.nimee/share');
 
   final MarkdownStorageService _storage = MarkdownStorageService();
-  final _hardcoverKey = GlobalKey<HardcoverScreenState>();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
   final _resurfaceKey = GlobalKey<ResurfaceScreenState>();
   List<Entity> _entities = [];
@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortOrder = 'latest';
   bool _isLoading = true;
   bool _isAddingCategory = false;
+  // Tabs: 0=Notes, 1=Entities, 2=Projects
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
@@ -352,8 +353,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   hintText: 'Category name',
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  border: OutlineInputBorder(),
                 ),
+                textInputAction: TextInputAction.done,
                 onSubmitted: _addCategory,
                 onEditingComplete: () {},
               ),
@@ -365,10 +366,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 margin: const EdgeInsets.only(left: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade400),
-                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.add, size: 16),
+                child: const Icon(Icons.add, size: 16, color: AppColors.textTertiary),
               ),
             ),
         ],
@@ -397,16 +398,16 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: InputDecoration(
                 hintText: 'Add to $catName…',
                 isDense: true,
-                border: const OutlineInputBorder(),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
               textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
               onSubmitted: _addEntity,
             ),
           ),
           const SizedBox(width: 6),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
+            color: AppColors.textSecondary,
             onPressed: () => _addEntity(_addController.text),
             tooltip: 'Add entity',
           ),
@@ -422,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
         controller: _searchController,
         decoration: InputDecoration(
           hintText: 'Search…',
-          prefixIcon: const Icon(Icons.search),
+          prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
@@ -432,9 +433,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 )
               : null,
-          border: const OutlineInputBorder(),
           isDense: true,
         ),
+        textInputAction: TextInputAction.search,
         onChanged: (v) => setState(() => _searchQuery = v),
       ),
     );
@@ -445,13 +446,14 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Row(
         children: [
-          const Text('Sort:', style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const Text('Sort:', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           const SizedBox(width: 8),
           DropdownButton<String>(
             value: _sortOrder,
             isDense: true,
             underline: const SizedBox.shrink(),
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
+            dropdownColor: AppColors.surfaceElevated,
+            style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
             items: const [
               DropdownMenuItem(value: 'latest', child: Text('Latest')),
               DropdownMenuItem(value: 'oldest', child: Text('Oldest')),
@@ -475,7 +477,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return Center(
         child: Text(
           _searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
-          style: const TextStyle(color: Colors.grey),
+          style: const TextStyle(color: AppColors.textSecondary),
         ),
       );
     }
@@ -487,18 +489,24 @@ class _HomeScreenState extends State<HomeScreen> {
             .firstWhere((c) => c.id == entity.categoryId,
                 orElse: () => Category(id: '', name: ''))
             .name;
-        return ListTile(
-          title: Text(entity.name),
-          subtitle: _EntitySubtitle(
-            categoryName: catName,
-            tags: entity.tags,
-            score: entity.score,
+        return Container(
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.grey),
-            onPressed: () => _deleteEntity(entity),
+          child: ListTile(
+            minVerticalPadding: 14,
+            title: Text(entity.name),
+            subtitle: _EntitySubtitle(
+              categoryName: catName,
+              tags: entity.tags,
+              score: entity.score,
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.textTertiary),
+              onPressed: () => _deleteEntity(entity),
+            ),
+            onTap: () => _openEntity(entity),
           ),
-          onTap: () => _openEntity(entity),
         );
       },
     );
@@ -536,15 +544,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final notesState = _resurfaceKey.currentState;
-    final notesCanGoBack = _currentTab == 1 && (notesState?.canGoBack ?? false);
-    final notesEditPath = _currentTab == 1 ? notesState?.currentEditFilePath : null;
-    final notesIsSearchable = _currentTab == 1 && (notesState?.isSearchable ?? false);
+    final notesCanGoBack = _currentTab == 0 && (notesState?.canGoBack ?? false);
+    final notesEditPath = _currentTab == 0 ? notesState?.currentEditFilePath : null;
+    final notesIsSearchable = _currentTab == 0 && (notesState?.isSearchable ?? false);
     final notesSearchActive = notesState?.isSearchActive ?? false;
-    final tabTitle = _currentTab == 1
+    final tabTitle = _currentTab == 0
         ? (notesState?.navTitle ?? 'Notes')
         : switch (_currentTab) {
-            0 => 'Entities',
-            2 => 'Hardcover',
+            1 => 'Entities',
             _ => 'Projects',
           };
 
@@ -557,7 +564,6 @@ class _HomeScreenState extends State<HomeScreen> {
               })
             : null,
         title: Text(tabTitle),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (notesIsSearchable)
             IconButton(
@@ -577,12 +583,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {});
               },
             ),
-          if (_currentTab == 2)
-            IconButton(
-              icon: const Icon(Icons.sync),
-              tooltip: 'Sync with Hardcover',
-              onPressed: () => _hardcoverKey.currentState?.sync(),
+          IconButton(
+            icon: const Icon(Icons.sensors),
+            tooltip: 'Sources',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SourcesScreen()),
             ),
+          ),
           IconButton(
             icon: const Icon(Icons.sync),
             onPressed: _openObsidian,
@@ -605,22 +613,16 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _currentTab,
         children: [
-          _buildEntitiesTab(),
           ResurfaceScreen(
             key: _resurfaceKey,
             onNavigationChanged: () => setState(() {}),
           ),
-          HardcoverScreen(key: _hardcoverKey),
+          _buildEntitiesTab(),
           ProjectsScreen(key: _projectsKey),
         ],
       ),
       floatingActionButton: switch (_currentTab) {
         2 => FloatingActionButton(
-            onPressed: () => _hardcoverKey.currentState?.openSearchSheet(),
-            tooltip: 'Search Hardcover',
-            child: const Icon(Icons.search),
-          ),
-        3 => FloatingActionButton(
             onPressed: () => _projectsKey.currentState?.showCreateDialog(context),
             tooltip: 'New project',
             child: const Icon(Icons.add),
@@ -628,21 +630,17 @@ class _HomeScreenState extends State<HomeScreen> {
         _ => null,
       },
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
         currentIndex: _currentTab,
         onTap: (i) {
-          if (i == 1 && _currentTab == 1) {
+          if (i == 0 && _currentTab == 0) {
             _resurfaceKey.currentState?.resetStack();
           }
           setState(() => _currentTab = i);
         },
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.grey.shade600,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Entities'),
-          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Notes'),
-          BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Hardcover'),
-          BottomNavigationBarItem(icon: Icon(Icons.folder_outlined), label: 'Projects'),
+          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.folder_outlined), label: ''),
         ],
       ),
     );
@@ -671,18 +669,16 @@ class _CategoryChip extends StatelessWidget {
         margin: const EdgeInsets.only(right: 6),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+          color: selected ? AppColors.accentDim : Colors.transparent,
           border: Border.all(
-            color: selected
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey.shade400,
+            color: selected ? AppColors.accent : AppColors.border,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : Colors.grey.shade700,
+            color: selected ? AppColors.accent : AppColors.textSecondary,
             fontSize: 13,
           ),
         ),
@@ -714,23 +710,23 @@ class _EntitySubtitle extends StatelessWidget {
           if (categoryName.isNotEmpty)
             Text(
               categoryName,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
           if (score != null)
             Text(
               '★ ${score!.toStringAsFixed(1)}',
-              style: TextStyle(fontSize: 11, color: Colors.amber.shade700),
+              style: const TextStyle(fontSize: 11, color: AppColors.score),
             ),
           for (final tag in tags)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
               decoration: BoxDecoration(
-                color: Colors.indigo.shade50,
+                color: AppColors.accentDim,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 tag,
-                style: TextStyle(fontSize: 10, color: Colors.indigo.shade700),
+                style: const TextStyle(fontSize: 10, color: AppColors.accent),
               ),
             ),
         ],

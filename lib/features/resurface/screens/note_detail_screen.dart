@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 
 /// Body-only note viewer. No Scaffold — the caller (ResurfaceScreen) owns the
@@ -75,13 +76,14 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   }
 
   MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
-    final color = textColor ?? Theme.of(context).colorScheme.onSurface;
+    final color = textColor ?? AppColors.textPrimary;
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, height: 1.3, color: color),
+      h1: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: color),
       h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
       h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
-      p: TextStyle(fontSize: 15, height: 1.55, color: color),
-      listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
+      p: TextStyle(fontSize: 16, height: 1.6, color: color),
+      listBullet: TextStyle(fontSize: 16, height: 1.6, color: color),
+      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
     );
   }
 
@@ -118,24 +120,23 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
               _mdBody(context, _front!),
               const SizedBox(height: 24),
               if (!_backRevealed)
-                Center(
+                const Center(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: EdgeInsets.symmetric(vertical: 12),
                     child: Text(
                       'tap to reveal',
                       style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade400,
+                        fontSize: 14,
+                        color: AppColors.textTertiary,
                         fontStyle: FontStyle.italic,
-                        letterSpacing: 0.5,
                       ),
                     ),
                   ),
                 )
               else ...[
-                Divider(thickness: 1, color: Colors.grey.shade300),
+                const Divider(thickness: 1, color: AppColors.border),
                 const SizedBox(height: 16),
-                _mdBody(context, _back!, textColor: Colors.grey.shade800),
+                _mdBody(context, _back!, textColor: AppColors.textPrimary),
               ],
             ],
           ),

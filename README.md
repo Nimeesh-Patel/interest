@@ -14,17 +14,18 @@ The architecture consistently rejects two alternatives: (1) treating Markdown as
 
 ```
 <vault>/
+  *.md                 — Bookmarks (one .md file per bookmark, written by XBookmarkStorageService)
   Interesting/
-    Entities/   — one .md file per entity; semantic graph lives here
-    Projects/   — one .md file per project (canonical); migrated from Lists/ + Tasks/
-    Lists/      — legacy flat item collections (migrated to Projects/ on first load)
-    Templates/  — category templates; seeded on first launch; user-editable
-    Anki/       — one .md file per Anki card
-      .trash/   — soft-deleted cards
-    Tasks/      — legacy task files (migrated to Projects/ on first load)
-    Books/      — one .md file per book; convergence point for multiple enrichment sources
-    Articles/   — one .md file per RSS-imported article
-    System/     — vault-native configuration (integrations.md)
+    Entities/          — one .md file per entity; semantic graph lives here
+    Projects/          — one .md file per project (canonical)
+    Lists/             — legacy migration source only; no new files created here
+    Templates/         — category templates; seeded on first launch; user-editable
+    Anki/              — one .md file per Anki card
+      .trash/          — soft-deleted cards
+    Tasks/             — legacy migration source only; no new files created here
+    Books/             — one .md file per book; convergence point for multiple enrichment sources
+    Articles/          — one .md file per RSS-imported article
+    System/            — vault-native configuration (integrations.md)
 ```
 
 All subdirectories are created on first launch (`VaultService.ensureVaultDirectories`). The `Interesting/` tree is the app's semantic territory. Everything else in the vault is the user's — raw notes, journal entries, epistemic artifacts. The resurfacing viewer scans this broader territory.
@@ -83,10 +84,11 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
-| Hardcover | → Books | Bidirectional reading-state sync; patches HC-owned fields only |
+| Hardcover | → Books | Bidirectional reading-state sync; accessed via Sources screen |
 | ReadEra | → Books | Highlight import from `.bak`; patches ReadEra section only |
 | RSS | `Interesting/Articles/`, `Interesting/Entities/` | Feed ingestion; adapter-dispatched by source type |
 | Templates | `Interesting/Templates/` | One-time entity instantiation templates |
+| Sources screen | AppBar action | Hub for Hardcover, RSS, Readwise, Bookmarks |
 | Android widget | native | Reads vault path from SharedPreferences; creates entities |
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
 | Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note; one .md file per bookmark |
@@ -104,7 +106,7 @@ lib/
                              + IntegrationsConfigService (vault-native integration config)
   shared/markdown/         — pure Markdown parsing + YAML frontmatter builder (md_utils) + filesystem I/O (md_io)
   shared/widgets/          — 6 reusable UI primitives
-  shared/constants/        — app-wide constants (app_spacing.dart)
+  shared/constants/        — app-wide constants (app_spacing.dart, app_theme.dart)
   features/
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
     projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
@@ -121,7 +123,8 @@ lib/
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
-  screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
+  screens/home_screen.dart    — BottomNavigationBar shell (three tabs: Notes, Entities, Projects)
+  screens/sources_screen.dart — AppBar-launched hub for content sources (Hardcover, RSS, Readwise, Bookmarks)
 ```
 
 ---

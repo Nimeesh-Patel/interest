@@ -9,6 +9,7 @@ import '../../readera/services/readera_ingestion_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
 import '../../rss/screens/rss_screen.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -200,7 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: AppColors.background,
       ),
       body: SafeArea(
         top: false,
@@ -236,7 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Connect to AnkiConnect to sync Markdown cards with Anki. '
               'Anki must be open on the same network. '
               'Enter the desktop IP address (e.g. http://192.168.1.5:8765).',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -273,7 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(
                   color: _ankiStatusOk
                       ? Colors.green.shade700
-                      : Colors.red.shade700,
+                      : AppColors.destructive,
                   fontSize: 13,
                 ),
               ),
@@ -291,7 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text(
               'Import book highlights from Readwise into the vault as Markdown files. '
               'Find your access token at readwise.io/access_token.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -324,7 +325,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               Text(
                 _readwiseSaveStatus!,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ],
             const SizedBox(height: 12),
@@ -350,7 +351,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Sync your Hardcover reading library with the vault. '
               'Find your API token at hardcover.app/account/api. '
               'Token expires annually on January 1st.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -383,7 +384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               Text(
                 _hardcoverSaveStatus!,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ],
             const SizedBox(height: 12),
@@ -407,7 +408,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(
                   color: _hardcoverTestOk
                       ? Colors.green.shade700
-                      : Colors.red.shade700,
+                      : AppColors.destructive,
                   fontSize: 13,
                 ),
               ),
@@ -426,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Import highlights from a ReadEra .bak backup file into your '
               'Books vault. Highlights are merged into existing book files '
               'without overwriting Readwise or Hardcover data.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -448,8 +449,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _readeraStatus!,
                 style: TextStyle(
                   color: (_readeraStatus!.startsWith('Error'))
-                      ? Colors.red.shade700
-                      : Colors.grey.shade700,
+                      ? AppColors.destructive
+                      : AppColors.textSecondary,
                   fontSize: 13,
                 ),
               ),
@@ -468,7 +469,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Vault-wide semantic resurfacing viewer. '
               'Scans notes for --- separators and surfaces them as front/back pairs. '
               'Enter folder names to exclude (comma-separated).',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -500,7 +501,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               Text(
                 _resurfaceSaveStatus!,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ],
           ],

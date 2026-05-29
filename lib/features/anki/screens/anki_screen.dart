@@ -4,6 +4,7 @@ import '../../../shared/constants/app_spacing.dart';
 import '../models/anki_card.dart';
 import '../services/anki_storage_service.dart';
 import '../services/anki_sync_service.dart';
+import '../../../shared/constants/app_theme.dart';
 import 'anki_card_editor_screen.dart';
 
 class AnkiScreen extends StatefulWidget {
@@ -61,7 +62,7 @@ class _AnkiScreenState extends State<AnkiScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red[700] : null,
+        backgroundColor: isError ? AppColors.destructive : null,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -110,7 +111,7 @@ class _AnkiScreenState extends State<AnkiScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.style_outlined, size: 56, color: Colors.grey),
+            Icon(Icons.style_outlined, size: 56, color: AppColors.textTertiary),
             SizedBox(height: 16),
             Text(
               'No Anki cards yet.',
@@ -120,7 +121,7 @@ class _AnkiScreenState extends State<AnkiScreen> {
             Text(
               'Tap + to create a card, or tap Sync to import from Anki.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -167,12 +168,12 @@ class _AnkiScreenState extends State<AnkiScreen> {
       ),
       subtitle: Row(
         children: [
-          Icon(Icons.layers_outlined, size: 13, color: Colors.grey[500]),
+          const Icon(Icons.layers_outlined, size: 13, color: AppColors.textTertiary),
           const SizedBox(width: 3),
           Flexible(
             child: Text(
               card.deck,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -181,7 +182,7 @@ class _AnkiScreenState extends State<AnkiScreen> {
             Flexible(
               child: Text(
                 card.tags.join(', '),
-                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

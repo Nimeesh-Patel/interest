@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/input_dialog.dart';
@@ -165,7 +166,6 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.more_vert),
@@ -182,7 +182,7 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
                     child: Text(
                       'No items yet.\nTap + to add one.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(color: AppColors.textSecondary),
                     ),
                   )
                 : ReorderableListView.builder(
@@ -227,13 +227,13 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.delete_outline,
-                                  size: 18, color: Colors.grey),
+                                  size: 18, color: AppColors.textTertiary),
                               onPressed: () => _deleteItem(i),
                             ),
                             ReorderableDragStartListener(
                               index: i,
                               child: const Icon(Icons.drag_handle,
-                                  size: 20, color: Colors.grey),
+                                  size: 20, color: AppColors.textTertiary),
                             ),
                           ],
                         ),

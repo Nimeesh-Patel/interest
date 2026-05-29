@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../shared/constants/app_theme.dart';
+
 class TemplateEditorScreen extends StatefulWidget {
   final String filePath;
   final String displayName;
@@ -83,7 +85,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Discard', style: TextStyle(color: Colors.red)),
+            child: const Text('Discard', style: TextStyle(color: AppColors.destructive)),
           ),
         ],
       ),
@@ -103,7 +105,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.displayName),
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+          backgroundColor: AppColors.background,
           actions: [
             TextButton(
               onPressed: _dirty ? _save : null,
@@ -111,9 +113,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                 'Save',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: _dirty
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey,
+                  color: _dirty ? AppColors.accent : AppColors.textTertiary,
                 ),
               ),
             ),

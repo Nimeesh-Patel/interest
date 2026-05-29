@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/anki_card.dart';
 import '../services/anki_connect_service.dart';
 import '../services/anki_storage_service.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class AnkiCardEditorScreen extends StatefulWidget {
   final AnkiCard? card;
@@ -177,9 +178,9 @@ class _AnkiCardEditorScreenState extends State<AnkiCardEditorScreen> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   'Anki ID: ${widget.card!.ankiId}',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 11,
-                    color: Colors.grey[500],
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ),

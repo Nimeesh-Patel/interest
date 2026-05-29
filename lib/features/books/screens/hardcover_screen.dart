@@ -9,6 +9,7 @@ import '../models/hardcover_book.dart';
 import '../services/book_storage_service.dart';
 import '../services/hardcover_service.dart';
 import '../services/hardcover_sync_service.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class HardcoverScreen extends StatefulWidget {
   const HardcoverScreen({super.key});
@@ -80,7 +81,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(result.summary),
-        backgroundColor: result.error != null ? Colors.red.shade700 : null,
+        backgroundColor: result.error != null ? AppColors.destructive : null,
       ),
     );
     if (result.error == null) await _loadBooks();
@@ -130,7 +131,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(_error!, style: const TextStyle(color: AppColors.destructive)),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
@@ -180,7 +181,7 @@ class _BookTile extends StatelessWidget {
           if (book.authors.isNotEmpty)
             Text(
               book.authors.join(', '),
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
           const SizedBox(height: 4),
           Wrap(
@@ -191,14 +192,14 @@ class _BookTile extends StatelessWidget {
               if (book.rating != null)
                 _chip(
                   '★ ${book.rating!.toStringAsFixed(1)}',
-                  Colors.amber.shade700,
+                  AppColors.score,
                 ),
               if (book.hardcoverId != null)
-                _chip('HC', Colors.indigo.shade400),
+                _chip('HC', AppColors.accent),
               if (book.readwiseId != null)
-                _chip('RW', Colors.teal.shade400),
+                _chip('RW', AppColors.accent),
               if (book.numHighlights != null && book.numHighlights! > 0)
-                _chip('${book.numHighlights} highlights', Colors.grey),
+                _chip('${book.numHighlights} highlights', AppColors.textSecondary),
             ],
           ),
         ],
@@ -213,7 +214,7 @@ class _BookTile extends StatelessWidget {
       'want_to_read' => Colors.amber.shade700,
       'paused' => Colors.orange.shade600,
       'dnf' => Colors.red.shade400,
-      _ => Colors.grey,
+      _ => AppColors.textSecondary,
     };
     final label = switch (status) {
       'want_to_read' => 'Want to read',
@@ -409,13 +410,13 @@ class _SearchSheetState extends State<_SearchSheet> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(kScreenHPad),
-          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
+          child: Text(_searchError!, style: const TextStyle(color: AppColors.destructive)),
         ),
       );
     }
     if (_results == null) {
       return const Center(
-        child: Text('Type a title and press Search', style: TextStyle(color: Colors.grey)),
+        child: Text('Type a title and press Search', style: TextStyle(color: AppColors.textSecondary)),
       );
     }
     if (_results!.isEmpty) {
@@ -432,17 +433,17 @@ class _SearchSheetState extends State<_SearchSheet> {
             hc.title,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: alreadyAdded ? Colors.grey : null,
+              color: alreadyAdded ? AppColors.textTertiary : null,
             ),
           ),
           subtitle: hc.authors.isNotEmpty
               ? Text(
                   hc.authors.join(', '),
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 )
               : null,
           trailing: alreadyAdded
-              ? Text('In vault', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))
+              ? const Text('In vault', style: TextStyle(fontSize: 12, color: AppColors.textTertiary))
               : const Icon(Icons.add, size: 20),
           onTap: alreadyAdded ? null : () => _onResultTap(hc),
         );

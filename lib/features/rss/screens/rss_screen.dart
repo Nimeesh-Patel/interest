@@ -7,6 +7,7 @@ import '../../../shared/widgets/empty_state.dart';
 import '../models/rss_feed.dart';
 import '../services/rss_feed_storage_service.dart';
 import '../services/rss_ingestion_service.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class RssScreen extends StatefulWidget {
   const RssScreen({super.key});
@@ -199,7 +200,7 @@ class _RssScreenState extends State<RssScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('RSS Feeds'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: AppColors.background,
       ),
       body: SafeArea(
         top: false,
@@ -260,11 +261,7 @@ class _TypeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (type) {
-      RssFeedType.letterboxd => Colors.orange,
-      RssFeedType.substack => Colors.teal,
-      RssFeedType.generic => Colors.blueGrey,
-    };
+    const color = AppColors.accent;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

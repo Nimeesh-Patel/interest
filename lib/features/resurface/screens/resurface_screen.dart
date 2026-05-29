@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/resurface_card.dart';
@@ -412,7 +413,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     final results = _searchResults;
     if (results.isEmpty) {
       return const Center(
-        child: Text('No notes match', style: TextStyle(color: Colors.grey)),
+        child: Text('No notes match', style: TextStyle(color: AppColors.textSecondary)),
       );
     }
     return ListView.builder(
@@ -420,27 +421,27 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       itemBuilder: (ctx, i) {
         final note = results[i];
         final title = p.basenameWithoutExtension(note.sourceFile);
-        final snippet = _snippetFor(note);
-        return ListTile(
-          title: Text(title),
-          subtitle: snippet.isNotEmpty
-              ? Text(
-                  snippet,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                )
-              : null,
-          trailing: note.hasCard
-              ? Icon(Icons.auto_awesome,
-                  size: 13,
-                  color: Theme.of(ctx)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.6))
-              : null,
-          onTap: () => _openSearchResult(note),
+        final rawSnippet = _snippetFor(note);
+        final snippet = rawSnippet.replaceAll(RegExp(r'\[\[([^\]]+)\]\]'), r'$1');
+        return Container(
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.border)),
+          ),
+          child: ListTile(
+            title: Text(title),
+            subtitle: snippet.isNotEmpty
+                ? Text(
+                    snippet,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  )
+                : null,
+            trailing: note.hasCard
+                ? const Text('✦', style: TextStyle(color: AppColors.accent, fontSize: 12))
+                : null,
+            onTap: () => _openSearchResult(note),
+          ),
         );
       },
     );
@@ -458,16 +459,22 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       itemCount: items.length,
       itemBuilder: (ctx, i) {
         final deck = items[i];
-        return ListTile(
-          title: Text(
-            deck.name,
-            style: i == 0 ? const TextStyle(fontWeight: FontWeight.bold) : null,
+        return Container(
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-          trailing: Text(
-            '${deck.count}',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+          child: ListTile(
+            leading: const Text('✦', style: TextStyle(color: AppColors.accent, fontSize: 12)),
+            title: Text(
+              deck.name,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            trailing: Text(
+              '${deck.count}',
+              style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+            ),
+            onTap: () => _pushDeck(deck.name, _cardsForDeck(deck.name)),
           ),
-          onTap: () => _pushDeck(deck.name, _cardsForDeck(deck.name)),
         );
       },
     );
@@ -523,13 +530,14 @@ class _NoteCardViewerBody extends StatelessWidget {
   }
 
   MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
-    final color = textColor ?? Theme.of(context).colorScheme.onSurface;
+    final color = textColor ?? AppColors.textPrimary;
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, height: 1.3, color: color),
+      h1: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: color),
       h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
       h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
-      p: TextStyle(fontSize: 15, height: 1.55, color: color),
-      listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
+      p: TextStyle(fontSize: 16, height: 1.6, color: color),
+      listBullet: TextStyle(fontSize: 16, height: 1.6, color: color),
+      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
     );
   }
 
@@ -567,7 +575,7 @@ class _NoteCardViewerBody extends StatelessWidget {
             },
             behavior: HitTestBehavior.opaque,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -581,9 +589,9 @@ class _NoteCardViewerBody extends StatelessWidget {
                   if (!backRevealed)
                     _TapToRevealHint()
                   else ...[
-                    Divider(thickness: 1, color: Colors.grey.shade300),
+                    const Divider(thickness: 1, color: AppColors.border),
                     const SizedBox(height: 16),
-                    _mdBody(context, card.back, textColor: Colors.grey.shade800),
+                    _mdBody(context, card.back, textColor: AppColors.textPrimary),
                   ],
                 ],
               ),
@@ -603,7 +611,7 @@ class _NoteCardViewerBody extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '${currentIndex + 1} / ${cards.length}',
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  style: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
                 ),
                 const Spacer(),
                 IconButton(
@@ -625,13 +633,12 @@ class _TapToRevealHint extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Text(
+        child: const Text(
           'tap to reveal',
           style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade400,
+            fontSize: 14,
+            color: AppColors.textTertiary,
             fontStyle: FontStyle.italic,
-            letterSpacing: 0.5,
           ),
         ),
       ),

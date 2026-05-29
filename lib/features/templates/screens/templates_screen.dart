@@ -9,6 +9,7 @@ import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/input_dialog.dart';
 import 'template_editor_screen.dart';
+import '../../../shared/constants/app_theme.dart';
 
 typedef _TemplateInfo = ({
   String filename,
@@ -145,7 +146,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Templates'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: AppColors.background,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -154,7 +155,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                   child: Text(
                     'No templates yet.\nTap + to create one.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: AppColors.textSecondary),
                   ),
                 )
               : ListView.builder(
@@ -167,7 +168,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                       title: Text(item.displayName),
                       subtitle: item.category.isEmpty ? null : Text(item.category),
                       trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                        icon: const Icon(Icons.delete_outline, color: AppColors.textTertiary),
                         tooltip: 'Delete',
                         onPressed: () => _confirmDelete(item),
                       ),

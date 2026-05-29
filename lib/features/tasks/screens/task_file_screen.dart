@@ -7,6 +7,7 @@ import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
 import '../../../shared/widgets/wikilink_text.dart';
+import '../../../shared/constants/app_theme.dart';
 
 class TaskFileScreen extends StatefulWidget {
   final String filePath;
@@ -219,7 +220,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
         style: TextStyle(
           fontWeight: FontWeight.bold,
           fontSize: isH2 ? 16 : 14,
-          color: Colors.black87,
+          color: AppColors.textPrimary,
         ),
       ),
     );
@@ -229,7 +230,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     if (node.raw.trim().isEmpty) return const SizedBox(height: 6);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      child: Text(node.raw, style: const TextStyle(color: Colors.black54, fontSize: 14)),
+      child: Text(node.raw, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
     );
   }
 
@@ -246,9 +247,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final taskTextStyle = TextStyle(
       fontSize: depth == 0 ? 15 : 14,
       fontWeight: depth == 0 ? FontWeight.w500 : FontWeight.normal,
-      color: block.completed
-          ? Colors.black38
-          : Theme.of(context).colorScheme.onSurface,
+      color: block.completed ? AppColors.textTertiary : AppColors.textPrimary,
     );
 
     final blockWidget = Padding(
@@ -279,7 +278,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                                 ? Icons.chevron_right
                                 : Icons.expand_more,
                             size: 18,
-                            color: Colors.grey.shade500,
+                            color: AppColors.textTertiary,
                           ),
                         )
                       : null,
@@ -333,9 +332,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                                 if (isCollapsed && hasExpandable)
                                   Text(
                                     '  +${_countDescendants(block)}',
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                         fontSize: 11,
-                                        color: Colors.grey.shade400),
+                                        color: AppColors.textTertiary),
                                   ),
                               ],
                             ),
@@ -345,8 +344,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 // ··· More actions button
                 if (!isEditing)
                   IconButton(
-                    icon: Icon(Icons.more_horiz,
-                        size: 18, color: Colors.grey.shade400),
+                    icon: const Icon(Icons.more_horiz,
+                        size: 18, color: AppColors.textTertiary),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                     tooltip: 'More actions',
@@ -359,8 +358,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                     child: SizedBox(
                       width: 32,
                       height: 32,
-                      child: Icon(Icons.drag_indicator,
-                          size: 20, color: Colors.grey.shade300),
+                      child: const Icon(Icons.drag_indicator,
+                          size: 20, color: AppColors.textTertiary),
                     ),
                   ),
               ],
@@ -403,9 +402,9 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                   child: TextField(
                     controller: _editNoteController,
                     autofocus: true,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 13,
-                      color: Colors.grey.shade700,
+                      color: AppColors.textSecondary,
                       fontStyle: FontStyle.italic,
                     ),
                     decoration: const InputDecoration(
@@ -419,8 +418,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.delete_outline,
-                      size: 18, color: Colors.red.shade300),
+                  icon: const Icon(Icons.delete_outline,
+                      size: 18, color: AppColors.destructive),
                   padding: EdgeInsets.zero,
                   constraints:
                       const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -440,7 +439,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                   Container(
                     width: 2,
                     height: 16,
-                    color: Colors.grey.shade300,
+                    color: AppColors.border,
                     margin: const EdgeInsets.only(right: 6, top: 2),
                   ),
                   Expanded(
@@ -448,7 +447,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                       text: raw.trimLeft(),
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Colors.black45,
+                        color: AppColors.textSecondary,
                         fontStyle: FontStyle.italic,
                       ),
                     ),
@@ -470,7 +469,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Subtask…',
-                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 14),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -487,7 +486,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             onPressed: () => _addSubtask(parent),
           ),
           IconButton(
-            icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+            icon: const Icon(Icons.close, size: 16, color: AppColors.textTertiary),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: () => setState(() => _addingChildOf = null),
@@ -509,15 +508,15 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Note…',
-                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
               ),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 13,
                 fontStyle: FontStyle.italic,
-                color: Colors.grey.shade700,
+                color: AppColors.textSecondary,
               ),
               maxLines: null,
               textInputAction: TextInputAction.newline,
@@ -533,7 +532,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 onPressed: () => _addNote(parent),
               ),
               IconButton(
-                icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                icon: const Icon(Icons.close, size: 16, color: AppColors.textTertiary),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 onPressed: () => setState(() => _addingNoteOf = null),
@@ -638,7 +637,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                                     padding: EdgeInsets.symmetric(horizontal: 8),
                                     child: Text('Completed',
                                         style: TextStyle(
-                                            fontSize: 11, color: Colors.grey)),
+                                            fontSize: 11, color: AppColors.textTertiary)),
                                   ),
                                   Expanded(child: Divider()),
                                 ]),

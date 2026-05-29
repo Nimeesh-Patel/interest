@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
@@ -241,13 +242,13 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   // ── Markdown style (mirrors NoteDetailScreen) ─────────────────────────────
 
   MarkdownStyleSheet _mdStyle(BuildContext context) {
-    final color = Theme.of(context).colorScheme.onSurface;
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, height: 1.3, color: color),
-      h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
-      h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
-      p: TextStyle(fontSize: 15, height: 1.55, color: color),
-      listBullet: TextStyle(fontSize: 15, height: 1.55, color: color),
+      h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: AppColors.textPrimary),
+      h2: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: AppColors.textPrimary),
+      h3: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: AppColors.textPrimary),
+      p: const TextStyle(fontSize: 16, height: 1.6, color: AppColors.textPrimary),
+      listBullet: const TextStyle(fontSize: 16, height: 1.6, color: AppColors.textPrimary),
+      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
     );
   }
 
@@ -275,7 +276,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                 Icon(
                   collapsed ? Icons.expand_more : Icons.expand_less,
                   size: 20,
-                  color: Colors.grey,
+                  color: AppColors.textTertiary,
                 ),
               ],
             ),
@@ -292,7 +293,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               textInputAction: TextInputAction.newline,
             ),
           ),
-        Divider(height: 1, color: Colors.grey.shade200),
+        const Divider(height: 1, color: AppColors.border),
       ],
     );
   }
@@ -359,9 +360,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   Widget _buildToolbar() {
     return Container(
       height: 44,
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.grey.shade200, width: 0.5)),
-        color: Theme.of(context).scaffoldBackgroundColor,
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.border)),
+        color: AppColors.background,
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -401,7 +402,6 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
         appBar: AppBar(
           title: const Text('Edit note'),
           leading: BackButton(onPressed: _handleBack),
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           actions: [
             IconButton(
               icon: const Icon(Icons.check),
@@ -479,7 +479,7 @@ class _ToolbarBtn extends StatelessWidget {
               fontWeight: bold ? FontWeight.bold : FontWeight.normal,
               fontStyle: italic ? FontStyle.italic : FontStyle.normal,
               decoration: underline ? TextDecoration.underline : null,
-              color: onTap == null ? Colors.grey.shade400 : null,
+              color: onTap == null ? AppColors.textTertiary : AppColors.textSecondary,
             ),
           ),
         ),

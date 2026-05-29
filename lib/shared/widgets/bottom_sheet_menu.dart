@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
+
 /// A single menu item for [showBottomSheetMenu].
 class BottomSheetMenuItem {
   final IconData icon;
@@ -31,12 +33,12 @@ void showBottomSheetMenu(
               (item) => ListTile(
                 leading: Icon(
                   item.icon,
-                  color: item.isDestructive ? Colors.red : null,
+                  color: item.isDestructive ? AppColors.destructive : null,
                 ),
                 title: Text(
                   item.label,
                   style: item.isDestructive
-                      ? const TextStyle(color: Colors.red)
+                      ? const TextStyle(color: AppColors.destructive)
                       : null,
                 ),
                 onTap: () {

@@ -5,6 +5,7 @@ import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/section_header.dart';
 
 class EntityScreen extends StatefulWidget {
@@ -267,9 +268,9 @@ class _EntityScreenState extends State<EntityScreen> {
                         decoration: const InputDecoration(
                           hintText: 'Search entities…',
                           prefixIcon: Icon(Icons.search),
-                          border: OutlineInputBorder(),
                           isDense: true,
                         ),
+                        textInputAction: TextInputAction.search,
                         onChanged: (v) => setSheetState(() => query = v),
                       ),
                     ),
@@ -277,7 +278,7 @@ class _EntityScreenState extends State<EntityScreen> {
                       child: candidates.isEmpty
                           ? const Center(
                               child: Text('No entities found.',
-                                  style: TextStyle(color: Colors.grey)),
+                                  style: TextStyle(color: AppColors.textSecondary)),
                             )
                           : ListView.builder(
                               itemCount: candidates.length,
@@ -354,11 +355,11 @@ class _EntityScreenState extends State<EntityScreen> {
             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
         const SizedBox(height: 8),
         if (!_grokSearched)
-          Text('Searching Grokipedia…',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('Searching Grokipedia…',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else if (_grokArticle == null)
-          Text('No Grokipedia article found.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('No Grokipedia article found.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else ...[
           Text(
             _grokArticle!.title,
@@ -398,9 +399,9 @@ class _EntityScreenState extends State<EntityScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: AppColors.border),
               ),
               child: _grokSummaryFetching
                   ? const Row(children: [
@@ -443,19 +444,19 @@ class _EntityScreenState extends State<EntityScreen> {
         // Name
         Text(
           _entity.name,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: -0.3),
         ),
         const SizedBox(height: 4),
         // Category
         if (currentCategory.name.isNotEmpty)
           Text(
             currentCategory.name,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
         const SizedBox(height: 12),
         // Tags
         if (_entity.tags.isEmpty)
-          Text('No tags.', style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('No tags.', style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else
           Wrap(
             spacing: 6,
@@ -476,22 +477,22 @@ class _EntityScreenState extends State<EntityScreen> {
             children: [
               Text(
                 '★ ${_entity.score!.toStringAsFixed(1)}',
-                style: TextStyle(
+                style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: Colors.amber.shade700),
+                    color: AppColors.score),
               ),
             ],
           )
         else
-          Text('No score set.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+          const Text('No score set.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
         const Divider(height: 32),
 
         const SectionHeader(title: 'Why it matters'),
         if (_entity.notes.isEmpty)
-          Text('No notes yet.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('No notes yet.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else
           for (final note in _entity.notes) ...[
             Text(note, style: Theme.of(context).textTheme.bodyMedium),
@@ -502,16 +503,16 @@ class _EntityScreenState extends State<EntityScreen> {
 
         const SectionHeader(title: 'Sources'),
         if (_entity.links.isEmpty)
-          Text('No sources yet.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('No sources yet.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else
           for (final link in _entity.links) ...[
             Text(
               link,
               style: const TextStyle(
                   fontSize: 13,
-                  color: Colors.blue,
-                  decoration: TextDecoration.underline),
+                  color: AppColors.accent,
+                  decoration: TextDecoration.none),
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 6),
@@ -521,15 +522,15 @@ class _EntityScreenState extends State<EntityScreen> {
 
         const SectionHeader(title: 'Related', bottomGap: 4),
         if (related.isEmpty)
-          Text('No related entities.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500))
+          const Text('No related entities.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
         else
           for (final other in related)
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: Text(other.name, style: const TextStyle(fontSize: 14)),
-              trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+              trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textTertiary),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -571,10 +572,10 @@ class _EntityScreenState extends State<EntityScreen> {
             controller: _nameController,
             decoration: const InputDecoration(
               labelText: 'Name',
-              border: OutlineInputBorder(),
               isDense: true,
             ),
             textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.done,
           ),
         ),
         // Category
@@ -583,7 +584,6 @@ class _EntityScreenState extends State<EntityScreen> {
           child: InputDecorator(
             decoration: const InputDecoration(
               labelText: 'Category',
-              border: OutlineInputBorder(),
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             ),
@@ -592,6 +592,7 @@ class _EntityScreenState extends State<EntityScreen> {
               isExpanded: true,
               underline: const SizedBox.shrink(),
               isDense: true,
+              dropdownColor: AppColors.surfaceElevated,
               items: widget.allCategories
                   .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                   .toList(),
@@ -625,7 +626,7 @@ class _EntityScreenState extends State<EntityScreen> {
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text('Tags',
               style: TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey)),
+                  fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary)),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -661,15 +662,16 @@ class _EntityScreenState extends State<EntityScreen> {
                       decoration: const InputDecoration(
                         hintText: 'tag…',
                         isDense: true,
-                        border: OutlineInputBorder(),
                         contentPadding:
                             EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       ),
+                      textInputAction: TextInputAction.done,
                       onSubmitted: _addTag,
                     ),
                     optionsViewBuilder: (ctx, onSelected, options) => Align(
                       alignment: Alignment.topLeft,
                       child: Material(
+                        color: AppColors.surfaceElevated,
                         elevation: 4,
                         child: ConstrainedBox(
                           constraints:
@@ -719,14 +721,14 @@ class _EntityScreenState extends State<EntityScreen> {
               if (_entity.score != null)
                 Text(
                   _entity.score!.toStringAsFixed(1),
-                  style: TextStyle(
+                  style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: Colors.amber.shade700),
+                      color: AppColors.score),
                 )
               else
-                Text('Not set',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                const Text('Not set',
+                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               const Spacer(),
               if (_entity.score == null)
                 TextButton.icon(
@@ -742,7 +744,7 @@ class _EntityScreenState extends State<EntityScreen> {
                 )
               else
                 IconButton(
-                  icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+                  icon: const Icon(Icons.close, size: 18, color: AppColors.textTertiary),
                   onPressed: () {
                     setState(() => _entity.score = null);
                   },
@@ -799,7 +801,7 @@ class _EntityScreenState extends State<EntityScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text('No notes yet.',
-                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ),
       ],
     );
@@ -817,10 +819,8 @@ class _EntityScreenState extends State<EntityScreen> {
                 controller: ctrl,
                 autofocus: true,
                 maxLines: null,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(isDense: true),
+                textInputAction: TextInputAction.done,
                 onSubmitted: (v) => _commitNoteEdit(i, v),
               ),
             ),
@@ -843,11 +843,11 @@ class _EntityScreenState extends State<EntityScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.edit, size: 16, color: Colors.grey),
+            icon: const Icon(Icons.edit, size: 16, color: AppColors.textTertiary),
             onPressed: () => setState(() => _editingNoteIndex = i),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+            icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.textTertiary),
             onPressed: () => _deleteNote(i),
           ),
         ],
@@ -868,8 +868,8 @@ class _EntityScreenState extends State<EntityScreen> {
               decoration: const InputDecoration(
                 hintText: 'Add a note…',
                 isDense: true,
-                border: OutlineInputBorder(),
               ),
+              textInputAction: TextInputAction.done,
               onSubmitted: _addNote,
             ),
           ),
@@ -921,7 +921,7 @@ class _EntityScreenState extends State<EntityScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text('No links yet.',
-                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ),
       ],
     );
@@ -938,10 +938,9 @@ class _EntityScreenState extends State<EntityScreen> {
               child: TextField(
                 controller: ctrl,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(isDense: true),
+                textInputAction: TextInputAction.done,
                 onSubmitted: (v) => _commitLinkEdit(i, v),
               ),
             ),
@@ -961,21 +960,18 @@ class _EntityScreenState extends State<EntityScreen> {
       dense: true,
       title: Text(
         _entity.links[i],
-        style: const TextStyle(
-            fontSize: 13,
-            color: Colors.blue,
-            decoration: TextDecoration.underline),
+        style: const TextStyle(fontSize: 13, color: AppColors.accent),
         overflow: TextOverflow.ellipsis,
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.edit, size: 16, color: Colors.grey),
+            icon: const Icon(Icons.edit, size: 16, color: AppColors.textTertiary),
             onPressed: () => setState(() => _editingLinkIndex = i),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+            icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.textTertiary),
             onPressed: () => _deleteLink(i),
           ),
         ],
@@ -996,8 +992,8 @@ class _EntityScreenState extends State<EntityScreen> {
               decoration: const InputDecoration(
                 hintText: 'Add a link…',
                 isDense: true,
-                border: OutlineInputBorder(),
               ),
+              textInputAction: TextInputAction.done,
               onSubmitted: _addLink,
             ),
           ),
@@ -1047,7 +1043,7 @@ class _EntityScreenState extends State<EntityScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text('No related entities.',
-                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           )
         else
           for (final other in related)
@@ -1055,7 +1051,7 @@ class _EntityScreenState extends State<EntityScreen> {
               dense: true,
               title: Text(other.name, style: const TextStyle(fontSize: 14)),
               trailing: IconButton(
-                icon: const Icon(Icons.link_off, size: 16, color: Colors.grey),
+                icon: const Icon(Icons.link_off, size: 16, color: AppColors.textTertiary),
                 onPressed: () {
                   final link = _findLink(other.id);
                   if (link != null) _deleteEntityLink(link.id);
@@ -1085,19 +1081,18 @@ class _EntityScreenState extends State<EntityScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(_entity.name),
         actions: _isEditMode
             ? [
                 TextButton(
                   onPressed: _cancelEdit,
                   child: const Text('Cancel',
-                      style: TextStyle(color: Colors.white)),
+                      style: TextStyle(color: AppColors.textSecondary)),
                 ),
                 TextButton(
                   onPressed: _saveEdit,
                   child: const Text('Save',
-                      style: TextStyle(color: Colors.white)),
+                      style: TextStyle(color: AppColors.accent)),
                 ),
               ]
             : [

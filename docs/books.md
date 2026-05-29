@@ -184,7 +184,7 @@ sync() →
 
 ## `HardcoverScreen` (`lib/features/books/screens/hardcover_screen.dart`)
 
-Middle tab in the `HomeScreen` bottom navigation bar (Entities | **Hardcover** | ToDos).
+Accessed via the **Sources** screen (AppBar icon in HomeScreen → Hardcover row).
 
 - Lists all books in `Interesting/Books/` with status chips, rating, and HC/RW source badges
 - AppBar sync button (in `HomeScreen`) calls `HardcoverScreenState.sync()`

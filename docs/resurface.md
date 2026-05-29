@@ -76,7 +76,7 @@ Deck membership is parsed at scan time via `parseDeckMetadata()` in `md_utils.da
 
 ### Deck navigation (ResurfaceScreen)
 
-`ResurfaceScreen` shows a deck list. Each row is a deck name and card count. Tapping a row pushes `NoteCardViewerScreen` with the cards pre-filtered to that deck.
+`ResurfaceScreen` shows a deck list. Each row is a deck name and card count. Tapping a row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack with the cards pre-filtered to that deck.
 
 The deck list always contains:
 1. **All Notes** (bold) — all cards from the scan, regardless of `deck:` metadata
@@ -175,7 +175,7 @@ On `initState`, the screen calls `VaultService.getVaultPath()`, then `Integratio
 - **"Default"** row (second, if any undecked cards exist): count of cards with `decks: []`
 - **Named deck rows** (A→Z): count of cards that include that deck name
 
-Trailing text shows the card count in `Colors.grey`. Tapping any row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack and shows the card viewer.
+Trailing text shows the card count in `AppColors.textTertiary`. Tapping any row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack and shows the card viewer.
 
 ### Inline search
 
@@ -202,8 +202,8 @@ An in-place body widget (`_NoteCardViewerBody`, private stateless). No Scaffold 
 **Card layout** (`SingleChildScrollView` with 20px padding):
 - **Source title**: filename without extension, rendered as `# heading` via `MarkdownBody`
 - **Front**: rendered via `MarkdownBody` (theme `onSurface` colour)
-- **"tap to reveal"** hint when back is hidden (centred italic grey text)
-- **Divider** + **back** when revealed (back rendered in `Colors.grey.shade800`)
+- **"tap to reveal"** hint when back is hidden (centred italic `AppColors.textTertiary`)
+- **Divider** (`AppColors.border`) + **back** when revealed (back rendered with `AppColors.textPrimary`)
 
 **Bottom row**: prev `IconButton` — counter `"N / total"` — next `IconButton`. Counter is in this row, not in the AppBar.
 
@@ -255,7 +255,7 @@ A formatting toolbar (44px, pinned above keyboard) appears in structured and pla
 
 ## Markdown rendering
 
-All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit sizes: H1 26px bold, H2 19px semi-bold, H3 16px semi-bold, body/listBullet 15px (line height 1.55). Front and title use `onSurface`; back uses `Colors.grey.shade800`.
+All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit sizes: H1 22px w600 (letter-spacing −0.3, line height 1.3), H2 19px w600 (1.35), H3 16px w600 (1.4), body/listBullet 16px (line height 1.6). All text uses `AppColors.textPrimary`; links use `AppColors.accent` (no underline).
 
 `[[wikilinks]]` in front and back are pre-processed by `substituteWikilinks()` before rendering. They appear as tappable links in the theme's primary/accent colour. See [§ Wikilink navigation](#wikilink-navigation) below.
 

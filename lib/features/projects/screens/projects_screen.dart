@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
@@ -185,28 +186,32 @@ class ProjectsScreenState extends State<ProjectsScreen> {
         itemCount: _projects.length,
         itemBuilder: (ctx, i) {
           final proj = _projects[i];
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          return Container(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
             child: ListTile(
               leading: Icon(
                 proj.isListStyle ? Icons.format_list_bulleted : Icons.folder_outlined,
-                color: Colors.grey.shade400,
+                color: AppColors.textTertiary,
               ),
               title: Text(proj.name),
               subtitle: proj.totalTasks == 0
-                  ? const Text('Empty', style: TextStyle(fontSize: 12))
+                  ? const Text('Empty', style: TextStyle(fontSize: 12, color: AppColors.textTertiary))
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 4),
                         LinearProgressIndicator(
                           value: proj.progress,
-                          minHeight: 5,
+                          minHeight: 2,
+                          backgroundColor: AppColors.border,
+                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${proj.completedTasks} / ${proj.totalTasks} done',
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
                         ),
                       ],
                     ),

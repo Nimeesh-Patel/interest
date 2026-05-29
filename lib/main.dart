@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'screens/home_screen.dart';
 import 'core/vault_setup_screen.dart';
 import 'core/vault_service.dart';
+import 'shared/constants/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,10 +23,9 @@ class EntityTrackerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Entity Tracker',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
-      ),
+      theme: buildAppTheme(),
+      darkTheme: buildAppTheme(),
+      themeMode: ThemeMode.dark,
       home: _StoragePermissionGate(
         child: initialVaultPath == null ? const VaultSetupScreen() : const HomeScreen(),
       ),
@@ -82,7 +82,6 @@ class _StoragePermissionGateState extends State<_StoragePermissionGate>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Storage Permission Required'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: SafeArea(
         top: false,

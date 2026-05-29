@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
+
 /// Shows a confirm / cancel AlertDialog.
 /// Returns true if the user confirmed, false otherwise.
 Future<bool> showConfirmDialog(
@@ -23,7 +25,7 @@ Future<bool> showConfirmDialog(
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(
             confirmLabel,
-            style: isDestructive ? const TextStyle(color: Colors.red) : null,
+            style: isDestructive ? const TextStyle(color: AppColors.destructive) : null,
           ),
         ),
       ],
