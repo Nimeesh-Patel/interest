@@ -16,7 +16,6 @@ import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
 import '../features/bookmarks/x_bookmark_service.dart';
 import '../features/bookmarks/x_bookmark_storage_service.dart';
-import '../shared/markdown/md_utils.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 
@@ -121,11 +120,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final String baseSlug;
     if (name != null && name.isNotEmpty) {
-      baseSlug = slugify(name);
+      baseSlug = name;
     } else if (meta?.tweetText != null && meta!.tweetText!.isNotEmpty) {
       final words =
           meta.tweetText!.trim().split(RegExp(r'\s+')).take(7).join(' ');
-      baseSlug = slugify(words);
+      baseSlug = words;
     } else {
       baseSlug = 'x-${meta?.tweetId ?? 'bookmark'}';
     }
@@ -538,6 +537,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final notesState = _resurfaceKey.currentState;
     final notesCanGoBack = _currentTab == 1 && (notesState?.canGoBack ?? false);
+    final notesEditPath = _currentTab == 1 ? notesState?.currentEditFilePath : null;
+    final notesIsSearchable = _currentTab == 1 && (notesState?.isSearchable ?? false);
+    final notesSearchActive = notesState?.isSearchActive ?? false;
     final tabTitle = _currentTab == 1
         ? (notesState?.navTitle ?? 'Notes')
         : switch (_currentTab) {
@@ -557,6 +559,24 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(tabTitle),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          if (notesIsSearchable)
+            IconButton(
+              icon: Icon(notesSearchActive ? Icons.close : Icons.search),
+              tooltip: notesSearchActive ? 'Close search' : 'Search notes',
+              onPressed: () {
+                notesState!.toggleSearch();
+                setState(() {});
+              },
+            ),
+          if (notesEditPath != null)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit note',
+              onPressed: () async {
+                await notesState!.openEditForCurrentNote(context);
+                setState(() {});
+              },
+            ),
           if (_currentTab == 2)
             IconButton(
               icon: const Icon(Icons.sync),

@@ -82,6 +82,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService`, `ReaderaIngestionService` write only via this |
 | `ArticleStorageService` | `Interesting/Articles/` ← `SubstackAdapter`, `GenericAdapter` write only via this |
 | `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
+| `XBookmarkStorageService` | vault root (`VaultService.bookmarksPath`) |
 | `ResurfaceService` | **None** — read-only vault scan; never writes |
 
 ## Identity anchors
@@ -138,6 +139,8 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 **RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
 **Resurface / Notes** — strictly read-only; never writes to the vault; scans vault recursively for `***` horizontal-rule separators outside code fences; `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor; excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`); the `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters in the author's writing context. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state — this is a projection, not a database. Full details: [docs/resurface.md](docs/resurface.md).
+
+**Bookmarks** — write via `XBookmarkStorageService` → vault root; fetch pipeline: nitter (3 hardcoded instances) → syndication API → oEmbed → degraded; `_cleanBody` strips oEmbed attribution tails; `truncated: true` in frontmatter when full text unavailable (oEmbed fallback or all failed); note body uses `***` Resurface separator with empty front side; filenames preserve spaces and capitalisation (no slugify); `XBookmarkService.fetchMetadata` never throws. No screen, no scheduler, no re-fetch. Full details: [docs/bookmarks.md](docs/bookmarks.md).
 
 **Obsidian launch** — UI-only AppBar action; fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 

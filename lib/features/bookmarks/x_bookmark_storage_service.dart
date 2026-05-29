@@ -13,6 +13,7 @@ class XBookmarkStorageService {
     'author_url',
     'source_url',
     'date',
+    'truncated',
   ];
 
   /// Returns null on success or silent dedup skip. Never throws.
@@ -38,12 +39,15 @@ class XBookmarkStorageService {
         if (meta.sourceUrl != null && meta.sourceUrl!.isNotEmpty)
           'source_url': meta.sourceUrl,
         'date': date,
+        if (meta.truncated) 'truncated': true,
       };
 
       final buf = StringBuffer();
       buf.writeln(buildFrontmatterBlock(fields, _knownOrder));
 
       if (meta.tweetText != null && meta.tweetText!.isNotEmpty) {
+        buf.writeln('***');
+        buf.writeln();
         buf.writeln(meta.tweetText);
         if (meta.authorName != null) {
           buf.writeln();

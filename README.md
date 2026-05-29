@@ -89,7 +89,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | Templates | `Interesting/Templates/` | One-time entity instantiation templates |
 | Android widget | native | Reads vault path from SharedPreferences; creates entities |
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
-| Bookmarks | `Interesting/Bookmarks/` | X bookmark ingestion via share sheet; oEmbed text fetch; one .md file per bookmark |
+| Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note; one .md file per bookmark |
 
 Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/anki.md](docs/anki.md), [docs/projects.md](docs/projects.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md), [docs/bookmarks.md](docs/bookmarks.md).
 

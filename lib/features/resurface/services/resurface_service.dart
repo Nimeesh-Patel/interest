@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_card.dart';
+import '../models/resurface_note.dart';
 
 class ResurfaceService {
   static const _defaultExcludedFolders = [
@@ -55,6 +56,41 @@ class ResurfaceService {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Returns every vault note that passes folder exclusion, regardless of `***` presence.
+  /// Single scan; `hasCard`/`front`/`back` indicate whether a separator was found.
+  /// Never throws.
+  static Future<List<ResurfaceNote>> getAllNotes(
+    String vaultPath, {
+    List<String> excludedFolders = _defaultExcludedFolders,
+  }) async {
+    final notes = <ResurfaceNote>[];
+    try {
+      final vaultDir = Directory(vaultPath);
+      await for (final entry in vaultDir.list(recursive: true)) {
+        if (entry is! File || !entry.path.endsWith('.md')) continue;
+        final relative = p.relative(entry.path, from: vaultPath);
+        final segments = p.split(relative);
+        final folders = segments.sublist(0, segments.length - 1);
+        if (folders.any((seg) => excludedFolders.contains(seg))) continue;
+        try {
+          final content = await entry.readAsString();
+          final split = splitFrontmatter(content);
+          final fb = splitFrontBack(split.body);
+          notes.add(ResurfaceNote(
+            sourcePath: entry.path,
+            sourceFile: p.basename(entry.path),
+            body: split.body,
+            hasCard: fb != null,
+            front: fb?.front,
+            back: fb?.back,
+            decks: parseDeckMetadata(split.frontmatter),
+          ));
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return notes;
   }
 
   static ResurfaceCard? _extractFrontBack(String filePath, String content) {
