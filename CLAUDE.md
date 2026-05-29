@@ -28,7 +28,7 @@ Start here based on task class:
 | Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
 | Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
 | Modifying Anki sync | [docs/anki.md](docs/anki.md), then `AnkiSyncService` |
-| Modifying resurfacing extraction, deck metadata, or viewer | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` |
+| Modifying resurfacing extraction, deck metadata, viewer, search, or note editing | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` / `NoteEditScreen` |
 | Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
 | Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
 | Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
@@ -84,6 +84,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
 | `XBookmarkStorageService` | vault root (`VaultService.bookmarksPath`) |
 | `ResurfaceService` | **None** — read-only vault scan; never writes |
+| `NoteEditScreen` | any vault `.md` file passed as `filePath` — writes only to that exact path; no storage service intermediary |
 
 ## Identity anchors
 
@@ -138,7 +139,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
-**Resurface / Notes** — strictly read-only; never writes to the vault; scans vault recursively for `***` horizontal-rule separators outside code fences; `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor; excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`); the `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters in the author's writing context. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state — this is a projection, not a database. Full details: [docs/resurface.md](docs/resurface.md).
+**Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `hasCard: true` when a `***` horizontal-rule separator is found outside code fences; `_cards` is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just `***` notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
 
 **Bookmarks** — write via `XBookmarkStorageService` → vault root; fetch pipeline: nitter (3 hardcoded instances) → syndication API → oEmbed → degraded; `_cleanBody` strips oEmbed attribution tails; `truncated: true` in frontmatter when full text unavailable (oEmbed fallback or all failed); note body uses `***` Resurface separator with empty front side; filenames preserve spaces and capitalisation (no slugify); `XBookmarkService.fetchMetadata` never throws. No screen, no scheduler, no re-fetch. Full details: [docs/bookmarks.md](docs/bookmarks.md).
 

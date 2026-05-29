@@ -2,42 +2,49 @@
 
 ## Purpose
 
-Vault-wide semantic resurfacing viewer. The resurfacing layer is a **projection over notes** — it surfaces problem-situation structures, ideas, and conjectures already latent in the user's epistemic artifacts, without modifying them.
+Vault-wide semantic notes layer. Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. This subsystem projects them into three surfaces: a flashcard-style **deck viewer** (for `***`-separated notes), a **note browser with full-text search**, and an **inline note editor** that writes directly back to vault files.
 
-Notes are primary. The resurfacing viewer is secondary: a read-only projection that emerges from notes, not a card-authoring system imposed on top of them.
-
-This is a **read-only semantic projection**. The vault is never modified.
+The `***` horizontal rule is the semantic separator between a problem-situation (front) and its conjecture or resolution (back). The resurfacing viewer projects these pairs into a lightweight front/back viewer.
 
 ---
 
 ## Architectural role
 
-The resurfacing viewer sits at the read-only projection end of the architecture: it discovers structure already encoded in notes, rather than imposing structure from outside.
-
 ```
-vault notes (unchanged)
-  → ResurfaceService.scan()       — recursive read + separator extraction
-  → List<ResurfaceCard>           — in-memory projection (filesystem order, unshuffled)
-  → ResurfaceScreen               — deck list; tap a deck to push onto internal nav stack
-      → _NoteCardViewerBody       — card viewer body; state lives in ResurfaceScreenState; no Scaffold
-      → NoteDetailScreen          — note body; render mode chosen at load time; no Scaffold; recursive
+vault notes
+  → ResurfaceService.getAllNotes()   — recursive read + frontmatter strip + separator detection
+  → List<ResurfaceNote>              — in-memory projection (all vault notes)
+      ↳ .where(hasCard) → List<ResurfaceCard>   — deck list and card viewer source
+      ↳ search filter → List<ResurfaceNote>     — inline search results
+  → ResurfaceScreen                  — deck list + inline search; internal nav stack
+      → _NoteCardViewerBody          — card viewer body; no Scaffold
+      → NoteDetailScreen             — note body; tap-to-reveal or plain; no Scaffold; recursive
+  → NoteEditScreen                   — full file editor; Navigator.push; writes vault file
 ```
 
-Nothing about the session is written to the vault or to SharedPreferences.
+Session state (card position, back-revealed flag, search query) is never written to the vault or to SharedPreferences.
 
 ---
 
 ## Ontology
 
-A `ResurfaceCard` is a transient view derived from a single note at read time. It has no identity anchor and is not stored or indexed.
+### ResurfaceNote
+
+A `ResurfaceNote` is a projection of any vault note passing folder exclusions, regardless of whether it has a `***` separator.
 
 | Field | Value |
 |---|---|
 | `sourcePath` | Absolute path to the source file |
 | `sourceFile` | Basename of the source file (e.g. `epistemology.md`) |
-| `front` | Content above the first `***` separator, trimmed |
-| `back` | Content below the first `***` separator, trimmed |
+| `body` | Full body after frontmatter strip; used for search |
+| `hasCard` | `true` when the body has a valid `***` separator with non-empty front and back |
+| `front` | Non-null iff `hasCard`; content above the first `***`, trimmed |
+| `back` | Non-null iff `hasCard`; content below the first `***`, trimmed |
 | `decks` | List of deck names from `deck:` frontmatter; `[]` if absent |
+
+### ResurfaceCard
+
+A `ResurfaceCard` is a `ResurfaceNote` projected to a single-scan representation used by the card viewer. It is a strict subset: all `ResurfaceCard` instances have a corresponding `ResurfaceNote` with `hasCard: true`. `ResurfaceCard` has no identity anchor and is not stored or indexed.
 
 ---
 
@@ -107,7 +114,7 @@ Tapping a row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal
 
 ## Vault scan scope
 
-`ResurfaceService.scan()` calls `Directory(vaultPath).list(recursive: true)` and processes every `.md` file found.
+`ResurfaceService.getAllNotes()` calls `Directory(vaultPath).list(recursive: true)` and processes every `.md` file found.
 
 **Excluded folders:** any file whose relative path contains a segment matching an excluded folder name is skipped. Matching is exact and segment-based — the full path is split on the OS separator, the filename (last segment) is dropped, and each remaining segment is checked against the exclusion list.
 
@@ -124,7 +131,7 @@ Default excluded folders: `Interesting`, `.obsidian`, `Templates`, `Attachments`
 
 ```dart
 class ResurfaceService {
-  static Future<List<ResurfaceCard>> scan(
+  static Future<List<ResurfaceNote>> getAllNotes(
     String vaultPath, {
     List<String> excludedFolders = _defaultExcludedFolders,
   }) async
@@ -136,21 +143,21 @@ class ResurfaceService {
 }
 ```
 
-`scan()` returns all `ResurfaceCard` projections found across the vault, in filesystem iteration order (the caller is responsible for shuffling). Returns an empty list on any top-level I/O error; never throws.
+`getAllNotes()` returns every vault note that passes folder exclusions. Each `ResurfaceNote` has `hasCard`/`front`/`back` populated iff a valid `***` separator was found. Returns an empty list on any top-level I/O error; never throws.
 
 `resolveWikilink()` searches the whole vault recursively — no folder exclusions — for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first matching absolute path, or `null` on no match or any I/O error. Never throws.
 
-`_extractFrontBack()` is private. It takes a file path and raw file content and returns a `ResurfaceCard?`. Returns `null` on any of: no separator found, empty front, empty back, any exception during parsing.
+`_extractFrontBack()` is private. It is used internally by `_load()` on `ResurfaceScreen` to derive `_cards` from `_allNotes`. It takes a file path and raw file content and returns a `ResurfaceCard?`. Returns `null` on any of: no separator found, empty front, empty back, any exception during parsing.
 
 ---
 
 ## ResurfaceScreen behaviour
 
-`ResurfaceScreen` is a primary navigation tab ("Notes"). It has **no Scaffold of its own** — HomeScreen provides the AppBar (title: "Notes"). `ResurfaceScreen` renders a deck list body only.
+`ResurfaceScreen` is a primary navigation tab ("Notes"). It has **no Scaffold of its own** — HomeScreen provides the AppBar. `ResurfaceScreen` renders a deck list body or search results body, depending on state.
 
 ### Load
 
-On `initState`, the screen calls `VaultService.getVaultPath()`, then `IntegrationsConfigService.load()` to read the excluded folders, then `ResurfaceService.scan()`. The card list is stored as-is (filesystem order, unshuffled) in `_cards`.
+On `initState`, the screen calls `VaultService.getVaultPath()`, then `IntegrationsConfigService.load()` to read the excluded folders, then `ResurfaceService.getAllNotes()`. `_cards` is derived by filtering `_allNotes` to those with `hasCard: true` and mapping to `ResurfaceCard`. Single scan; no second pass.
 
 ### States
 
@@ -159,7 +166,7 @@ On `initState`, the screen calls `VaultService.getVaultPath()`, then `Integratio
 | Vault path not configured | `EmptyState` with error message |
 | Scan in progress | `CircularProgressIndicator` |
 | Scan complete, zero cards | `EmptyState` with hint to add a `***` separator |
-| Cards loaded | `ListView` of deck rows |
+| Cards loaded | deck list (or search results if search is active) |
 
 ### Deck list layout
 
@@ -170,11 +177,27 @@ On `initState`, the screen calls `VaultService.getVaultPath()`, then `Integratio
 
 Trailing text shows the card count in `Colors.grey`. Tapping any row pushes a `_CardViewerRoute` onto `ResurfaceScreenState`'s internal nav stack and shows the card viewer.
 
+### Inline search
+
+A search icon appears in HomeScreen's AppBar when the deck list is showing and the vault is loaded. Tapping it toggles `_searchActive` and expands an inline `TextField` below the AppBar.
+
+**Query matching:** case-insensitive; matches the filename (without extension) or any line of the note body. Results are shown live as the user types.
+
+**Result list:** each `ListTile` shows the filename as title, a one-line body snippet containing the matched term as subtitle, and a small `auto_awesome` icon in the trailing position for `***` notes.
+
+**Tapping a result:**
+- `***` note → pushes a `_CardViewerRoute` with a single-card deck (the matched note's card)
+- plain note → pushes a `_NoteDetailRoute` which opens `NoteDetailScreen`
+
+**Empty query:** no results shown (not "No notes match"). **No-match query:** "No notes match" centered text.
+
+Tapping X inside the search field clears the query but keeps the search bar open. Tapping the close icon in HomeScreen's AppBar collapses the search bar and returns to the deck list. `resetStack()` also collapses search.
+
 ### Card viewer (`_NoteCardViewerBody`)
 
 An in-place body widget (`_NoteCardViewerBody`, private stateless). No Scaffold — HomeScreen's AppBar shows the deck name as title. All mutable state (`_viewerCards`, `_viewerIndex`, `_viewerBackRevealed`) lives in `ResurfaceScreenState` and is passed in as props; this lets card position survive wikilink navigation into and back from note detail without losing the current card.
 
-**AppBar**: provided by HomeScreen; title = deck name.
+**AppBar**: provided by HomeScreen; title = deck name. A pencil icon appears when a current card has a resolved file path; tapping it calls `openEditForCurrentNote(context)`.
 
 **Card layout** (`SingleChildScrollView` with 20px padding):
 - **Source title**: filename without extension, rendered as `# heading` via `MarkdownBody`
@@ -188,23 +211,57 @@ An in-place body widget (`_NoteCardViewerBody`, private stateless). No Scaffold 
 
 **Session state**: all card viewer state is owned by `ResurfaceScreenState`. Returning to the deck list (back to root or tapping the Notes tab icon) clears the viewer state via `resetStack()`.
 
-### Markdown rendering
+### NoteDetailScreen
+
+An in-place body widget. No Scaffold — HomeScreen's AppBar shows the note's filename (without extension) as title. Receives `filePath` and an `onNavigateToNote` callback; does not hold a vault path.
+
+On load, `splitFrontBack(body)` is called. If the note has a valid `***` separator, it renders as a single flashcard with tap-to-reveal. If not, it renders the full body as plain Markdown.
+
+A pencil icon appears in HomeScreen's AppBar when a `NoteDetailScreen` is active. Tapping it opens `NoteEditScreen` for that note's file.
+
+After `NoteEditScreen` returns with `true` (saved), `ResurfaceScreenState._reloadAfterEdit(filePath)` is called. If the current route is a `_NoteDetailRoute`, it increments `_detailVersion` (which changes `NoteDetailScreen`'s `ValueKey`, forcing `initState` to re-read the file). If the current route is a `_CardViewerRoute`, `_reloadCard(filePath)` re-parses only the edited file and updates `_viewerCards[idx]` in-place (or removes the card if the separator was deleted).
+
+Wikilink taps call `onNavigateToNote(targetName)` → `ResurfaceScreenState._handleWikilinkTap()`, which resolves the path and pushes a new `_NoteDetailRoute` onto the internal stack. Multiple wikilink hops accumulate as stacked `_NoteDetailRoute` entries; each press of the AppBar back button pops one level.
+
+---
+
+## Note editing (NoteEditScreen)
+
+`NoteEditScreen` is a proper pushed route (`Navigator.push`). It receives a `filePath` and writes back to that exact path on save. It never touches other vault files.
+
+### Edit modes
+
+Three modes, selected automatically on load:
+
+| Mode | Condition | UI |
+|---|---|---|
+| **Structured** | note has a valid `***` separator | Two collapsible sections: "Problem" (front) and "Idea" (back) |
+| **Plain** | no `***` separator | Single body `TextField` |
+| **Full note edit** | user selects from three-dot menu | Raw file content including frontmatter, monospace font, no toolbar |
+
+Mode switch to full edit populates the raw controller from `_buildCurrentContent()` (not stale disk content) and updates `_initialFullEdit`, preventing spurious dirty detection.
+
+### Save semantics
+
+`_buildCurrentContent()` reconstructs the full file from the active mode's controllers, prepending frontmatter verbatim. Frontmatter is never modified in structured or plain mode — only the body is edited. Full edit mode writes the raw controller text as-is.
+
+Save calls `File(widget.filePath).writeAsString(content)` and pops with `true`. Cancel with unsaved changes shows "Discard changes?" confirm dialog before discarding.
+
+### Toolbar
+
+A formatting toolbar (44px, pinned above keyboard) appears in structured and plain modes. Buttons: **B** (`**...**`), **I** (`*...*`), **U** (`<u>...</u>`), **—** (`\n---\n`), **T** (heading sheet H1–H5), **Tт** (no-op placeholder), **+** (insert sheet: bullet/numbered/wikilink). Each acts on the currently focused controller.
+
+---
+
+## Markdown rendering
 
 All content — source title, front, back — is rendered via `flutter_markdown`'s `MarkdownBody` with explicit sizes: H1 26px bold, H2 19px semi-bold, H3 16px semi-bold, body/listBullet 15px (line height 1.55). Front and title use `onSurface`; back uses `Colors.grey.shade800`.
 
 `[[wikilinks]]` in front and back are pre-processed by `substituteWikilinks()` before rendering. They appear as tappable links in the theme's primary/accent colour. See [§ Wikilink navigation](#wikilink-navigation) below.
 
-**Render mode detection** — `splitFrontBack(body)` in `md_utils.dart` is called at render time on every note body, regardless of how the note was reached (deck list, card flip, or wikilink tap). If the body contains a valid `***` separator outside code fences with non-empty front and back, the note renders as a flashcard (front visible, back hidden until tap). If no separator is found, or either side is empty, the note renders as plain Markdown. This is a pure body-level check, separate from the scan-time `ResurfaceService._extractFrontBack()` which only determines whether to include a note as a `ResurfaceCard` during vault scan.
+**Render mode detection** — `splitFrontBack(body)` in `md_utils.dart` is called at render time on every note body, regardless of how the note was reached (deck list, card flip, or wikilink tap). If the body contains a valid `***` separator outside code fences with non-empty front and back, the note renders as a flashcard (front visible, back hidden until tap). If no separator is found, or either side is empty, the note renders as plain Markdown. This is a pure body-level check, separate from the scan-time detection in `getAllNotes()` which populates `ResurfaceNote.hasCard`.
 
 **External URLs** — `_onTapLink` in both `_NoteCardViewerBody` (`resurface_screen.dart`) and `NoteDetailScreen` (`note_detail_screen.dart`) handles `http:` and `https:` hrefs by calling `launchUrl(uri, mode: LaunchMode.externalApplication)` via `url_launcher`. `wikilink:` scheme links are routed to note navigation (see [§ Wikilink navigation](#wikilink-navigation)). Any other scheme is silently ignored.
-
-### NoteDetailScreen
-
-An in-place body widget. No Scaffold — HomeScreen's AppBar shows the note's filename (without extension) as title. Receives `filePath` and an `onNavigateToNote` callback; does not hold a vault path.
-
-On load, `splitFrontBack(body)` is called (see [§ Markdown rendering → Render mode detection](#markdown-rendering)). If the note has a valid `***` separator, it renders as a single flashcard with tap-to-reveal. If not, it renders the full body as plain Markdown.
-
-Wikilink taps call `onNavigateToNote(targetName)` → `ResurfaceScreenState._handleWikilinkTap()`, which resolves the path and pushes a new `_NoteDetailRoute` onto the internal stack. Multiple wikilink hops accumulate as stacked `_NoteDetailRoute` entries; each press of the AppBar back button pops one level.
 
 ---
 
@@ -234,9 +291,24 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 ### Boundaries
 
-- Wikilinks are never written to any file.
+- Wikilinks are never written to any file by the navigation layer.
 - Resolution never throws; `null` on any I/O error.
-- No backlinks, no graph UI, no vault mutation.
+- No backlinks, no graph UI.
+
+---
+
+## ResurfaceScreenState public API (for HomeScreen)
+
+HomeScreen drives the AppBar and reads state via `GlobalKey<ResurfaceScreenState>`.
+
+| API | Type | Purpose |
+|---|---|---|
+| `currentEditFilePath` | `String?` | Non-null when a `_NoteDetailRoute` or `_CardViewerRoute` is active with a known file; HomeScreen shows pencil icon |
+| `openEditForCurrentNote(context)` | method | Pushes `NoteEditScreen` for `currentEditFilePath`; handles reload on return |
+| `isSearchable` | `bool` | True when deck list is showing and vault is loaded; HomeScreen shows search icon |
+| `isSearchActive` | `bool` | True when search bar is expanded; HomeScreen shows close icon instead of search |
+| `toggleSearch()` | method | Expands/collapses the search bar; clears query on collapse |
+| `resetStack()` | method | Collapses entire nav stack to deck list; called when Notes tab icon is tapped |
 
 ---
 
@@ -244,8 +316,7 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 - No scheduler, no review intervals, no due dates, no FSRS.
 - No review history. The session is stateless; which cards were seen is not recorded anywhere.
-- No mutation of vault files. The vault is opened read-only.
-- No card authoring. There is no UI for creating or editing notes from within this screen.
+- No note creation. `NoteEditScreen` edits existing files only; there is no UI for creating new notes.
 - No ordering beyond the in-session shuffle. The shuffle is not persisted.
 - No per-card actions (mark known, snooze, rate). The only interactions are tap-to-reveal and prev/next navigation.
 - No deck state persistence between sessions. Card position and back-revealed state are preserved within a session while navigating into and back from note details, but are discarded when returning to the deck list or switching tabs.
@@ -256,9 +327,11 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 ## Boundaries (do not violate)
 
 - `ResurfaceService` must never write to any file.
+- `NoteEditScreen` writes only to the file path it receives (`widget.filePath`). It must never write to other vault files or touch any storage service.
 - `_extractFrontBack` must return `null` rather than throw on any malformed input.
 - The separator pattern `^\*{3,}\s*$` must not be silently expanded to match `---` or `___`.
 - Folder exclusion is segment-exact: `Interesting` must not match `interesting-notes` or similar.
 - Card order must not be persisted between sessions.
 - Deck filter state must not be persisted between sessions.
 - Do NOT add scheduling, FSRS, deck hierarchy, or any operational card-state machinery.
+- Do NOT add note creation from within this subsystem.

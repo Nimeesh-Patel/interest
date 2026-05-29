@@ -69,7 +69,7 @@ Books are the most complex ownership case. Multiple independent systems (Readwis
 
 ### Epistemic artifacts and resurfacing
 
-Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer projects these pairs into a lightweight front/back viewer without modifying the notes. This is a read-only semantic projection over the user's broader vault.
+Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer projects these pairs into a lightweight front/back viewer. Notes are also searchable by filename and body text. The inline note editor writes changes directly back to vault files, preserving frontmatter verbatim.
 
 ---
 
@@ -79,7 +79,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 |---|---|---|
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
-| Notes / Resurface | vault-wide (read-only) | Semantic resurfacing projection over `***`-separated notes; deck list navigation; `deck:` frontmatter groups notes; undecked notes appear as "Default" deck; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
+| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes; full-text search across all vault notes; inline note editor (structured/plain/raw modes); `deck:` frontmatter groups notes; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
@@ -116,8 +116,10 @@ lib/
     rss/                   — RssFetchService, adapters (letterboxd/substack/generic),
                              ArticleStorageService, RssIngestionService, RssScreen
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
-    resurface/             — ResurfaceService (vault scan), ResurfaceScreen (deck list, Notes tab),
-                             NoteCardViewerScreen (per-deck card viewer, pushed route)
+    resurface/             — ResurfaceService (vault scan), ResurfaceNote + ResurfaceCard models,
+                             ResurfaceScreen (deck list + search, Notes tab),
+                             NoteDetailScreen (note body viewer),
+                             NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart — BottomNavigationBar shell (owns state for all four tabs)
 ```
