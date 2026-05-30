@@ -8,7 +8,6 @@ import '../models/resurface_note.dart';
 
 class ResurfaceService {
   static const _defaultExcludedFolders = [
-    'Interesting',
     '.obsidian',
     'Templates',
     'Attachments',

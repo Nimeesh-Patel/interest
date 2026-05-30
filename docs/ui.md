@@ -90,7 +90,7 @@ Selected tab icon: `accent` (#8B7CF6). Unselected: `textTertiary` (#3D3D3D). Bar
 
 ## Note card viewer
 
-Source filename, front, and back are all rendered via `flutter_markdown` `MarkdownBody` using a shared `MarkdownStyleSheet`:
+All content is rendered via `flutter_markdown` `MarkdownBody` using a shared `MarkdownStyleSheet`:
 
 | Element | Size | Weight | Color |
 |---|---|---|---|
@@ -102,7 +102,9 @@ Source filename, front, and back are all rendered via `flutter_markdown` `Markdo
 
 Line heights: H1 1.3, H2 1.35, H3 1.4, body 1.6. H1 letter-spacing −0.3.
 
-**Layout (top to bottom):**
+The viewer handles two note types in the same queue:
+
+**`***` note layout (top to bottom):**
 1. Source filename — H1 `MarkdownBody`
 2. Front — `MarkdownBody`, `textPrimary`
 3. "tap to reveal" hint (when back hidden) — 14px italic `textTertiary`, centered
@@ -110,7 +112,16 @@ Line heights: H1 1.3, H2 1.35, H3 1.4, body 1.6. H1 letter-spacing −0.3.
 5. Back — `MarkdownBody`, `textPrimary`
 6. Pagination row — prev `IconButton` · "N / total" (13px `textTertiary`) · next `IconButton`
 
-Tap anywhere on the card area toggles back visibility. Swipe left (velocity < −200) → next card; swipe right (velocity > +200) → previous card. Navigation resets back-revealed state.
+Tap anywhere on the card area toggles back visibility.
+
+**Non-`***` (activated plain) note layout:**
+1. Source filename — H1 `MarkdownBody`
+2. Full body — `MarkdownBody`, `textPrimary` (no front/back split)
+3. Pagination row — same as above
+
+No "tap to reveal" affordance. Tap on body area is a no-op. Swipe navigation still active.
+
+Swipe left (velocity < −200) → next; swipe right (velocity > +200) → previous. Navigation resets back-revealed state.
 
 ---
 

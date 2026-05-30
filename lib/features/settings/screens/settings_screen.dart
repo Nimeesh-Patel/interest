@@ -10,6 +10,7 @@ import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
 import '../../rss/screens/rss_screen.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../resurface/services/review_log_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -48,6 +49,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _resurfaceExcludedController = TextEditingController();
   bool _resurfaceSaving = false;
   String? _resurfaceSaveStatus;
+  int _minDegree = 2;
+  int _maxDegree = 3;
+  bool _degreeSaving = false;
+  String? _degreeSaveStatus;
 
   @override
   void initState() {
@@ -78,6 +83,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _resurfaceExcludedController.text =
           config.resurfaceExcludedFolders.join(', '));
     }
+    final degreeSettings = await ReviewLogService.loadSettings();
+    if (mounted) {
+      setState(() {
+        _minDegree = degreeSettings.minDegree;
+        _maxDegree = degreeSettings.maxDegree;
+      });
+    }
   }
 
   Future<void> _saveResurfaceExcluded() async {
@@ -92,6 +104,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await IntegrationsConfigService.setResurfaceExcludedFolders(vaultPath, folders);
     if (mounted) {
       setState(() { _resurfaceSaving = false; _resurfaceSaveStatus = 'Saved.'; });
+    }
+  }
+
+  Future<void> _saveDegreeSettings() async {
+    setState(() { _degreeSaving = true; _degreeSaveStatus = null; });
+    await ReviewLogService.saveSettings(
+      minDegree: _minDegree,
+      maxDegree: _maxDegree,
+    );
+    if (mounted) {
+      setState(() { _degreeSaving = false; _degreeSaveStatus = 'Saved.'; });
     }
   }
 
@@ -501,6 +524,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               Text(
                 _resurfaceSaveStatus!,
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+            ],
+
+            // ── Graph neighbour range ─────────────────────────────────────
+            const SizedBox(height: 24),
+            const Text(
+              'Graph neighbour range',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Min/max hop distance for activating related notes into the review queue.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                const Text('Min degree', style: TextStyle(fontSize: 14)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.remove, size: 18),
+                  onPressed: _minDegree > 1
+                      ? () => setState(() {
+                            _minDegree--;
+                            if (_maxDegree < _minDegree) _maxDegree = _minDegree;
+                          })
+                      : null,
+                ),
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    '$_minDegree',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, size: 18),
+                  onPressed: _minDegree < 5 && _minDegree < _maxDegree
+                      ? () => setState(() => _minDegree++)
+                      : null,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                const Text('Max degree', style: TextStyle(fontSize: 14)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.remove, size: 18),
+                  onPressed: _maxDegree > _minDegree
+                      ? () => setState(() => _maxDegree--)
+                      : null,
+                ),
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    '$_maxDegree',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, size: 18),
+                  onPressed: _maxDegree < 5
+                      ? () => setState(() => _maxDegree++)
+                      : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: ElevatedButton(
+                onPressed: _degreeSaving ? null : _saveDegreeSettings,
+                child: _degreeSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save'),
+              ),
+            ),
+            if (_degreeSaveStatus != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _degreeSaveStatus!,
                 style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ],

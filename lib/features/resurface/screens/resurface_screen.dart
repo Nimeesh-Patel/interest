@@ -13,7 +13,9 @@ import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/resurface_card.dart';
 import '../models/resurface_note.dart';
+import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
+import '../services/review_log_service.dart';
 import 'note_detail_screen.dart';
 import 'note_edit_screen.dart';
 
@@ -50,6 +52,7 @@ class ResurfaceScreen extends StatefulWidget {
 }
 
 class ResurfaceScreenState extends State<ResurfaceScreen> {
+  // *** card counts for deck list (unchanged: only hasCard notes)
   List<ResurfaceCard> _cards = [];
   bool _loading = true;
   String? _error;
@@ -57,8 +60,8 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
 
   final List<_ResurfaceRoute> _stack = [const _DeckListRoute()];
 
-  // Card viewer state hoisted here to survive note-detail pushes.
-  List<ResurfaceCard> _viewerCards = [];
+  // Viewer state: notes (both *** and activated non-***), hoisted to survive detail pushes.
+  List<ResurfaceNote> _viewerNotes = [];
   int _viewerIndex = 0;
   bool _viewerBackRevealed = false;
 
@@ -134,7 +137,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   String? get currentEditFilePath => switch (_stack.last) {
         _NoteDetailRoute(:final filePath) => filePath,
         _CardViewerRoute() =>
-          _viewerCards.isEmpty ? null : _viewerCards[_viewerIndex].sourcePath,
+          _viewerNotes.isEmpty ? null : _viewerNotes[_viewerIndex].sourcePath,
         _DeckListRoute() => null,
       };
 
@@ -153,34 +156,44 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (_stack.last is _NoteDetailRoute) {
       setState(() => _detailVersion++);
     } else if (_stack.last is _CardViewerRoute) {
-      _reloadCard(filePath);
+      _reloadViewerNote(filePath);
     }
   }
 
-  Future<void> _reloadCard(String filePath) async {
+  Future<void> _reloadViewerNote(String filePath) async {
     try {
       final raw = await File(filePath).readAsString();
       final split = splitFrontmatter(raw);
       final fb = splitFrontBack(split.body);
-      if (fb == null) {
-        final idx = _viewerCards.indexWhere((c) => c.sourcePath == filePath);
-        if (idx != -1) {
-          setState(() {
-            _viewerCards.removeAt(idx);
-            _viewerIndex = _viewerIndex.clamp(0, (_viewerCards.length - 1).clamp(0, 1 << 30));
-          });
-        }
-        return;
-      }
-      final updated = ResurfaceCard(
+      final idx = _viewerNotes.indexWhere((n) => n.sourcePath == filePath);
+      if (idx == -1) return;
+      final wasCard = _viewerNotes[idx].hasCard;
+      final updated = ResurfaceNote(
         sourcePath: filePath,
         sourceFile: p.basename(filePath),
-        front: fb.front,
-        back: fb.back,
+        body: split.body,
+        hasCard: fb != null,
+        front: fb?.front,
+        back: fb?.back,
         decks: parseDeckMetadata(split.frontmatter),
       );
-      final idx = _viewerCards.indexWhere((c) => c.sourcePath == filePath);
-      if (idx != -1) setState(() => _viewerCards[idx] = updated);
+      // *** note lost its separator → remove from viewer.
+      if (wasCard && fb == null) {
+        setState(() {
+          _viewerNotes.removeAt(idx);
+          _viewerIndex =
+              _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
+        });
+        return;
+      }
+      // Non-*** note gained a separator → update is_star in log.
+      if (!wasCard && fb != null) {
+        ReviewLogService.markReviewed(
+          p.basenameWithoutExtension(filePath),
+          isStar: true,
+        );
+      }
+      setState(() => _viewerNotes[idx] = updated);
     } catch (_) {}
   }
 
@@ -199,7 +212,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       _stack
         ..clear()
         ..add(const _DeckListRoute());
-      _viewerCards = [];
+      _viewerNotes = [];
       _viewerIndex = 0;
       _viewerBackRevealed = false;
       _searchActive = false;
@@ -228,14 +241,47 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
 
   // ── Internal navigation ───────────────────────────────────────────────────
 
-  void _pushDeck(String deckName, List<ResurfaceCard> cards) {
+  Future<void> _pushDeck(String deckName, List<ResurfaceNote> starNotes) async {
+    // Include activated non-*** notes that belong to this deck.
+    final log = await ReviewLogService.loadFullLog();
+    final activatedPlain = _allNotes
+        .where((n) => !n.hasCard)
+        .where((n) {
+          final e = log[p.basenameWithoutExtension(n.sourceFile)];
+          return e != null && e.activatedBy.isNotEmpty;
+        })
+        .where((n) => _noteBelongsToDeck(n, deckName))
+        .toList();
+
+    final allEligible = [...starNotes, ...activatedPlain];
+    final sorted = await GraphScoringService.sortByPriority(allEligible);
+    if (!mounted) return;
     setState(() {
       _stack.add(_CardViewerRoute(deckName));
-      _viewerCards = List.of(cards)..shuffle();
+      _viewerNotes = sorted;
       _viewerIndex = 0;
       _viewerBackRevealed = false;
     });
     widget.onNavigationChanged?.call();
+    if (sorted.isNotEmpty) {
+      final first = sorted.first;
+      final firstName = p.basenameWithoutExtension(first.sourceFile);
+      ReviewLogService.markReviewed(firstName, isStar: first.hasCard);
+      GraphScoringService.updateGraphScores(firstName);
+    }
+  }
+
+  List<ResurfaceNote> _notesForDeck(String deckName) {
+    final cardNotes = _allNotes.where((n) => n.hasCard);
+    if (deckName == 'All Notes') return cardNotes.toList();
+    if (deckName == 'Default') return cardNotes.where((n) => n.decks.isEmpty).toList();
+    return cardNotes.where((n) => n.decks.contains(deckName)).toList();
+  }
+
+  bool _noteBelongsToDeck(ResurfaceNote n, String deckName) {
+    if (deckName == 'All Notes') return true;
+    if (deckName == 'Default') return n.decks.isEmpty;
+    return n.decks.contains(deckName);
   }
 
   Future<void> _handleWikilinkTap(String targetName) async {
@@ -255,11 +301,15 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   // ── Card viewer callbacks ─────────────────────────────────────────────────
 
   void _viewerGoNext() {
-    if (_viewerIndex < _viewerCards.length - 1) {
+    if (_viewerIndex < _viewerNotes.length - 1) {
       setState(() {
         _viewerIndex++;
         _viewerBackRevealed = false;
       });
+      final note = _viewerNotes[_viewerIndex];
+      final filename = p.basenameWithoutExtension(note.sourceFile);
+      ReviewLogService.markReviewed(filename, isStar: note.hasCard);
+      GraphScoringService.updateGraphScores(filename);
     }
   }
 
@@ -269,6 +319,10 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         _viewerIndex--;
         _viewerBackRevealed = false;
       });
+      final note = _viewerNotes[_viewerIndex];
+      final filename = p.basenameWithoutExtension(note.sourceFile);
+      ReviewLogService.markReviewed(filename, isStar: note.hasCard);
+      GraphScoringService.updateGraphScores(filename);
     }
   }
 
@@ -304,15 +358,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (note.hasCard) {
       _pushDeck(
         p.basenameWithoutExtension(note.sourceFile),
-        [
-          ResurfaceCard(
-            sourcePath: note.sourcePath,
-            sourceFile: note.sourceFile,
-            front: note.front!,
-            back: note.back!,
-            decks: note.decks,
-          )
-        ],
+        [note],
       );
     } else {
       setState(() => _stack.add(_NoteDetailRoute(note.sourcePath)));
@@ -347,12 +393,6 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       if (defaultCount > 0) _DeckInfo('Default', defaultCount),
       ...namedList,
     ];
-  }
-
-  List<ResurfaceCard> _cardsForDeck(String deckName) {
-    if (deckName == 'All Notes') return List.of(_cards);
-    if (deckName == 'Default') return _cards.where((c) => c.decks.isEmpty).toList();
-    return _cards.where((c) => c.decks.contains(deckName)).toList();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -473,7 +513,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
               '${deck.count}',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
-            onTap: () => _pushDeck(deck.name, _cardsForDeck(deck.name)),
+            onTap: () => _pushDeck(deck.name, _notesForDeck(deck.name)),
           ),
         );
       },
@@ -481,11 +521,11 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Widget _buildCardViewer() {
-    if (_viewerCards.isEmpty) {
-      return const EmptyState(icon: Icons.auto_awesome_outlined, message: 'No cards.');
+    if (_viewerNotes.isEmpty) {
+      return const EmptyState(icon: Icons.auto_awesome_outlined, message: 'No notes.');
     }
-    return _NoteCardViewerBody(
-      cards: _viewerCards,
+    return _NoteViewerBody(
+      notes: _viewerNotes,
       currentIndex: _viewerIndex,
       backRevealed: _viewerBackRevealed,
       onNext: _viewerGoNext,
@@ -502,11 +542,11 @@ class _DeckInfo {
   const _DeckInfo(this.name, this.count);
 }
 
-// ── Card viewer body ──────────────────────────────────────────────────────────
+// ── Mixed note/card viewer body ───────────────────────────────────────────────
 // Stateless: all mutable state lives in ResurfaceScreenState.
 
-class _NoteCardViewerBody extends StatelessWidget {
-  final List<ResurfaceCard> cards;
+class _NoteViewerBody extends StatelessWidget {
+  final List<ResurfaceNote> notes;
   final int currentIndex;
   final bool backRevealed;
   final VoidCallback onNext;
@@ -514,8 +554,8 @@ class _NoteCardViewerBody extends StatelessWidget {
   final VoidCallback onToggleBack;
   final Future<void> Function(String targetName) onNavigateToNote;
 
-  const _NoteCardViewerBody({
-    required this.cards,
+  const _NoteViewerBody({
+    required this.notes,
     required this.currentIndex,
     required this.backRevealed,
     required this.onNext,
@@ -532,7 +572,12 @@ class _NoteCardViewerBody extends StatelessWidget {
   MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
     final color = textColor ?? AppColors.textPrimary;
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: color),
+      h1: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
+          letterSpacing: -0.3,
+          color: color),
       h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
       h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
       p: TextStyle(fontSize: 16, height: 1.6, color: color),
@@ -559,19 +604,16 @@ class _NoteCardViewerBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final card = cards[currentIndex];
+    final note = notes[currentIndex];
     return Column(
       children: [
         Expanded(
           child: GestureDetector(
-            onTap: onToggleBack,
+            onTap: note.hasCard ? onToggleBack : null,
             onHorizontalDragEnd: (details) {
               final v = details.primaryVelocity ?? 0;
-              if (v < -200) {
-                onNext();
-              } else if (v > 200) {
-                onPrev();
-              }
+              if (v < -200) { onNext(); }
+              else if (v > 200) { onPrev(); }
             },
             behavior: HitTestBehavior.opaque,
             child: SingleChildScrollView(
@@ -580,19 +622,22 @@ class _NoteCardViewerBody extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   MarkdownBody(
-                    data: '# ${_stripExtension(card.sourceFile)}',
+                    data: '# ${_stripExtension(note.sourceFile)}',
                     styleSheet: _mdStyle(context),
                   ),
                   const SizedBox(height: 16),
-                  _mdBody(context, card.front),
-                  const SizedBox(height: 24),
-                  if (!backRevealed)
-                    _TapToRevealHint()
-                  else ...[
-                    const Divider(thickness: 1, color: AppColors.border),
-                    const SizedBox(height: 16),
-                    _mdBody(context, card.back, textColor: AppColors.textPrimary),
-                  ],
+                  if (note.hasCard) ...[
+                    _mdBody(context, note.front!),
+                    const SizedBox(height: 24),
+                    if (!backRevealed)
+                      _TapToRevealHint()
+                    else ...[
+                      const Divider(thickness: 1, color: AppColors.border),
+                      const SizedBox(height: 16),
+                      _mdBody(context, note.back!, textColor: AppColors.textPrimary),
+                    ],
+                  ] else
+                    _mdBody(context, note.body),
                 ],
               ),
             ),
@@ -610,13 +655,13 @@ class _NoteCardViewerBody extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '${currentIndex + 1} / ${cards.length}',
+                  '${currentIndex + 1} / ${notes.length}',
                   style: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
                 ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.arrow_forward_ios, size: 18),
-                  onPressed: currentIndex < cards.length - 1 ? onNext : null,
+                  onPressed: currentIndex < notes.length - 1 ? onNext : null,
                 ),
               ],
             ),

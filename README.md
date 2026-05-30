@@ -25,7 +25,7 @@ The architecture consistently rejects two alternatives: (1) treating Markdown as
     Tasks/             — legacy migration source only; no new files created here
     Books/             — one .md file per book; convergence point for multiple enrichment sources
     Articles/          — one .md file per RSS-imported article
-    System/            — vault-native configuration (integrations.md)
+    System/            — vault-native configuration (integrations.md, review_log.md)
 ```
 
 All subdirectories are created on first launch (`VaultService.ensureVaultDirectories`). The `Interesting/` tree is the app's semantic territory. Everything else in the vault is the user's — raw notes, journal entries, epistemic artifacts. The resurfacing viewer scans this broader territory.
@@ -80,7 +80,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 |---|---|---|
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
-| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes; full-text search across all vault notes; inline note editor (structured/plain/raw modes); `deck:` frontmatter groups notes; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
+| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes; activation model promotes linked non-`***` notes into the same queue after their `***` neighbour is reviewed; configurable BFS degree range (min/max hops); graph-score + time-decay sort priority; full-text search; inline note editor (structured/plain/raw modes); `deck:` frontmatter groups notes; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
@@ -119,7 +119,8 @@ lib/
                              ArticleStorageService, RssIngestionService, RssScreen
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
     resurface/             — ResurfaceService (vault scan), ResurfaceNote + ResurfaceCard models,
-                             ResurfaceScreen (deck list + search, Notes tab),
+                             ReviewLogService (review_log.md owner), GraphScoringService (BFS + decay),
+                             ResurfaceScreen (deck list + search + mixed viewer, Notes tab),
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
