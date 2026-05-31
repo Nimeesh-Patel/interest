@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
@@ -186,40 +187,69 @@ class ProjectsScreenState extends State<ProjectsScreen> {
         itemCount: _projects.length,
         itemBuilder: (ctx, i) {
           final proj = _projects[i];
-          return Container(
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-            ),
-            child: ListTile(
-              leading: Icon(
-                proj.isListStyle ? Icons.format_list_bulleted : Icons.folder_outlined,
-                color: AppColors.textTertiary,
+          final isComplete =
+              proj.totalTasks > 0 && proj.completedTasks >= proj.totalTasks;
+          final typeLabel = proj.isListStyle ? 'LIST' : 'TODO';
+
+          return InkWell(
+            onTap: () async {
+              await _openProject(ctx, proj);
+              await _reload();
+            },
+            onLongPress: () => _showProjectOptions(ctx, proj),
+            child: Container(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
               ),
-              title: Text(proj.name),
-              subtitle: proj.totalTasks == 0
-                  ? const Text('Empty', style: TextStyle(fontSize: 12, color: AppColors.textTertiary))
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        LinearProgressIndicator(
-                          value: proj.progress,
-                          minHeight: 2,
-                          backgroundColor: AppColors.border,
-                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          proj.name,
+                          style: AppTextStyles.entityName.copyWith(
+                            color: isComplete
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                          ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${proj.completedTasks} / ${proj.totalTasks} done',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                      ),
+                      Text(
+                        typeLabel,
+                        style: AppTextStyles.metaMuted.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.8,
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  if (proj.totalTasks > 0) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(1),
+                      child: LinearProgressIndicator(
+                        value: proj.progress,
+                        minHeight: 2,
+                        backgroundColor: AppColors.border,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isComplete
+                              ? AppColors.textTertiary
+                              : AppColors.accent,
+                        ),
+                      ),
                     ),
-              onTap: () async {
-                await _openProject(ctx, proj);
-                await _reload();
-              },
-              onLongPress: () => _showProjectOptions(ctx, proj),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${proj.completedTasks} / ${proj.totalTasks}',
+                      style: AppTextStyles.metaMuted,
+                    ),
+                  ],
+                ],
+              ),
             ),
           );
         },

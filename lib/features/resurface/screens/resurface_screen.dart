@@ -8,7 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/section_header.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/resurface_card.dart';
@@ -488,35 +490,133 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Widget _buildDeckList() {
-    if (_cards.isEmpty) {
+    if (_allNotes.isEmpty && _cards.isEmpty) {
       return const EmptyState(
         icon: Icons.auto_awesome_outlined,
         message: 'No notes found.\nAdd a *** separator to a note.',
       );
     }
-    final items = _deckItems;
-    return ListView.builder(
-      itemCount: items.length,
-      itemBuilder: (ctx, i) {
-        final deck = items[i];
-        return Container(
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
-          child: ListTile(
-            leading: const Text('✦', style: TextStyle(color: AppColors.accent, fontSize: 12)),
-            title: Text(
-              deck.name,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+    final deckItems = _deckItems;
+    // Named decks are everything after "All Notes" in the list
+    final namedDecks =
+        deckItems.length > 1 ? deckItems.sublist(1) : <_DeckInfo>[];
+
+    return ListView(
+      children: [
+        // ── All Notes hero ────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(kScreenHPad, 16, kScreenHPad, 4),
+          child: GestureDetector(
+            onTap: () => _pushDeck('All Notes', _notesForDeck('All Notes')),
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                border: Border.all(color: AppColors.borderMid),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Text('✦',
+                      style: AppTextStyles.bodyLarge
+                          .copyWith(color: AppColors.accent, fontSize: 16)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('All Notes',
+                            style: AppTextStyles.entityName.copyWith(
+                                fontWeight: FontWeight.w600, fontSize: 16)),
+                        const SizedBox(height: 2),
+                        Text('${_cards.length} cards to review',
+                            style: AppTextStyles.bodySmall),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios,
+                      size: 15, color: AppColors.textTertiary),
+                ],
+              ),
             ),
-            trailing: Text(
-              '${deck.count}',
-              style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
-            ),
-            onTap: () => _pushDeck(deck.name, _notesForDeck(deck.name)),
           ),
-        );
-      },
+        ),
+
+        // ── Named decks ───────────────────────────────────────────────────
+        if (namedDecks.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: SectionHeader(title: 'Decks'),
+          ),
+          const Divider(height: 1),
+          for (final deck in namedDecks)
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: InkWell(
+                onTap: () => _pushDeck(deck.name, _notesForDeck(deck.name)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: kScreenHPad, vertical: 14),
+                  child: Row(
+                    children: [
+                      Text('✦',
+                          style: AppTextStyles.metaMuted
+                              .copyWith(fontSize: 11)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(deck.name,
+                            style: AppTextStyles.entityName),
+                      ),
+                      Text('${deck.count}',
+                          style: AppTextStyles.bodySmall
+                              .copyWith(color: AppColors.textTertiary)),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.arrow_forward_ios,
+                          size: 14, color: AppColors.textTertiary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+
+        // ── Browse Notes ──────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+          child: SectionHeader(title: 'Browse Notes'),
+        ),
+        const Divider(height: 1),
+        for (final note in _allNotes)
+          Container(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: InkWell(
+              onTap: () => _openSearchResult(note),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: kScreenHPad, vertical: 13),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        p.basenameWithoutExtension(note.sourceFile),
+                        style: AppTextStyles.entityName,
+                      ),
+                    ),
+                    if (note.hasCard)
+                      Text('✦',
+                          style: AppTextStyles.meta.copyWith(
+                              color: AppColors.accent, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -605,69 +705,157 @@ class _NoteViewerBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final note = notes[currentIndex];
+    final hasPrev = currentIndex > 0;
+    final hasNext = currentIndex < notes.length - 1;
+
     return Column(
       children: [
+        // ── Card body ───────────────────────────────────────────────────────
         Expanded(
           child: GestureDetector(
             onTap: note.hasCard ? onToggleBack : null,
             onHorizontalDragEnd: (details) {
               final v = details.primaryVelocity ?? 0;
-              if (v < -200) { onNext(); }
-              else if (v > 200) { onPrev(); }
+              if (v < -200) {
+                onNext();
+              } else if (v > 200) {
+                onPrev();
+              }
             },
             behavior: HitTestBehavior.opaque,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
+              padding: const EdgeInsets.fromLTRB(26, 40, 26, 28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  MarkdownBody(
-                    data: '# ${_stripExtension(note.sourceFile)}',
-                    styleSheet: _mdStyle(context),
-                  ),
-                  const SizedBox(height: 16),
                   if (note.hasCard) ...[
-                    _mdBody(context, note.front!),
-                    const SizedBox(height: 24),
+                    // Front — IBM Plex Serif 21px
+                    _mdBodySerif(context, note.front!, fontSize: 21, height: 1.65),
+                    const SizedBox(height: 38),
                     if (!backRevealed)
                       _TapToRevealHint()
                     else ...[
-                      const Divider(thickness: 1, color: AppColors.border),
-                      const SizedBox(height: 16),
-                      _mdBody(context, note.back!, textColor: AppColors.textPrimary),
+                      const Divider(thickness: 1, color: AppColors.borderMid),
+                      const SizedBox(height: 30),
+                      // Back — IBM Plex Serif 17px
+                      _mdBodySerif(context, note.back!, fontSize: 17, height: 1.78),
                     ],
-                  ] else
+                  ] else ...[
+                    MarkdownBody(
+                      data: '# ${_stripExtension(note.sourceFile)}',
+                      styleSheet: _mdStyle(context),
+                    ),
+                    const SizedBox(height: 16),
                     _mdBody(context, note.body),
+                  ],
                 ],
               ),
             ),
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-                  onPressed: currentIndex > 0 ? onPrev : null,
-                ),
-                const Spacer(),
-                Text(
-                  '${currentIndex + 1} / ${notes.length}',
-                  style: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.arrow_forward_ios, size: 18),
-                  onPressed: currentIndex < notes.length - 1 ? onNext : null,
-                ),
-              ],
+
+        // ── Nav row ─────────────────────────────────────────────────────────
+        Container(
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppColors.border)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 12),
+              child: Row(
+                children: [
+                  // Prev button
+                  GestureDetector(
+                    onTap: hasPrev ? onPrev : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 9),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: hasPrev
+                              ? AppColors.border
+                              : AppColors.textTertiary,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.arrow_back_ios_new,
+                              size: 14,
+                              color: hasPrev
+                                  ? AppColors.textSecondary
+                                  : AppColors.textTertiary),
+                          const SizedBox(width: 4),
+                          Text('Prev',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                  color: hasPrev
+                                      ? AppColors.textSecondary
+                                      : AppColors.textTertiary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${currentIndex + 1} / ${notes.length}',
+                    style: AppTextStyles.bodySmall
+                        .copyWith(color: AppColors.textTertiary),
+                  ),
+                  const Spacer(),
+                  // Next button
+                  GestureDetector(
+                    onTap: hasNext ? onNext : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: hasNext
+                            ? AppColors.accent
+                            : AppColors.accentDim,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Next',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              )),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.arrow_forward_ios,
+                              size: 14, color: Colors.white),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _mdBodySerif(BuildContext context, String data,
+      {required double fontSize, required double height}) {
+    return MarkdownBody(
+      data: substituteWikilinks(data),
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: AppTextStyles.cardAnswer.copyWith(fontSize: fontSize, height: height),
+        strong: AppTextStyles.cardAnswer.copyWith(
+          fontSize: fontSize,
+          height: height,
+          fontWeight: FontWeight.w600,
+          color: AppColors.accent,
+        ),
+        a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
+      ),
+      onTapLink: _onTapLink,
     );
   }
 }

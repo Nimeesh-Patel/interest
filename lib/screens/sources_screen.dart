@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
 import '../features/rss/screens/rss_screen.dart';
+import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
 
 class SourcesScreen extends StatelessWidget {
@@ -11,14 +13,21 @@ class SourcesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Sources')),
+      appBar: AppBar(
+        title: const Text('Sources'),
+        actions: [
+          _SyncAllButton(onTap: () => _syncAll(context)),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: ListView(
           children: [
             _SourceRow(
               icon: Icons.auto_stories,
-              label: 'Hardcover',
+              name: 'Hardcover',
+              description: 'Sync your reading list',
+              meta: 'Books & highlights',
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const _HardcoverPage()),
@@ -26,7 +35,9 @@ class SourcesScreen extends StatelessWidget {
             ),
             _SourceRow(
               icon: Icons.rss_feed,
-              label: 'Articles',
+              name: 'Articles',
+              description: 'RSS feeds and articles',
+              meta: 'Feed reader',
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const RssScreen()),
@@ -34,7 +45,9 @@ class SourcesScreen extends StatelessWidget {
             ),
             _SourceRow(
               icon: Icons.bookmark_outline,
-              label: 'Readwise',
+              name: 'Readwise',
+              description: 'Highlights from your reading',
+              meta: 'Highlight importer',
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const ReadwiseScreen()),
@@ -42,11 +55,76 @@ class SourcesScreen extends StatelessWidget {
             ),
             const _SourceRow(
               icon: Icons.link,
-              label: 'Bookmarks',
-              subtitle: 'via share sheet',
+              name: 'Bookmarks',
+              description: 'via share sheet',
+              meta: 'X / Twitter links',
               onTap: null,
             ),
+            _SourceRow(
+              icon: Icons.folder_open,
+              name: 'Obsidian',
+              description: 'Open to sync vault',
+              meta: 'external app',
+              onTap: () => _openObsidian(context),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  static Future<void> _openObsidian(BuildContext context) async {
+    final launched = await launchUrl(
+      Uri.parse('obsidian://'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Obsidian is not installed')),
+      );
+    }
+  }
+
+  static void _syncAll(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Open each source to trigger sync.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+}
+
+class _SyncAllButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _SyncAllButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Center(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.border),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.sync,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 5),
+                Text('Sync all',
+                    style: AppTextStyles.meta
+                        .copyWith(color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -55,14 +133,16 @@ class SourcesScreen extends StatelessWidget {
 
 class _SourceRow extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final String? subtitle;
+  final String name;
+  final String description;
+  final String meta;
   final VoidCallback? onTap;
 
   const _SourceRow({
     required this.icon,
-    required this.label,
-    this.subtitle,
+    required this.name,
+    required this.description,
+    required this.meta,
     required this.onTap,
   });
 
@@ -75,35 +155,46 @@ class _SourceRow extends StatelessWidget {
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.border)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(icon, color: tappable ? AppColors.textSecondary : AppColors.textTertiary, size: 22),
-            const SizedBox(width: 16),
+            Icon(icon,
+                size: 22,
+                color: tappable
+                    ? AppColors.textSecondary
+                    : AppColors.textTertiary),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: tappable ? AppColors.textPrimary : AppColors.textTertiary,
+                    name,
+                    style: AppTextStyles.entityName.copyWith(
+                      color: tappable
+                          ? AppColors.textPrimary
+                          : AppColors.textTertiary,
                     ),
                   ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      style: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
-                    ),
-                  ],
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(description,
+                            style: AppTextStyles.bodySmall),
+                      ),
+                      Text(meta,
+                          style: AppTextStyles.metaMuted),
+                    ],
+                  ),
                 ],
               ),
             ),
+            const SizedBox(width: 8),
             if (tappable)
-              const Icon(Icons.chevron_right, color: AppColors.textTertiary, size: 20),
+              const Icon(Icons.arrow_forward_ios,
+                  size: 14, color: AppColors.textTertiary),
           ],
         ),
       ),

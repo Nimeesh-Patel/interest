@@ -5,6 +5,8 @@ import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
+import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/section_header.dart';
 
@@ -36,6 +38,8 @@ class _EntityScreenState extends State<EntityScreen> {
 
   bool _isEditMode = false;
   late Entity _editSnapshot;
+  bool _hasUnsavedChanges = false;
+  bool _editingTitle = false;
 
   // Grokipedia external knowledge state
   GrokipediaArticle? _grokArticle;
@@ -75,6 +79,14 @@ class _EntityScreenState extends State<EntityScreen> {
 
   // ── Edit mode lifecycle ───────────────────────────────────────────────────
 
+  void _markDirty() {
+    if (!_hasUnsavedChanges) {
+      _editSnapshot = _entity.copyWith();
+      _nameController.text = _entity.name;
+    }
+    setState(() => _hasUnsavedChanges = true);
+  }
+
   void _enterEditMode() {
     setState(() {
       _isEditMode = true;
@@ -92,7 +104,13 @@ class _EntityScreenState extends State<EntityScreen> {
     final trimmed = _nameController.text.trim();
     if (trimmed.isNotEmpty) _entity.name = trimmed;
     _save();
-    setState(() => _isEditMode = false);
+    setState(() {
+      _isEditMode = false;
+      _hasUnsavedChanges = false;
+      _editingTitle = false;
+      _editingNoteIndex = null;
+      _isAddingNote = false;
+    });
   }
 
   void _cancelEdit() {
@@ -102,6 +120,10 @@ class _EntityScreenState extends State<EntityScreen> {
     setState(() {
       _entity = restored;
       _isEditMode = false;
+      _hasUnsavedChanges = false;
+      _editingTitle = false;
+      _editingNoteIndex = null;
+      _isAddingNote = false;
     });
   }
 
@@ -147,7 +169,12 @@ class _EntityScreenState extends State<EntityScreen> {
 
   void _addNote(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) {
+      setState(() => _isAddingNote = false);
+      _noteController.clear();
+      return;
+    }
+    _markDirty();
     setState(() {
       _entity.notes.add(trimmed);
       _isAddingNote = false;
@@ -161,6 +188,7 @@ class _EntityScreenState extends State<EntityScreen> {
       setState(() => _editingNoteIndex = null);
       return;
     }
+    _markDirty();
     setState(() {
       _entity.notes[index] = trimmed;
       _editingNoteIndex = null;
@@ -347,82 +375,70 @@ class _EntityScreenState extends State<EntityScreen> {
     }
   }
 
-  Widget _buildExternalKnowledgeSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('External Knowledge',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 8),
-        if (!_grokSearched)
-          const Text('Searching Grokipedia…',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else if (_grokArticle == null)
-          const Text('No Grokipedia article found.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else ...[
-          Text(
-            _grokArticle!.title,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(height: 8),
+  Widget _buildGrokipediaCard() {
+    if (!_grokSearched) {
+      return Text('Searching…', style: AppTextStyles.bodySmall);
+    }
+    if (_grokArticle == null) {
+      return Text('No article found.', style: AppTextStyles.bodySmall);
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.borderMid),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_grokSummaryExpanded) ...[
+            _grokSummaryFetching
+                ? const SizedBox(
+                    height: 14,
+                    width: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(
+                    _grokArticle!.snippet ??
+                        _grokFetchedSummary ??
+                        'No summary available.',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.textSecondary,
+                      height: 1.65,
+                    ),
+                  ),
+            const SizedBox(height: 10),
+          ],
           Row(
             children: [
-              OutlinedButton.icon(
-                onPressed: () => _openGrokArticle(_grokArticle!.webUrl),
-                icon: const Icon(Icons.open_in_new, size: 14),
-                label: const Text('Open Article', style: TextStyle(fontSize: 13)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              GestureDetector(
+                onTap: () => _openGrokArticle(_grokArticle!.webUrl),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.open_in_new,
+                        size: 13, color: AppColors.accent),
+                    const SizedBox(width: 6),
+                    Text('Read full article',
+                        style: AppTextStyles.meta
+                            .copyWith(color: AppColors.accent)),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: _toggleGrokSummary,
-                icon: Icon(
-                  _grokSummaryExpanded ? Icons.expand_less : Icons.expand_more,
-                  size: 14,
-                ),
-                label: const Text('Summary', style: TextStyle(fontSize: 13)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const SizedBox(width: 16),
+              GestureDetector(
+                onTap: _toggleGrokSummary,
+                child: Text(
+                  _grokSummaryExpanded ? 'Hide summary' : 'Show summary',
+                  style: AppTextStyles.meta
+                      .copyWith(color: AppColors.textSecondary),
                 ),
               ),
             ],
           ),
-          if (_grokSummaryExpanded) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: _grokSummaryFetching
-                  ? const Row(children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Loading summary…', style: TextStyle(fontSize: 13)),
-                    ])
-                  : Text(
-                      _grokArticle!.snippet ??
-                          _grokFetchedSummary ??
-                          'No summary available.',
-                      style: const TextStyle(fontSize: 13, height: 1.5),
-                    ),
-            ),
-          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -438,119 +454,292 @@ class _EntityScreenState extends State<EntityScreen> {
     final related = MarkdownStorageService.getRelatedEntities(
         _entity.id, widget.allEntityLinks, widget.allEntities);
 
-    return SafeArea(top: false, child: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-      children: [
-        // Name
-        Text(
-          _entity.name,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: -0.3),
-        ),
-        const SizedBox(height: 4),
-        // Category
-        if (currentCategory.name.isNotEmpty)
-          Text(
-            currentCategory.name,
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
-        const SizedBox(height: 12),
-        // Tags
-        if (_entity.tags.isEmpty)
-          const Text('No tags.', style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: _entity.tags
-                .map((tag) => Chip(
-                      label: Text(tag, style: const TextStyle(fontSize: 12)),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ))
-                .toList(),
-          ),
-        const SizedBox(height: 12),
-        // Score
-        if (_entity.score != null)
-          Row(
-            children: [
-              Text(
-                '★ ${_entity.score!.toStringAsFixed(1)}',
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.score),
-              ),
-            ],
-          )
-        else
-          const Text('No score set.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        const Divider(height: 32),
-
-        const SectionHeader(title: 'Why it matters'),
-        if (_entity.notes.isEmpty)
-          const Text('No notes yet.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else
-          for (final note in _entity.notes) ...[
-            Text(note, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 8),
-          ],
-
-        const Divider(height: 32),
-
-        const SectionHeader(title: 'Sources'),
-        if (_entity.links.isEmpty)
-          const Text('No sources yet.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else
-          for (final link in _entity.links) ...[
-            Text(
-              link,
-              style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.accent,
-                  decoration: TextDecoration.none),
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 6),
-          ],
-
-        const Divider(height: 32),
-
-        const SectionHeader(title: 'Related', bottomGap: 4),
-        if (related.isEmpty)
-          const Text('No related entities.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary))
-        else
-          for (final other in related)
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(other.name, style: const TextStyle(fontSize: 14)),
-              trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textTertiary),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EntityScreen(
-                    entity: other,
-                    storage: widget.storage,
-                    allEntities: widget.allEntities,
-                    allCategories: widget.allCategories,
-                    allTags: _allTags,
-                    allEntityLinks: widget.allEntityLinks,
+    return SafeArea(
+      top: false,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 32),
+        children: [
+          // ── Title block ────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kScreenHPad, 22, kScreenHPad, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_editingTitle)
+                  TextField(
+                    controller: _nameController,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) =>
+                        setState(() => _editingTitle = false),
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide:
+                            const BorderSide(color: AppColors.accent),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide:
+                            const BorderSide(color: AppColors.accent),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                    ),
+                  )
+                else
+                  GestureDetector(
+                    onTap: () {
+                      _markDirty();
+                      setState(() => _editingTitle = true);
+                    },
+                    child: Text(
+                      _entity.name,
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.3,
+                        height: 1.2,
+                      ),
+                    ),
                   ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    if (currentCategory.name.isNotEmpty)
+                      Text(currentCategory.name,
+                          style: AppTextStyles.bodySmall),
+                    for (final tag in _entity.tags)
+                      Text('#$tag',
+                          style: AppTextStyles.bodySmall
+                              .copyWith(color: AppColors.accent)),
+                    if (_entity.score != null)
+                      Text(
+                        '★${_entity.score!.toStringAsFixed(_entity.score! % 1 == 0 ? 0 : 1)}',
+                        style: AppTextStyles.bodySmall
+                            .copyWith(color: AppColors.score),
+                      ),
+                  ],
                 ),
-              ).then((_) => setState(() {})),
+              ],
             ),
+          ),
+          const Divider(height: 32),
 
-        const Divider(height: 32),
-        _buildExternalKnowledgeSection(),
-        const SizedBox(height: 16),
-      ],
-    ));
+          // ── Why Interesting ────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: SectionHeader(title: 'Why Interesting'),
+          ),
+          if (_entity.notes.isEmpty && !_isAddingNote)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 4),
+              child: Text('No notes yet.',
+                  style: AppTextStyles.bodySmall),
+            ),
+          for (int i = 0; i < _entity.notes.length; i++)
+            _editingNoteIndex == i
+                ? _buildInlineNoteField(i)
+                : GestureDetector(
+                    onTap: () {
+                      _markDirty();
+                      setState(() => _editingNoteIndex = i);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: kScreenHPad, vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('· ',
+                              style: AppTextStyles.bodyLarge.copyWith(
+                                  color: AppColors.textTertiary,
+                                  height: 1.55)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(_entity.notes[i],
+                                style: AppTextStyles.bodyLarge
+                                    .copyWith(height: 1.55)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          if (_isAddingNote) _buildNoteAddField(),
+          // Always-visible + Add note row
+          GestureDetector(
+            onTap: () {
+              _markDirty();
+              setState(() {
+                _isAddingNote = true;
+                _noteController.clear();
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 8),
+              child: Text('+ Add note',
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textTertiary)),
+            ),
+          ),
+          const Divider(height: 32),
+
+          // ── Sources ────────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: SectionHeader(title: 'Sources'),
+          ),
+          if (_entity.links.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 4),
+              child: Text('No sources yet.',
+                  style: AppTextStyles.bodySmall),
+            )
+          else
+            for (final link in _entity.links)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: kScreenHPad, vertical: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.link,
+                        size: 14, color: AppColors.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(link,
+                          style: AppTextStyles.bodyMedium
+                              .copyWith(color: AppColors.accent),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
+              ),
+          const Divider(height: 32),
+
+          // ── Related ────────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: SectionHeader(title: 'Related'),
+          ),
+          if (related.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  GestureDetector(
+                    onTap: _showLinkSearch,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.border),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add,
+                              size: 13, color: AppColors.textTertiary),
+                          const SizedBox(width: 4),
+                          Text('Link',
+                              style: AppTextStyles.bodySmall
+                                  .copyWith(color: AppColors.textTertiary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ...related.map((other) => GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => EntityScreen(
+                              entity: other,
+                              storage: widget.storage,
+                              allEntities: widget.allEntities,
+                              allCategories: widget.allCategories,
+                              allTags: _allTags,
+                              allEntityLinks: widget.allEntityLinks,
+                            ),
+                          ),
+                        ).then((_) => setState(() {})),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: AppColors.accentDim),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text('[[${other.name}]]',
+                              style: AppTextStyles.bodySmall
+                                  .copyWith(color: AppColors.accent)),
+                        ),
+                      )),
+                  // Always-visible + Link chip
+                  GestureDetector(
+                    onTap: _showLinkSearch,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.border),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add,
+                              size: 13, color: AppColors.textTertiary),
+                          const SizedBox(width: 4),
+                          Text('Link',
+                              style: AppTextStyles.bodySmall
+                                  .copyWith(color: AppColors.textTertiary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(height: 32),
+
+          // ── Grokipedia ─────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: SectionHeader(title: 'Grokipedia'),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: _buildGrokipediaCard(),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 
   // ── Edit body ─────────────────────────────────────────────────────────────
@@ -855,6 +1044,41 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
+  Widget _buildInlineNoteField(int i) {
+    final ctrl = TextEditingController(text: _entity.notes[i]);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: kScreenHPad, vertical: 4),
+      child: TextField(
+        controller: ctrl,
+        autofocus: true,
+        maxLines: null,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (v) => _commitNoteEdit(i, v),
+        style: AppTextStyles.bodyLarge.copyWith(height: 1.55),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: AppColors.surface,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(7),
+            borderSide: const BorderSide(color: AppColors.accent),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(7),
+            borderSide: const BorderSide(color: AppColors.accent),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.check, size: 18, color: AppColors.accent),
+            onPressed: () => _commitNoteEdit(i, ctrl.text),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildNoteAddField() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1095,13 +1319,22 @@ class _EntityScreenState extends State<EntityScreen> {
                       style: TextStyle(color: AppColors.accent)),
                 ),
               ]
-            : [
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: _enterEditMode,
-                  tooltip: 'Edit',
-                ),
-              ],
+            : _hasUnsavedChanges
+                ? [
+                    IconButton(
+                      icon: const Icon(Icons.check,
+                          color: AppColors.accent),
+                      tooltip: 'Done',
+                      onPressed: _saveEdit,
+                    ),
+                  ]
+                : [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: _enterEditMode,
+                      tooltip: 'Edit',
+                    ),
+                  ],
       ),
       body: _isEditMode ? _buildEditBody() : _buildDisplayBody(),
     );

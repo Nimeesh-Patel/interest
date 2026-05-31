@@ -7,6 +7,7 @@ import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/models/entity_link.dart';
 import '../features/entities/services/markdown_storage_service.dart';
+import '../shared/constants/app_spacing.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
 import '../shared/widgets/input_dialog.dart';
@@ -19,6 +20,8 @@ import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 import 'sources_screen.dart';
+import '../features/home/screens/home_dashboard_screen.dart';
+import '../shared/widgets/quick_add_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final MarkdownStorageService _storage = MarkdownStorageService();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
   final _resurfaceKey = GlobalKey<ResurfaceScreenState>();
+  final _homeDashboardKey = GlobalKey<HomeDashboardScreenState>();
   List<Entity> _entities = [];
   List<Category> _categories = [];
   List<String> _tags = [];
@@ -42,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortOrder = 'latest';
   bool _isLoading = true;
   bool _isAddingCategory = false;
-  // Tabs: 0=Notes, 1=Entities, 2=Projects
+  // Tabs: 0=Home, 1=Notes, 2=Entities, 3=Projects
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
@@ -441,34 +445,53 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  static const _sortLabels = {
+    'latest': 'Latest',
+    'oldest': 'Oldest',
+    'high_score': 'Highest Score',
+    'low_score': 'Lowest Score',
+    'alpha': 'A–Z',
+    'alpha_rev': 'Z–A',
+  };
+
   Widget _buildSortBar() {
+    final count = _filtered.length;
+    final sortLabel = _sortLabels[_sortOrder] ?? 'Latest';
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 8),
       child: Row(
         children: [
-          const Text('Sort:', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-          const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _sortOrder,
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            dropdownColor: AppColors.surfaceElevated,
-            style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
-            items: const [
-              DropdownMenuItem(value: 'latest', child: Text('Latest')),
-              DropdownMenuItem(value: 'oldest', child: Text('Oldest')),
-              DropdownMenuItem(value: 'high_score', child: Text('Highest score')),
-              DropdownMenuItem(value: 'low_score', child: Text('Lowest score')),
-              DropdownMenuItem(value: 'alpha', child: Text('A–Z')),
-              DropdownMenuItem(value: 'alpha_rev', child: Text('Z–A')),
-            ],
-            onChanged: (v) {
-              if (v != null) setState(() => _sortOrder = v);
-            },
+          Text(
+            '$count ${count == 1 ? "entity" : "entities"}',
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: _showSortSheet,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(sortLabel,
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                const SizedBox(width: 2),
+                const Icon(Icons.unfold_more, size: 16, color: AppColors.textSecondary),
+              ],
+            ),
           ),
         ],
       ),
     );
+  }
+
+  void _showSortSheet() {
+    showBottomSheetMenu(context, items: [
+      for (final entry in _sortLabels.entries)
+        BottomSheetMenuItem(
+          icon: _sortOrder == entry.key ? Icons.check : Icons.sort,
+          label: entry.value,
+          onTap: () => setState(() => _sortOrder = entry.key),
+        ),
+    ]);
   }
 
   Widget _buildEntityList() {
@@ -482,6 +505,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     return ListView.builder(
+      padding: const EdgeInsets.only(bottom: kFabListBottomPad),
       itemCount: items.length,
       itemBuilder: (ctx, i) {
         final entity = items[i];
@@ -489,27 +513,90 @@ class _HomeScreenState extends State<HomeScreen> {
             .firstWhere((c) => c.id == entity.categoryId,
                 orElse: () => Category(id: '', name: ''))
             .name;
-        return Container(
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
-          child: ListTile(
-            minVerticalPadding: 14,
-            title: Text(entity.name),
-            subtitle: _EntitySubtitle(
-              categoryName: catName,
-              tags: entity.tags,
-              score: entity.score,
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, color: AppColors.textTertiary),
-              onPressed: () => _deleteEntity(entity),
-            ),
+        return GestureDetector(
+          onLongPress: () => _showEntityOptions(entity),
+          child: InkWell(
             onTap: () => _openEntity(entity),
+            child: Container(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 13),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(entity.name,
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textPrimary)),
+                        const SizedBox(height: 3),
+                        Wrap(
+                          spacing: 6,
+                          children: [
+                            if (entity.score != null)
+                              Text(
+                                '★${entity.score!.toStringAsFixed(entity.score! % 1 == 0 ? 0 : 1)}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.score),
+                              ),
+                            if (catName.isNotEmpty)
+                              Text(catName,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.textSecondary)),
+                            for (final tag in entity.tags.take(2))
+                              Text('#$tag',
+                                  style: const TextStyle(
+                                      fontSize: 13, color: AppColors.accent)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatTimestamp(entity.updatedAt),
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
     );
+  }
+
+  void _showEntityOptions(Entity entity) {
+    showBottomSheetMenu(context, items: [
+      BottomSheetMenuItem(
+        icon: Icons.delete_outline,
+        label: 'Delete',
+        isDestructive: true,
+        onTap: () => _deleteEntity(entity),
+      ),
+    ]);
+  }
+
+  static String _formatTimestamp(int msEpoch) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(msEpoch);
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}';
   }
 
   Widget _buildEntitiesTab() {
@@ -537,6 +624,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
+  String _todayLabel() {
+    final now = DateTime.now();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[now.month - 1]} ${now.day}';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -544,16 +640,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final notesState = _resurfaceKey.currentState;
-    final notesCanGoBack = _currentTab == 0 && (notesState?.canGoBack ?? false);
-    final notesEditPath = _currentTab == 0 ? notesState?.currentEditFilePath : null;
-    final notesIsSearchable = _currentTab == 0 && (notesState?.isSearchable ?? false);
+    final notesCanGoBack = _currentTab == 1 && (notesState?.canGoBack ?? false);
+    final notesEditPath = _currentTab == 1 ? notesState?.currentEditFilePath : null;
+    final notesIsSearchable = _currentTab == 1 && (notesState?.isSearchable ?? false);
     final notesSearchActive = notesState?.isSearchActive ?? false;
-    final tabTitle = _currentTab == 0
-        ? (notesState?.navTitle ?? 'Notes')
-        : switch (_currentTab) {
-            1 => 'Entities',
-            _ => 'Projects',
-          };
+
+    final tabTitle = switch (_currentTab) {
+      0 => 'Interest',
+      1 => notesState?.navTitle ?? 'Notes',
+      2 => 'Entities',
+      _ => 'Projects',
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -565,6 +662,19 @@ class _HomeScreenState extends State<HomeScreen> {
             : null,
         title: Text(tabTitle),
         actions: [
+          if (_currentTab == 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Center(
+                child: Text(
+                  _todayLabel(),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
           if (notesIsSearchable)
             IconButton(
               icon: Icon(notesSearchActive ? Icons.close : Icons.search),
@@ -591,21 +701,18 @@ class _HomeScreenState extends State<HomeScreen> {
               MaterialPageRoute(builder: (_) => const SourcesScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.sync),
-            onPressed: _openObsidian,
-            tooltip: 'Open Obsidian to sync',
-          ),
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'anki') { _openAnki(); }
               else if (v == 'settings') { _openSettings(); }
               else if (v == 'templates') { _openTemplates(); }
+              else if (v == 'obsidian') { _openObsidian(); }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'anki', child: Text('Anki')),
               PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(value: 'templates', child: Text('Templates')),
+              PopupMenuItem(value: 'obsidian', child: Text('Open Obsidian')),
             ],
           ),
         ],
@@ -613,6 +720,25 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _currentTab,
         children: [
+          HomeDashboardScreen(
+            key: _homeDashboardKey,
+            entities: _entities,
+            categories: _categories,
+            onBeginReview: () => setState(() => _currentTab = 1),
+            onEntityTap: _openEntity,
+            onAddTap: () => showQuickAddSheet(
+              context,
+              entities: _entities,
+              categories: _categories,
+              tags: _tags,
+              allEntityLinks: _entityLinks,
+              storage: _storage,
+              onCreated: (entity) async {
+                await _reloadData();
+                if (mounted) await _openEntity(entity);
+              },
+            ),
+          ),
           ResurfaceScreen(
             key: _resurfaceKey,
             onNavigationChanged: () => setState(() {}),
@@ -622,26 +748,62 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: switch (_currentTab) {
-        2 => FloatingActionButton(
+        2 => _EntitiesFab(onTap: () => showQuickAddSheet(
+              context,
+              entities: _entities,
+              categories: _categories,
+              tags: _tags,
+              allEntityLinks: _entityLinks,
+              storage: _storage,
+              onCreated: (entity) async {
+                await _reloadData();
+                if (mounted) {
+                  await _openEntity(entity);
+                }
+              },
+            )),
+        3 => FloatingActionButton(
             onPressed: () => _projectsKey.currentState?.showCreateDialog(context),
             tooltip: 'New project',
             child: const Icon(Icons.add),
           ),
         _ => null,
       },
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTab,
-        onTap: (i) {
-          if (i == 0 && _currentTab == 0) {
-            _resurfaceKey.currentState?.resetStack();
-          }
-          setState(() => _currentTab = i);
-        },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: ''),
-          BottomNavigationBarItem(icon: Icon(Icons.folder_outlined), label: ''),
-        ],
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentTab,
+          onTap: (i) {
+            if (i == 1 && _currentTab == 1) {
+              _resurfaceKey.currentState?.resetStack();
+            }
+            setState(() => _currentTab = i);
+          },
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: 'HOME',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_stories_outlined),
+              activeIcon: Icon(Icons.auto_stories),
+              label: 'NOTES',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.hub_outlined),
+              activeIcon: Icon(Icons.hub),
+              label: 'ENTITIES',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.checklist_outlined),
+              activeIcon: Icon(Icons.checklist),
+              label: 'PROJECTS',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -667,13 +829,13 @@ class _CategoryChip extends StatelessWidget {
       onLongPress: onLongPress,
       child: Container(
         margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         decoration: BoxDecoration(
           color: selected ? AppColors.accentDim : Colors.transparent,
           border: Border.all(
             color: selected ? AppColors.accent : AppColors.border,
           ),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
@@ -687,50 +849,25 @@ class _CategoryChip extends StatelessWidget {
   }
 }
 
-class _EntitySubtitle extends StatelessWidget {
-  final String categoryName;
-  final List<String> tags;
-  final double? score;
-
-  const _EntitySubtitle({
-    required this.categoryName,
-    required this.tags,
-    this.score,
-  });
+class _EntitiesFab extends StatelessWidget {
+  final VoidCallback onTap;
+  const _EntitiesFab({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 2,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          if (categoryName.isNotEmpty)
-            Text(
-              categoryName,
-              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-            ),
-          if (score != null)
-            Text(
-              '★ ${score!.toStringAsFixed(1)}',
-              style: const TextStyle(fontSize: 11, color: AppColors.score),
-            ),
-          for (final tag in tags)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: AppColors.accentDim,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                tag,
-                style: const TextStyle(fontSize: 10, color: AppColors.accent),
-              ),
-            ),
-        ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: AppColors.accentDim,
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.33)),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Icon(Icons.add, color: AppColors.accent, size: 24),
       ),
     );
   }
 }
+

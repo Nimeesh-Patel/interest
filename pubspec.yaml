@@ -21,6 +21,7 @@ dependencies:
   url_launcher: ^6.2.0
   archive: ^3.4.0
   flutter_markdown: ^0.7.0
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
