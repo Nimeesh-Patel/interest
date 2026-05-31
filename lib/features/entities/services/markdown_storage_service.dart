@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:yaml/yaml.dart';
 
 import '../models/category.dart';
@@ -41,29 +39,28 @@ class MarkdownStorageService {
       final vaultPath = _vaultPath;
       if (vaultPath == null) return _defaultData();
 
-      await _migrateFromJson(vaultPath);
-
-      final entitiesDirPath = VaultService.entitiesPath(vaultPath);
-
       final entities = <Entity>[];
       final pendingRelated = <String, List<String>>{};
       final catNames = <String, String>{};
 
-      final entitiesDir = Directory(entitiesDirPath);
-      if (await entitiesDir.exists()) {
-        final all = await entitiesDir.list().toList();
-        for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
-          try {
-            final content = await f.readAsString();
-            final result = _parseEntityFile(content, f.path);
-            entities.add(result.entity);
-            pendingRelated[result.entity.id] = result.relatedNames;
-            final catId = result.entity.categoryId;
-            if (!catNames.containsKey(catId) && result.categoryName.isNotEmpty) {
-              catNames[catId] = result.categoryName;
-            }
-          } catch (_) {}
-        }
+      final vaultDir = Directory(vaultPath);
+      await for (final entry in vaultDir.list(recursive: true)) {
+        if (entry is! File || !entry.path.endsWith('.md')) continue;
+        final rel = p.relative(entry.path, from: vaultPath);
+        final folders = p.split(rel)..removeLast();
+        if (folders.any((s) => s == '.obsidian')) continue;
+        try {
+          final content = await entry.readAsString();
+          final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
+          if (yaml == null || !yaml.containsKey('category')) continue;
+          final result = _parseEntityFile(content, entry.path);
+          entities.add(result.entity);
+          pendingRelated[result.entity.id] = result.relatedNames;
+          final catId = result.entity.categoryId;
+          if (!catNames.containsKey(catId) && result.categoryName.isNotEmpty) {
+            catNames[catId] = result.categoryName;
+          }
+        } catch (_) {}
       }
 
       final categories = catNames.isEmpty
@@ -113,29 +110,26 @@ class MarkdownStorageService {
       final vaultPath = _vaultPath;
       if (vaultPath == null) return;
 
-      final entitiesDirPath = VaultService.entitiesPath(vaultPath);
-
-      await Directory(entitiesDirPath).create(recursive: true);
-
       final catMap = {for (final c in snapCategories) c.id: c.name};
       final entityMap = {for (final e in snapEntities) e.id: e};
 
       // ── Entities ────────────────────────────────────────────────────────────
 
+      // Vault-wide alias → path lookup: finds entities wherever they live.
       final existingAliasToPath = <String, String>{};
-      final entitiesDir = Directory(entitiesDirPath);
-      if (await entitiesDir.exists()) {
-        final all = await entitiesDir.list().toList();
-        for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
-          try {
-            final content = await f.readAsString();
-            final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
-            if (yaml != null) {
-              final alias = yaml['alias']?.toString();
-              if (alias != null) existingAliasToPath[alias] = f.path;
-            }
-          } catch (_) {}
-        }
+      final scanDir = Directory(vaultPath);
+      await for (final entry in scanDir.list(recursive: true)) {
+        if (entry is! File || !entry.path.endsWith('.md')) continue;
+        final rel = p.relative(entry.path, from: vaultPath);
+        final folders = p.split(rel)..removeLast();
+        if (folders.any((s) => s == '.obsidian')) continue;
+        try {
+          final content = await entry.readAsString();
+          final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
+          if (yaml == null || !yaml.containsKey('category')) continue;
+          final alias = yaml['alias']?.toString();
+          if (alias != null) existingAliasToPath[alias] = entry.path;
+        } catch (_) {}
       }
 
       final currentAliases = snapEntities.map((e) => e.id).toSet();
@@ -155,9 +149,13 @@ class MarkdownStorageService {
         }
 
         final filename = '${sanitizeFilename(entity.name)}.md';
-        final newPath = p.join(entitiesDirPath, filename);
-
         final oldPath = existingAliasToPath[entity.id];
+        // Existing entity: keep in the same directory (pre- or post-migration).
+        // New entity: write to vault root.
+        final newPath = oldPath != null
+            ? p.join(p.dirname(oldPath), filename)
+            : p.join(vaultPath, filename);
+
         if (oldPath != null && oldPath != newPath) {
           try { await File(oldPath).delete(); } catch (_) {}
         }
@@ -553,48 +551,6 @@ class MarkdownStorageService {
     }
 
     return buf.toString();
-  }
-
-  // ── Private: migration ─────────────────────────────────────────────────────
-
-  Future<void> _migrateFromJson(String vaultPath) async {
-    final entitiesDir = Directory(VaultService.entitiesPath(vaultPath));
-    if (await entitiesDir.exists()) {
-      final all = await entitiesDir.list().toList();
-      final hasMd = all.any((f) => f is File && f.path.endsWith('.md'));
-      if (hasMd) return;
-    }
-
-    try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final jsonFile = File(p.join(appDir.path, 'entities.json'));
-      if (!await jsonFile.exists()) return;
-
-      final content = await jsonFile.readAsString();
-      if (content.trim().isEmpty) return;
-
-      final json = jsonDecode(content) as Map<String, dynamic>;
-
-      final migEntities = (json['entities'] as List? ?? [])
-          .map((e) => Entity.fromJson(e as Map<String, dynamic>))
-          .toList();
-      final migCategories = (json['categories'] as List? ?? [])
-          .map((c) => Category.fromJson(c as Map<String, dynamic>))
-          .toList();
-      final migLinks = (json['entity_links'] as List? ?? [])
-          .map((l) => EntityLink.fromJson(l as Map<String, dynamic>))
-          .toList();
-      final migTags = (json['tags'] as List? ?? []).cast<String>();
-
-      await saveData(
-        entities: migEntities,
-        categories: migCategories,
-        tags: migTags,
-        entityLinks: migLinks,
-      );
-
-      await jsonFile.rename(p.join(appDir.path, 'entities.json.migrated'));
-    } catch (_) {}
   }
 
   // ── Private: defaults ──────────────────────────────────────────────────────

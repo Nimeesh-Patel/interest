@@ -311,6 +311,22 @@ class ReviewLogService {
     } catch (_) {}
   }
 
+  static Future<void> removeNote(String noteFilename) async {
+    try {
+      final vaultPath = await VaultService.getVaultPath();
+      if (vaultPath == null) return;
+      final data = await _readAll(vaultPath);
+      final updated = data.entries.where((e) => e.note != noteFilename).toList();
+      await File(_logPath(vaultPath)).writeAsString(
+        _serialize((
+          minDegree: data.minDegree,
+          maxDegree: data.maxDegree,
+          entries: updated,
+        )),
+      );
+    } catch (_) {}
+  }
+
   /// Appends [reviewedStarNote] to the `activated_by` list of each note in
   /// [targets] (filename → isStar). Creates entries for notes not yet in the log.
   static Future<void> activateNotes(

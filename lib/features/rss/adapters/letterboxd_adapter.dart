@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/rss_entry.dart';
 import '../models/rss_import_result.dart';
@@ -16,10 +15,7 @@ class LetterboxdAdapter implements RssAdapter {
   @override
   Future<ImportResult> ingest(List<RssEntry> entries, String vaultPath) async {
     try {
-      final entitiesDirPath = VaultService.entitiesPath(vaultPath);
-      await Directory(entitiesDirPath).create(recursive: true);
-
-      final existingMovies = await _buildMovieIndex(entitiesDirPath);
+      final existingMovies = await _buildMovieIndex(vaultPath);
       int created = 0, updated = 0, skipped = 0;
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -60,7 +56,7 @@ class LetterboxdAdapter implements RssAdapter {
           } else {
             var alias = slugify(filmTitle);
             if (alias.isEmpty) alias = 'movie';
-            alias = _uniqueAlias(alias, entitiesDirPath);
+            alias = _uniqueAlias(alias, vaultPath);
 
             final content = _buildMovieMarkdown(
               alias: alias,
@@ -75,7 +71,7 @@ class LetterboxdAdapter implements RssAdapter {
             );
 
             final filename = '${sanitizeFilename(filmTitle)}.md';
-            final filePath = p.join(entitiesDirPath, filename);
+            final filePath = p.join(vaultPath, filename);
             await File(filePath).writeAsString(content);
 
             if (tmdbId != null && tmdbId.isNotEmpty) {

@@ -79,8 +79,8 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 
 | Storage layer | Directory |
 |---|---|
-| `MarkdownStorageService` | `Interesting/Entities/` (user entities) |
-| `LetterboxdAdapter` | `Interesting/Entities/` (RSS movies; bypasses `MarkdownStorageService`) |
+| `MarkdownStorageService` | vault root (user entities; vault-wide `category:` scan) |
+| `LetterboxdAdapter` | vault root (RSS movies; bypasses `MarkdownStorageService`) |
 | `AnkiStorageService` | `Interesting/Anki/` + `.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |

@@ -29,6 +29,9 @@ class ResurfaceService {
         if (folders.any((seg) => excludedFolders.contains(seg))) continue;
         try {
           final content = await entry.readAsString();
+          final split = splitFrontmatter(content);
+          final yaml = parseYamlMap(split.frontmatter);
+          if (yaml != null && yaml['exclude_resurface'] == true) continue;
           final card = _extractFrontBack(entry.path, content);
           if (card != null) cards.add(card);
         } catch (_) {}
@@ -76,6 +79,8 @@ class ResurfaceService {
         try {
           final content = await entry.readAsString();
           final split = splitFrontmatter(content);
+          final yaml = parseYamlMap(split.frontmatter);
+          if (yaml != null && yaml['exclude_resurface'] == true) continue;
           final fb = splitFrontBack(split.body);
           notes.add(ResurfaceNote(
             sourcePath: entry.path,

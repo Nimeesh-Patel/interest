@@ -10,6 +10,7 @@ import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/section_header.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
@@ -397,6 +398,30 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     ];
   }
 
+  Future<void> _deleteCurrentNote(BuildContext context) async {
+    final note = _viewerNotes[_viewerIndex];
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Delete note',
+      message: 'Delete this note? This cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (!confirmed || !mounted) return;
+
+    try { await File(note.sourcePath).delete(); } catch (_) {}
+    await ReviewLogService.removeNote(p.basenameWithoutExtension(note.sourceFile));
+
+    if (!mounted) return;
+    setState(() {
+      _allNotes.removeWhere((n) => n.sourcePath == note.sourcePath);
+      _cards.removeWhere((c) => c.sourcePath == note.sourcePath);
+      _viewerNotes.removeAt(_viewerIndex);
+      _viewerIndex =
+          _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
+    });
+    if (_viewerNotes.isEmpty) goBack();
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -632,6 +657,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       onPrev: _viewerGoPrev,
       onToggleBack: _viewerToggleBack,
       onNavigateToNote: _handleWikilinkTap,
+      onDeleteNote: () => _deleteCurrentNote(context),
     );
   }
 }
@@ -653,6 +679,7 @@ class _NoteViewerBody extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onToggleBack;
   final Future<void> Function(String targetName) onNavigateToNote;
+  final VoidCallback? onDeleteNote;
 
   const _NoteViewerBody({
     required this.notes,
@@ -662,6 +689,7 @@ class _NoteViewerBody extends StatelessWidget {
     required this.onPrev,
     required this.onToggleBack,
     required this.onNavigateToNote,
+    this.onDeleteNote,
   });
 
   String _stripExtension(String filename) {
@@ -831,6 +859,23 @@ class _NoteViewerBody extends StatelessWidget {
                         ],
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 4),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert,
+                        color: AppColors.textPrimary, size: 20),
+                    onSelected: (v) {
+                      if (v == 'delete') onDeleteNote?.call();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text(
+                          'Delete note',
+                          style: TextStyle(color: AppColors.destructive),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
