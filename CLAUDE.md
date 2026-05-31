@@ -35,6 +35,10 @@ Start here based on task class:
 | Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
 | Touching shared Markdown utilities | `lib/shared/markdown/md_utils.dart` (pure, no I/O) |
 | Understanding save/cancel/snapshot semantics | CLAUDE.md § Save semantics, then `entity_screen.dart` |
+| Modifying the Home dashboard (card peek, Worth Revisiting, recent notes) | `lib/features/home/screens/home_dashboard_screen.dart` |
+| Modifying the Quick Add Sheet | `lib/shared/widgets/quick_add_sheet.dart` |
+| Modifying UI tokens, typography, or color palette | [docs/ui.md](docs/ui.md), then `app_theme.dart` + `app_text_styles.dart` |
+| Modifying the Sources Inbox | `lib/screens/sources_screen.dart` |
 
 ---
 
@@ -63,7 +67,8 @@ All services are **all-static, all-catch-null, never throw**. Errors surface via
 
 ## Save semantics
 
-- **Deferred save for core entity fields** (name, category, tags, score, notes, links) — explicit Save button via `_saveEdit()`. WHY: Cancel must restore the pre-edit snapshot atomically.
+- **Deferred save for core entity fields** (name, category, tags, score, notes, links) — `_saveEdit()` commits all pending changes. WHY: Cancel/Done must restore or commit the pre-edit snapshot atomically.
+- **Inline note/title editing** (no explicit edit-mode toggle): tapping a note bullet or the entity title marks the screen dirty (`_markDirty()` takes a snapshot on first change, sets `_hasUnsavedChanges = true`). The AppBar shows a `check` icon only when `_hasUnsavedChanges == true`; tapping it calls `_saveEdit()`. When `_hasUnsavedChanges == false`, the AppBar shows the `edit` icon (full edit body for category/score/tags) and `more_vert`.
 - **Immediate save for shared mutations** (`_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared state the entity snapshot doesn't cover.
 - `saveData()` snapshots all entity lists before the async gap to prevent partial-save races.
 - `updated_at` stamped on every mutation: entities in `_save()`, Anki cards in `AnkiStorageService.saveCard()` and `createNewCard()`.
@@ -101,7 +106,10 @@ Anki soft-delete rationale: a hard-deleted card re-synced from Anki would receiv
 ## Shared utilities — do not duplicate
 
 - **Markdown parsing and YAML serialization** — `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, `slugify`, `sanitizeFilename`, timestamp helpers, `buildFrontmatterBlock(fields, knownOrder)` (canonical YAML frontmatter builder — pass a field map and an ordered key list; handles scalar quoting, YAML lists, and unknown-key overflow). Never reimplement in services or screens.
-- **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or `showModalBottomSheet` patterns.
+- **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `showQuickAddSheet()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or raw `showModalBottomSheet` patterns.
+- **Quick Add Sheet** — `lib/shared/widgets/quick_add_sheet.dart`: `showQuickAddSheet(context, entities:, categories:, tags:, allEntityLinks:, storage:, onCreated:)`. Persists last-used category in `SharedPreferences` key `last_used_category`. Call this wherever an "add entity" FAB appears.
+- **Text styles** — `lib/shared/constants/app_text_styles.dart`: `AppTextStyles` class with static `TextStyle` getters for every named role (IBM Plex Sans body/UI, IBM Plex Serif for card front/back). Never hardcode `GoogleFonts.ibmPlexSans(...)` or `GoogleFonts.ibmPlexSerif(...)` inline — use the getter.
+- **Colors** — `lib/shared/constants/app_theme.dart` `AppColors`: all color constants including `borderMid` (#282828) for card borders. Do not use hex literals inline.
 - **Spacing** — `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0), `kScreenHPad` (16.0). No magic numbers.
 
 ## Configuration ownership
@@ -139,11 +147,17 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
-**Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `hasCard: true` when a `***` horizontal-rule separator is found outside code fences; `_cards` is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just `***` notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
+**Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `hasCard: true` when a `***` horizontal-rule separator is found outside code fences; `_cards` is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just `***` notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. **Deck list layout:** All Notes hero card (surface, `borderMid` border, card count) → named DECKS section → BROWSE NOTES section (all `_allNotes`, not just cards). Card viewer renders front/back in IBM Plex Serif. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
 
 **Bookmarks** — write via `XBookmarkStorageService` → vault root; fetch pipeline: nitter (3 hardcoded instances) → syndication API → oEmbed → degraded; `_cleanBody` strips oEmbed attribution tails; `truncated: true` in frontmatter when full text unavailable (oEmbed fallback or all failed); note body uses `***` Resurface separator with empty front side; filenames preserve spaces and capitalisation (no slugify); `XBookmarkService.fetchMetadata` never throws. No screen, no scheduler, no re-fetch. Full details: [docs/bookmarks.md](docs/bookmarks.md).
 
-**Obsidian launch** — UI-only AppBar action; fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
+**Home dashboard** — `HomeDashboardScreen` is tab 0 in the 4-tab shell. Loads data from `ResurfaceService.getAllNotes()` (for card count, first card's front, recent notes) and from the entities passed in as constructor parameters. **Card peek hero** shows the top-priority card's front text (IBM Plex Serif 17px) from `GraphScoringService.sortByPriority()`. **Worth Revisiting** sorts entities by `(score × 0.4) + (daysSinceUpdated × 0.6)`, capped at 3 rows. **Persistent FAB** opens `showQuickAddSheet`. The screen is stateful; `HomeDashboardScreenState.reload()` is called externally after entity mutations to refresh the Worth Revisiting list. Do NOT add per-user statistics, streaks, or scheduling logic here.
+
+**Navigation shell** — `home_screen.dart` is a 4-tab `BottomNavigationBar` shell (0=Home, 1=Notes, 2=Entities, 3=Projects). Tab titles and AppBar actions are computed per-tab. FAB shows on tab 2 (Entities → Quick Add Sheet) and tab 3 (Projects → new project). Double-tapping tab 1 calls `ResurfaceScreenState.resetStack()`.
+
+**Sources Inbox** — `sources_screen.dart` is the full sources hub, pushed from the `sensors` AppBar icon. Five rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian. "Sync all" button triggers per-source sync where available. Obsidian row fires `obsidian://` URI. No state, no lifecycle hooks.
+
+**Obsidian launch** — moved from AppBar action to Sources Inbox row. Fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 
 **Android widget** — reads `flutter.vault_path` directly from `FlutterSharedPreferences`; always writes `category: Default`; only three concrete subclasses registered as receivers.
 

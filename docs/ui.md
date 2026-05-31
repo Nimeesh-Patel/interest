@@ -1,12 +1,14 @@
 # UI System
 
-Canonical reference for visual design and navigation. All values are defined in `lib/shared/constants/app_theme.dart`.
+Canonical reference for visual design and navigation. Color constants live in `lib/shared/constants/app_theme.dart`. Named text styles live in `lib/shared/constants/app_text_styles.dart`.
 
 ---
 
 ## Theme
 
-Material 3, dark only (`Brightness.dark`). No light theme exists. `scaffoldBackgroundColor` is `AppColors.background`.
+Material 3, dark only (`Brightness.dark`). No light theme. `scaffoldBackgroundColor` is `AppColors.background`.
+
+**Font:** IBM Plex Sans (body, UI) and IBM Plex Serif (card front/back, note peek) via `google_fonts`. All `ThemeData.textTheme` entries use `GoogleFonts.ibmPlexSans()`.
 
 ---
 
@@ -14,55 +16,79 @@ Material 3, dark only (`Brightness.dark`). No light theme exists. `scaffoldBackg
 
 ```dart
 class AppColors {
-  static const background     = Color(0xFF0A0A0A);  // Scaffold background
-  static const surface        = Color(0xFF141414);  // Card / sheet background
-  static const surfaceElevated= Color(0xFF1C1C1C);  // Bottom sheet, dialog, popup menu
-  static const border         = Color(0xFF2A2A2A);  // Dividers, outline borders
-  static const textPrimary    = Color(0xFFF0F0F0);  // Body text, titles
-  static const textSecondary  = Color(0xFF6B6B6B);  // Subtitles, metadata, icons
-  static const textTertiary   = Color(0xFF3D3D3D);  // Hints, disabled, counters
-  static const accent         = Color(0xFF8B7CF6);  // Primary action, links, selected tab
-  static const accentDim      = Color(0xFF3D3566);  // FAB background, chip selected state
-  static const destructive    = Color(0xFFE05252);  // Error, delete actions
-  static const score          = Color(0xFFFFB800);  // Rating / quality signal (amber)
+  static const background      = Color(0xFF0A0A0A);  // Scaffold background
+  static const surface         = Color(0xFF111111);  // Card / sheet background
+  static const surfaceElevated = Color(0xFF161616);  // Bottom sheet, dialog, popup menu, nav bar
+  static const border          = Color(0xFF1E1E1E);  // Dividers, list separators
+  static const borderMid       = Color(0xFF282828);  // Card borders (slightly lighter than border)
+  static const textPrimary     = Color(0xFFF0F0F0);  // Body text, titles
+  static const textSecondary   = Color(0xFF595959);  // Subtitles, metadata, icons
+  static const textTertiary    = Color(0xFF2C2C2C);  // Hints, disabled, counters, muted glyphs
+  static const accent          = Color(0xFF8B7CF6);  // Primary action, links, selected state
+  static const accentDim       = Color(0xFF1C1835);  // FAB background, active chip background
+  static const destructive     = Color(0xFFE05252);  // Error, delete actions
+  static const score           = Color(0xFFFFB800);  // Rating / quality signal (amber)
 }
 ```
 
-ColorScheme mappings used by Material widgets: `onSurface` → `textPrimary`, `onSurfaceVariant` → `textSecondary`, `primary` → `accent`, `outline` → `border`.
+ColorScheme mappings for Material widgets: `onSurface` → `textPrimary`, `onSurfaceVariant` → `textSecondary`, `primary` → `accent`, `outline` → `border`, `surface` → `surface`, `surfaceContainerHighest` → `surfaceElevated`.
 
 ---
 
 ## Typography
 
-Named styles from `ThemeData.textTheme`:
+### `AppTextStyles` — named static getters (`lib/shared/constants/app_text_styles.dart`)
 
-| Style | Size | Weight | Color | Letter-spacing |
-|---|---|---|---|---|
-| `bodyLarge` | 16px | normal | textPrimary | — |
-| `bodyMedium` | 14px | normal | textPrimary | — |
-| `bodySmall` | 12px | normal | textSecondary | — |
-| `labelSmall` | 11px | normal | textTertiary | — |
-| `titleLarge` | 22px | w600 | textPrimary | −0.3 |
-| `titleMedium` | 16px | normal | textPrimary | — |
-| `titleSmall` | 13px | w500 | textSecondary | +1.2 |
-| `headlineSmall` | 18px | w600 | textPrimary | — |
-| AppBar title | 18px | w600 | textPrimary | — |
+All use `GoogleFonts.ibmPlexSans()` unless noted.
+
+| Getter | Font | Size | Weight | Color | Notes |
+|---|---|---|---|---|---|
+| `appTitle` | Sans | 17 | 600 | textPrimary | AppBar title |
+| `sectionHeader` | Sans | 10 | 600 | textTertiary | Uppercase, letterSpacing 1.3 |
+| `entityName` | Sans | 15 | 500 | textPrimary | List row primary label |
+| `bodyLarge` | Sans | 16 | 400 | textPrimary | General body |
+| `bodyMedium` | Sans | 14 | 400 | textPrimary | |
+| `bodySmall` | Sans | 13 | 400 | textSecondary | Subtitles, metadata |
+| `meta` | Sans | 12 | 400 | textSecondary | Timestamps, counts |
+| `metaMuted` | Sans | 11 | 400 | textTertiary | Muted labels |
+| `cardQuestion` | **Serif** | 21 | 400 | textPrimary | Card front, height 1.65 |
+| `cardAnswer` | **Serif** | 17 | 400 | textPrimary | Card back, height 1.78 |
+| `notePeek` | **Serif** | 17 | 400 | textPrimary | Home dashboard card peek |
+| `navLabel` | Sans | 9 | 600 | — | Bottom nav; uppercase, letterSpacing 0.5 |
+
+### `ThemeData.textTheme` (fallback for widgets using `Theme.of(context).textTheme`)
+
+| Style | Size | Weight | Font |
+|---|---|---|---|
+| `bodyLarge` | 16 | 400 | IBM Plex Sans |
+| `bodyMedium` | 14 | 400 | IBM Plex Sans |
+| `bodySmall` | 12 | 400 | IBM Plex Sans |
+| `labelSmall` | 11 | 400 | IBM Plex Sans |
+| `titleLarge` | 22 | 600 | IBM Plex Sans, letterSpacing −0.3 |
+| `titleMedium` | 16 | 400 | IBM Plex Sans |
+| `titleSmall` | 13 | 500 | IBM Plex Sans, letterSpacing +1.2 |
+| `headlineSmall` | 18 | 600 | IBM Plex Sans |
+
+AppBar title: 17px w600 IBM Plex Sans.
 
 ---
 
 ## Navigation
 
-**Bottom nav bar** — 3 tabs, no labels, no elevation:
+**Bottom nav bar** — 4 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
 
-| Index | Icon | Screen |
-|---|---|---|
-| 0 | `Icons.article_outlined` | Notes (`ResurfaceScreen`) |
-| 1 | `Icons.list_alt` | Entities |
-| 2 | `Icons.folder_outlined` | Projects (`ProjectsScreen`) |
+| Index | Label | Icon (inactive / active) | Screen |
+|---|---|---|---|
+| 0 | HOME | `home_outlined` / `home` | `HomeDashboardScreen` |
+| 1 | NOTES | `auto_stories_outlined` / `auto_stories` | `ResurfaceScreen` |
+| 2 | ENTITIES | `hub_outlined` / `hub` | Entities tab (inline in `HomeScreen`) |
+| 3 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
 
-Selected tab icon: `accent` (#8B7CF6). Unselected: `textTertiary` (#3D3D3D). Bar background: `surfaceElevated` (#1C1C1C).
+Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `navLabel` (9px w600, uppercase, letterSpacing 0.5).
 
-**Sources screen** — not a tab. Pushed via an AppBar icon button. A list screen with rows for Hardcover, RSS, Readwise, and Bookmarks.
+Double-tapping the NOTES tab calls `ResurfaceScreenState.resetStack()` (collapses to deck list).
+
+**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Full inbox-style layout: Hardcover, Articles, Readwise, Bookmarks, and Obsidian as rows with icon / name+description / last-sync meta / chevron.
 
 ---
 
@@ -70,58 +96,136 @@ Selected tab icon: `accent` (#8B7CF6). Unselected: `textTertiary` (#3D3D3D). Bar
 
 **No elevation** — elevation: 0 everywhere (AppBar, Cards, FAB, BottomSheet).
 
-**AppBar** — background `background`, no shadow, icon color `textSecondary`, title `textPrimary` 18px w600.
+**AppBar** — background `background`, no shadow, icon color `textSecondary`, title IBM Plex Sans 17px w600 `textPrimary`.
 
-**Cards** — background `surface`, border `border`, radius 10, zero margin, zero elevation.
+**Cards** — background `surface`, border `borderMid`, radius 10, zero margin, zero elevation.
 
 **Bottom sheets / dialogs** — background `surfaceElevated`, radius 14 (top corners for sheets, all corners for dialogs).
 
-**FAB** — background `accentDim`, foreground `accent`, radius 14.
+**FAB** — background `accentDim`, foreground `accent`, radius 14, size 52×52, border `1px accent.withValues(alpha:0.33)`.
 
-**ListTile** — icon color `textSecondary`, title `textPrimary`, subtitle 13px `textSecondary`, min vertical padding 12.
-
-**Dividers** — color `border` (#2A2A2A), thickness 1, space 0.
+**Dividers** — color `border` (#1E1E1E), thickness 1, space 0.
 
 **Input fields** — background `surface`, border `border`, focused border `accent`, hint `textTertiary`, radius 10.
 
-**Chips** — background `surface`, border `border`, label `textSecondary`; selected: `accentDim` background, `accent` label.
+**Chips (category filter)** — padding `5×14`, radius 20, gap 6. Active: bg `accentDim`, border `accent`, text `accent`. Inactive: bg transparent, border `border`, text `textSecondary`.
+
+**Related chips (entity detail)** — text `[[Name]]`, 13px `accent`, padding `4×10`, border `accentDim`, radius 6.
+
+**Inline edit fields** — bg `surface`, border `1px accent`, radius 7, padding `6×10`.
+
+**Section headers** — `SectionHeader` widget: 10px IBM Plex Sans w600 uppercase, letterSpacing 1.3, `textTertiary`. Top padding 14px, bottom 8px.
 
 ---
 
-## Note card viewer
+## Home Dashboard (`HomeDashboardScreen`)
 
-All content is rendered via `flutter_markdown` `MarkdownBody` using a shared `MarkdownStyleSheet`:
+Entry point screen (tab 0). Loads on `initState` via `ResurfaceService.getAllNotes()` and `MarkdownStorageService`.
 
-| Element | Size | Weight | Color |
-|---|---|---|---|
-| H1 (source filename) | 22px | w600 | textPrimary |
-| H2 | 19px | w600 | textPrimary |
-| H3 | 16px | w600 | textPrimary |
-| Body / list bullet | 16px | normal | textPrimary |
-| Links (`[[wikilink]]`, URL) | — | — | accent, no underline |
+### Card Peek Hero
 
-Line heights: H1 1.3, H2 1.35, H3 1.4, body 1.6. H1 letter-spacing −0.3.
+Surface-colored container with `borderMid` border, radius 10:
+- First card's question text in IBM Plex Serif 17px (from `GraphScoringService.sortByPriority()`)
+- Deck name + "N cards to review" meta
+- "Review" `→` button (accent bg, white text) — switches to Notes tab (tab 1)
 
-The viewer handles two note types in the same queue:
+### Worth Revisiting section
 
-**`***` note layout (top to bottom):**
-1. Source filename — H1 `MarkdownBody`
-2. Front — `MarkdownBody`, `textPrimary`
-3. "tap to reveal" hint (when back hidden) — 14px italic `textTertiary`, centered
-4. `Divider` (`border` color, thickness 1) — shown when back revealed
-5. Back — `MarkdownBody`, `textPrimary`
-6. Pagination row — prev `IconButton` · "N / total" (13px `textTertiary`) · next `IconButton`
+Entities sorted by `(score × 0.4) + (daysSinceUpdated × 0.6)` descending, capped at 3 rows. Each row shows name + reason text (e.g. "Not visited in 7 days") + category right-aligned. Reason logic: days > 7 → "Not visited in N days"; score > 7 → "High rated"; days ≤ 2 → "Updated recently"; else → "Worth another look".
 
-Tap anywhere on the card area toggles back visibility.
+### Recent Notes section
 
-**Non-`***` (activated plain) note layout:**
-1. Source filename — H1 `MarkdownBody`
-2. Full body — `MarkdownBody`, `textPrimary` (no front/back split)
-3. Pagination row — same as above
+2 most recently modified vault notes (by file `stat().modified`). Shows filename + deck name + `✦` glyph if note has card.
 
-No "tap to reveal" affordance. Tap on body area is a no-op. Swipe navigation still active.
+### Persistent FAB
 
-Swipe left (velocity < −200) → next; swipe right (velocity > +200) → previous. Navigation resets back-revealed state.
+50×50px, `accentDim` bg, `add` accent icon — always visible above the nav bar, opens `showQuickAddSheet`.
+
+---
+
+## Quick Add Sheet (`lib/shared/widgets/quick_add_sheet.dart`)
+
+Opened via `showQuickAddSheet(context, ...)`. `showModalBottomSheet(isScrollControlled: true)`.
+
+Layout:
+1. Handle bar (36×4 `borderMid`)
+2. Header row: "Add entity" (16px w600) + "Add" CTA (accent bg, white text)
+3. Auto-focused name `TextField` (accent border when focused)
+4. Category chips (horizontal scroll, same active/inactive style as entity list)
+5. Last-used category persisted in `SharedPreferences` key `last_used_category`
+
+On submit: calls `MarkdownStorageService` create path → dismisses sheet → navigates to new entity.
+
+---
+
+## Entity list rows
+
+Used in Home (Worth Revisiting) and Entities tab. Layout per row:
+- Name: IBM Plex Sans 15px w500 `textPrimary`
+- Metadata `Wrap`: `★N` (score color 12px), category name (13px `textSecondary`), `#tag` (13px accent)
+- Timestamp right-aligned: 11px `textTertiary`
+- Bottom border `border`; padding 13px vertical / 16px horizontal
+
+---
+
+## Entity detail view
+
+**Title block** (padding `22 top / 16 horizontal`):
+- Name: IBM Plex Sans 26px w600, letterSpacing −0.3, height 1.2; tappable → inline `TextField`
+- Meta row: category · `#tag` (accent) · `★N` (score) — all 13px
+
+**Section pattern:** `SectionHeader` (caps) + content, left-padded `kScreenHPad`.
+
+**Notes bullets:** `· ` (14px `textTertiary`) + text (15px, height 1.55); each bullet tappable → inline `TextField`. `+ Add note` row always visible below bullets.
+
+**Sources:** `link` icon (14px accent) + URL text (14px accent), gap 8, margin-bottom 6.
+
+**Related:** `[[Name]]` chips (13px accent, border `accentDim`, radius 6); `+ Link` chip always visible.
+
+**Grokipedia card:** `surface` bg, `borderMid` border, radius 8, padding `12×14`; body 14px `textSecondary` height 1.65; "Read full article" link + `open_in_new` icon in accent; "Show/Hide summary" toggle.
+
+**Inline edit AppBar:** when `_hasUnsavedChanges == true` → `check` icon (accent) → calls `_saveEdit()`. When false → `edit` icon + (implicit) `more_vert` menu.
+
+---
+
+## Notes / Decks screen layout
+
+**Deck list (DeckListRoute):**
+1. **All Notes hero** — surface card with `borderMid` border, radius 10: `✦` (16px accent) + "All Notes" (w600 16px) + "N cards to review" (13px `textSecondary`) + `arrow_forward_ios` right
+2. **DECKS section** (named decks only, if any): `✦` glyph (11px `textTertiary`) + deck name (500 15px) + count + `arrow_forward_ios`
+3. **BROWSE NOTES section**: all vault notes, filename (15px) + `✦` right (11px accent) if `hasCard`
+
+---
+
+## Card review layout (`_NoteViewerBody`)
+
+**Card body** (padding `40 top / 26 horizontal / 28 bottom`):
+- Front: IBM Plex Serif 21px, height 1.65, `textPrimary`; margin-bottom 38
+- Divider: `borderMid`, margin-bottom 30 (shown after reveal)
+- Back: IBM Plex Serif 17px, height 1.78, `textPrimary`; `**bold**` spans rendered in accent w600
+
+**Navigation row** (border-top `border`, padding `12 vertical / kScreenHPad horizontal`):
+- **Prev:** outlined button (border `border`, radius 8, padding `9×18`), `arrow_back_ios_new` + "Prev" in `textSecondary`
+- **Progress:** "N / total" center (13px `textTertiary`)
+- **Next:** filled button (`accent` bg, radius 8, padding `9×20`), "Next" w600 white + `arrow_forward_ios` white; dimmed to `accentDim` when at last card
+
+---
+
+## Sources screen layout
+
+Inbox-style list. AppBar: "Sources" title + "Sync all" outlined button (border `border`, `sync` icon + text, 12px `textSecondary`).
+
+Row layout: icon (22px `textSecondary`) | name (500 15px) + description+meta below (13px/11px `textSecondary`/`textTertiary`) | `arrow_forward_ios` right (14px `textTertiary`).
+
+---
+
+## Projects screen layout
+
+Row layout (padding `14×16`):
+- Name: IBM Plex Sans 500 15px; `textSecondary` if 100% complete
+- Type badge right: "LIST" or "TODO", 11px w600 uppercase, 0.8px letterSpacing, `textTertiary`
+- Progress bar: height 2, `LinearProgressIndicator`, `accent` fill (in-progress) / `textTertiary` (complete), `border` track, radius 1
+- Count label: "done / total" 11px `textTertiary`
 
 ---
 

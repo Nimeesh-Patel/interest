@@ -70,7 +70,7 @@ Books are the most complex ownership case. Multiple independent systems (Readwis
 
 ### Epistemic artifacts and resurfacing
 
-Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer projects these pairs into a lightweight front/back viewer. Notes are also searchable by filename and body text. The inline note editor writes changes directly back to vault files, preserving frontmatter verbatim.
+Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer (tab 1 — Notes) projects these pairs into a front/back card viewer with IBM Plex Serif typography. An **All Notes hero** card at the top of the deck list surfaces the total card count; a **Browse Notes** section below lists all vault notes regardless of card status. The **Home dashboard** (tab 0) surfaces the first prioritised card's question as a peek, and a "Worth Revisiting" section of entities weighted by score and recency. Notes are searchable by filename and body text. The inline note editor writes changes directly back to vault files, preserving frontmatter verbatim.
 
 ---
 
@@ -78,9 +78,10 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 
 | Subsystem | Directory | Role |
 |---|---|---|
+| Home dashboard | `lib/features/home/` | Daily entry point (tab 0); card-peek hero, Worth Revisiting entities, recent notes, persistent Quick Add FAB |
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
-| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes; activation model promotes linked non-`***` notes into the same queue after their `***` neighbour is reviewed; configurable BFS degree range (min/max hops); graph-score + time-decay sort priority; full-text search; inline note editor (structured/plain/raw modes); `deck:` frontmatter groups notes; `[[wikilinks]]` render as tappable links and navigate vault-wide by filename match |
+| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes (tab 1); activation model; graph-score + time-decay sort; full-text search; inline note editor; IBM Plex Serif card rendering; All Notes hero + Browse Notes list |
 | Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
@@ -88,10 +89,10 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | ReadEra | → Books | Highlight import from `.bak`; patches ReadEra section only |
 | RSS | `Interesting/Articles/`, `Interesting/Entities/` | Feed ingestion; adapter-dispatched by source type |
 | Templates | `Interesting/Templates/` | One-time entity instantiation templates |
-| Sources screen | AppBar action | Hub for Hardcover, RSS, Readwise, Bookmarks |
+| Sources screen | pushed from AppBar | Inbox-style hub: Hardcover, Articles, Readwise, Bookmarks, Obsidian rows; "Sync all" button |
 | Android widget | native | Reads vault path from SharedPreferences; creates entities |
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
-| Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note; one .md file per bookmark |
+| Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note |
 
 Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/anki.md](docs/anki.md), [docs/projects.md](docs/projects.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md), [docs/bookmarks.md](docs/bookmarks.md).
 
@@ -105,10 +106,15 @@ lib/
   core/                    — vault path (SharedPreferences) + directory bootstrap
                              + IntegrationsConfigService (vault-native integration config)
   shared/markdown/         — pure Markdown parsing + YAML frontmatter builder (md_utils) + filesystem I/O (md_io)
-  shared/widgets/          — 6 reusable UI primitives
-  shared/constants/        — app-wide constants (app_spacing.dart, app_theme.dart)
+  shared/widgets/          — reusable UI primitives: SectionHeader, EmptyState, WikilinkText,
+                             showInputDialog, showConfirmDialog, showBottomSheetMenu, showQuickAddSheet
+  shared/constants/        — app_spacing.dart, app_theme.dart (AppColors + ThemeData),
+                             app_text_styles.dart (AppTextStyles — IBM Plex Sans/Serif named getters)
   features/
-    entities/              — core storage (MarkdownStorageService), Entity, EntityScreen
+    home/                  — HomeDashboardScreen (tab 0): card-peek hero, Worth Revisiting, recent notes,
+                             persistent Quick Add FAB; loads from ResurfaceService + MarkdownStorageService
+    entities/              — core storage (MarkdownStorageService), Entity, EntityScreen (inline note edit,
+                             always-visible + Add note / + Link, Done AppBar button on unsaved changes)
     projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
                              TaskFileScreen (todo-style) + ProjectListDetailScreen (list-style)
     tasks/                 — TaskBlock tree, TaskStorageService (block mutations only), TaskFileScreen (shared with projects)
@@ -120,12 +126,14 @@ lib/
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
     resurface/             — ResurfaceService (vault scan), ResurfaceNote + ResurfaceCard models,
                              ReviewLogService (review_log.md owner), GraphScoringService (BFS + decay),
-                             ResurfaceScreen (deck list + search + mixed viewer, Notes tab),
+                             ResurfaceScreen (All Notes hero + deck list + Browse Notes + card viewer),
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
-  screens/home_screen.dart    — BottomNavigationBar shell (three tabs: Notes, Entities, Projects)
-  screens/sources_screen.dart — AppBar-launched hub for content sources (Hardcover, RSS, Readwise, Bookmarks)
+  screens/home_screen.dart    — BottomNavigationBar shell (four tabs: Home, Notes, Entities, Projects);
+                                AppBar: sensors → Sources, popup → Anki / Settings / Templates / Obsidian
+  screens/sources_screen.dart — Sources Inbox (Hardcover, Articles, Readwise, Bookmarks, Obsidian rows;
+                                 Sync all button)
 ```
 
 ---
@@ -145,6 +153,7 @@ First launch shows a vault folder picker. The app creates all `Interesting/` sub
 
 ## Dependencies
 
+- `google_fonts` — IBM Plex Sans (UI) and IBM Plex Serif (card front/back) via Google Fonts CDN
 - `path_provider` — app documents directory (legacy JSON→Markdown migration)
 - `file_picker` — vault folder picker
 - `yaml` — YAML frontmatter parsing
