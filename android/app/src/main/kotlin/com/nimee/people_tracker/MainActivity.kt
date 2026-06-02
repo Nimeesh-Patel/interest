@@ -92,14 +92,22 @@ class MainActivity : FlutterActivity() {
                             val back = call.argument<String>("back") ?: ""
                             val tags = call.argument<List<String>>("tags") ?: emptyList()
                             val api = AddContentApi(applicationContext)
+                            // addNewDeck and addNewBasicModel are idempotent in api-v1.1.0:
+                            // they find an existing deck/model by name before creating.
                             val deckId = api.addNewDeck(deckName)
                                 ?: return@setMethodCallHandler result.error(
-                                    "DECK", "Failed to create deck", null)
+                                    "DECK", "Failed to get or create deck: $deckName", null)
                             val modelId = api.addNewBasicModel("com.nimeesh.interest.basic")
                                 ?: return@setMethodCallHandler result.error(
-                                    "MODEL", "Failed to create model", null)
-                            val noteId = api.addNote(modelId, deckId, arrayOf(front, back), tags.toSet())
-                            result.success(noteId ?: -1L)
+                                    "MODEL", "Failed to get or create model", null)
+                            try {
+                                val noteId: Long = api.addNote(modelId, deckId, arrayOf(front, back), tags.toSet())
+                                    ?: return@setMethodCallHandler result.error(
+                                        "ADD_FAILED", "addNote returned null", null)
+                                result.success(noteId)
+                            } catch (e: Exception) {
+                                result.error("ADD_FAILED", e.message, null)
+                            }
                         }
 
                         "updateNote" -> {

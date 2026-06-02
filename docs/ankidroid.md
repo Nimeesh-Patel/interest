@@ -43,11 +43,13 @@ Write-back uses `patchFrontmatterField()` in `lib/shared/markdown/md_io.dart` �
 
 ## Deck mapping
 
-The `category:` frontmatter field of the vault note is used as the AnkiDroid deck name. If absent, the deck name defaults to `"Problem Notes"`.
+The `category:` frontmatter field of the vault note is used as the AnkiDroid deck name. If absent, the deck name defaults to `"Default"` (AnkiDroid's built-in deck).
 
 ```yaml
 category: Philosophy   # → deck "Philosophy" in AnkiDroid
 ```
+
+Deck lookup uses `getOrCreateDeck` in `MainActivity.kt`, which checks `api.deckList()` before calling `api.addNewDeck()` — existing decks are never duplicated.
 
 ## Update vs. first push
 

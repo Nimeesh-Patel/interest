@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:markdown/markdown.dart' as md;
 
 import '../../../shared/markdown/md_io.dart';
 import '../models/resurface_note.dart';
@@ -45,9 +46,16 @@ class AnkiDroidService {
 
     for (final note in problemNotes) {
       try {
-        final front = note.front ?? '';
-        final back = note.back ?? '';
-        final deckName = note.category ?? 'Problem Notes';
+        final stripped = _stripFrontmatter(note.body);
+        final sepIdx = stripped.indexOf('\n\n***\n\n');
+        final rawFront =
+            sepIdx >= 0 ? stripped.substring(0, sepIdx).trim() : stripped.trim();
+        final rawBack =
+            sepIdx >= 0 ? stripped.substring(sepIdx + 7).trim() : '';
+
+        final front = _prepareForAnki(rawFront);
+        final back = _prepareForAnki(rawBack);
+        final deckName = note.category ?? 'Default';
         final tags = note.tags;
         final ankiNoteId = note.ankiNoteId;
 
@@ -142,5 +150,21 @@ class AnkiDroidService {
     } catch (_) {
       return false;
     }
+  }
+
+  static String _stripFrontmatter(String content) {
+    if (!content.startsWith('---')) return content;
+    final end = content.indexOf('---', 3);
+    if (end == -1) return content;
+    return content.substring(end + 3).trimLeft();
+  }
+
+  static String _prepareForAnki(String text) {
+    // Strip wikilinks: [[Note|alias]] → alias, [[Note]] → Note
+    final delinked = text.replaceAllMapped(
+      RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+      (m) => m.group(2) ?? m.group(1) ?? '',
+    );
+    return md.markdownToHtml(delinked, extensionSet: md.ExtensionSet.gitHubWeb);
   }
 }

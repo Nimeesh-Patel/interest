@@ -134,15 +134,32 @@ class _SourcesScreenState extends State<SourcesScreen> {
     setState(() => _syncingAnki = false);
 
     final total = result.added + result.updated;
-    final msg = result.failed == 0
-        ? 'Synced $total problem notes to AnkiDroid (${result.added} added, ${result.updated} updated)'
-        : result.errors.isNotEmpty
-            ? '${result.failed} notes failed: ${result.errors.first}'
-            : '${result.failed} notes failed';
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
-    );
+    if (result.failed > 0 && result.errors.isNotEmpty) {
+      showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text('${result.failed} note${result.failed == 1 ? '' : 's'} failed'),
+          content: SingleChildScrollView(
+            child: Text(result.errors.join('\n\n'),
+                style: AppTextStyles.bodySmall),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      final msg = result.failed == 0
+          ? 'Synced $total problem notes to AnkiDroid (${result.added} added, ${result.updated} updated)'
+          : '${result.failed} notes failed';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+      );
+    }
   }
 
   static Future<void> _openObsidian(BuildContext context) async {
