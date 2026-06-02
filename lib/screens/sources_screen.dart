@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/integrations_config_service.dart';
+import '../core/vault_service.dart';
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
+import '../features/resurface/services/ankidroid_service.dart';
+import '../features/resurface/services/resurface_service.dart';
 import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
 
-class SourcesScreen extends StatelessWidget {
+class SourcesScreen extends StatefulWidget {
   const SourcesScreen({super.key});
+
+  @override
+  State<SourcesScreen> createState() => _SourcesScreenState();
+}
+
+class _SourcesScreenState extends State<SourcesScreen> {
+  bool _syncingAnki = false;
 
   @override
   Widget build(BuildContext context) {
@@ -67,9 +78,70 @@ class SourcesScreen extends StatelessWidget {
               meta: 'external app',
               onTap: () => _openObsidian(context),
             ),
+            _AnkiDroidRow(
+              syncing: _syncingAnki,
+              onTap: _syncAnkiDroid,
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _syncAnkiDroid() async {
+    if (_syncingAnki) return;
+
+    final available = await AnkiDroidService.isAvailable();
+    if (!mounted) return;
+    if (!available) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AnkiDroid not installed')),
+      );
+      return;
+    }
+
+    final granted = await AnkiDroidService.requestPermission();
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Permission denied')),
+      );
+      return;
+    }
+
+    setState(() => _syncingAnki = true);
+
+    final vaultPath = await VaultService.getVaultPath();
+    if (!mounted) return;
+    if (vaultPath == null) {
+      setState(() => _syncingAnki = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No vault configured')),
+      );
+      return;
+    }
+
+    final config = await IntegrationsConfigService.load(vaultPath);
+    final allNotes = await ResurfaceService.getAllNotes(
+      vaultPath,
+      excludedFolders: config.resurfaceExcludedFolders,
+    );
+    final problemNotes = allNotes.where((n) => n.isProblemNote).toList();
+
+    final result = await AnkiDroidService.syncVault(problemNotes);
+
+    if (!mounted) return;
+    setState(() => _syncingAnki = false);
+
+    final total = result.added + result.updated;
+    final msg = result.failed == 0
+        ? 'Synced $total problem notes to AnkiDroid (${result.added} added, ${result.updated} updated)'
+        : result.errors.isNotEmpty
+            ? '${result.failed} notes failed: ${result.errors.first}'
+            : '${result.failed} notes failed';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
     );
   }
 
@@ -193,6 +265,77 @@ class _SourceRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             if (tappable)
+              const Icon(Icons.arrow_forward_ios,
+                  size: 14, color: AppColors.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnkiDroidRow extends StatelessWidget {
+  final bool syncing;
+  final VoidCallback onTap;
+
+  const _AnkiDroidRow({required this.syncing, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: syncing ? null : onTap,
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.border)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(Icons.style,
+                size: 22,
+                color: syncing
+                    ? AppColors.textTertiary
+                    : AppColors.textSecondary),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'AnkiDroid',
+                    style: AppTextStyles.entityName.copyWith(
+                      color: syncing
+                          ? AppColors.textTertiary
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          syncing
+                              ? 'Syncing problem notes…'
+                              : 'Push problem notes to AnkiDroid',
+                          style: AppTextStyles.bodySmall,
+                        ),
+                      ),
+                      Text('Flashcard sync',
+                          style: AppTextStyles.metaMuted),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (syncing)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
               const Icon(Icons.arrow_forward_ios,
                   size: 14, color: AppColors.textTertiary),
           ],

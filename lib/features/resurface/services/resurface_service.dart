@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/md_utils.dart';
-import '../models/resurface_card.dart';
+import '../models/problem_note.dart';
 import '../models/resurface_note.dart';
 
 class ResurfaceService {
@@ -13,11 +13,11 @@ class ResurfaceService {
     'Attachments',
   ];
 
-  static Future<List<ResurfaceCard>> scan(
+  static Future<List<ProblemNote>> scan(
     String vaultPath, {
     List<String> excludedFolders = _defaultExcludedFolders,
   }) async {
-    final cards = <ResurfaceCard>[];
+    final problemNotes = <ProblemNote>[];
     try {
       final vaultDir = Directory(vaultPath);
       await for (final entry in vaultDir.list(recursive: true)) {
@@ -33,11 +33,11 @@ class ResurfaceService {
           final yaml = parseYamlMap(split.frontmatter);
           if (yaml != null && yaml['exclude_resurface'] == true) continue;
           final card = _extractFrontBack(entry.path, content);
-          if (card != null) cards.add(card);
+          if (card != null) problemNotes.add(card);
         } catch (_) {}
       }
     } catch (_) {}
-    return cards;
+    return problemNotes;
   }
 
   /// Searches the whole vault (no folder exclusions) for a .md file whose
@@ -61,7 +61,7 @@ class ResurfaceService {
   }
 
   /// Returns every vault note that passes folder exclusion, regardless of `***` presence.
-  /// Single scan; `hasCard`/`front`/`back` indicate whether a separator was found.
+  /// Single scan; `isProblemNote`/`front`/`back` indicate whether a separator was found.
   /// Never throws.
   static Future<List<ResurfaceNote>> getAllNotes(
     String vaultPath, {
@@ -86,10 +86,19 @@ class ResurfaceService {
             sourcePath: entry.path,
             sourceFile: p.basename(entry.path),
             body: split.body,
-            hasCard: fb != null,
+            isProblemNote: fb != null,
             front: fb?.front,
             back: fb?.back,
             decks: parseDeckMetadata(split.frontmatter),
+            category: yaml != null && yaml['category'] is String
+                ? yaml['category'] as String
+                : null,
+            tags: yaml != null && yaml['tags'] is List
+                ? (yaml['tags'] as List).whereType<String>().toList()
+                : const [],
+            ankiNoteId: yaml != null && yaml['anki_note_id'] != null
+                ? '${yaml['anki_note_id']}'
+                : null,
           ));
         } catch (_) {}
       }
@@ -97,7 +106,7 @@ class ResurfaceService {
     return notes;
   }
 
-  static ResurfaceCard? _extractFrontBack(String filePath, String content) {
+  static ProblemNote? _extractFrontBack(String filePath, String content) {
     try {
       final split = splitFrontmatter(content);
       final body = split.body;
@@ -127,7 +136,7 @@ class ResurfaceService {
 
       if (front.isEmpty || back.isEmpty) return null;
 
-      return ResurfaceCard(
+      return ProblemNote(
         sourcePath: filePath,
         sourceFile: p.basename(filePath),
         front: front,

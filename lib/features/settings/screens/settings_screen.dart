@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
-import '../../anki/services/anki_connect_service.dart';
 import '../../books/services/hardcover_service.dart';
 import '../../readera/services/readera_ingestion_service.dart';
 import '../../readwise/screens/readwise_screen.dart';
@@ -21,12 +20,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _vaultPath;
-
-  // AnkiConnect
-  final _ankiUrlController = TextEditingController();
-  bool _ankiTesting = false;
-  String? _ankiStatus;
-  bool _ankiStatusOk = false;
 
   // Readwise
   final _readwiseTokenController = TextEditingController();
@@ -62,7 +55,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _ankiUrlController.dispose();
     _readwiseTokenController.dispose();
     _hardcoverTokenController.dispose();
     _resurfaceExcludedController.dispose();
@@ -70,7 +62,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadAll() async {
-    _loadAnkiUrl();
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted || vaultPath == null) return;
     setState(() => _vaultPath = vaultPath);
@@ -115,31 +106,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (mounted) {
       setState(() { _degreeSaving = false; _degreeSaveStatus = 'Saved.'; });
-    }
-  }
-
-  Future<void> _loadAnkiUrl() async {
-    final url = await AnkiConnectService.getUrl();
-    if (mounted) setState(() => _ankiUrlController.text = url);
-  }
-
-  Future<void> _saveAnkiUrl() async {
-    await AnkiConnectService.setUrl(_ankiUrlController.text.trim());
-  }
-
-  Future<void> _testAnkiConnection() async {
-    await _saveAnkiUrl();
-    setState(() {
-      _ankiTesting = true;
-      _ankiStatus = null;
-    });
-    final ok = await AnkiConnectService.testConnection();
-    if (mounted) {
-      setState(() {
-        _ankiTesting = false;
-        _ankiStatusOk = ok;
-        _ankiStatus = ok ? 'Connected' : 'Failed — check URL and that Anki is open';
-      });
     }
   }
 
@@ -247,64 +213,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
-            // ── Anki ────────────────────────────────────────────────────────
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              'Anki',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Connect to AnkiConnect to sync Markdown cards with Anki. '
-              'Anki must be open on the same network. '
-              'Enter the desktop IP address (e.g. http://192.168.1.5:8765).',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _ankiUrlController,
-              decoration: const InputDecoration(
-                labelText: 'AnkiConnect URL',
-                hintText: 'http://192.168.1.x:8765',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-              textInputAction: TextInputAction.done,
-              onChanged: (_) => setState(() => _ankiStatus = null),
-              onSubmitted: (_) => _testAnkiConnection(),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _ankiTesting ? null : _testAnkiConnection,
-                child: _ankiTesting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Test Connection'),
-              ),
-            ),
-            if (_ankiStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _ankiStatus!,
-                style: TextStyle(
-                  color: _ankiStatusOk
-                      ? Colors.green.shade700
-                      : AppColors.destructive,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-
             // ── Readwise ─────────────────────────────────────────────────────
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
             const Divider(),
             const SizedBox(height: 16),
             const Text(
@@ -490,7 +400,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 4),
             const Text(
               'Vault-wide semantic resurfacing viewer. '
-              'Scans notes for --- separators and surfaces them as front/back pairs. '
+              'Scans notes for *** separators and surfaces them as front/back pairs. '
               'Enter folder names to exclude (comma-separated).',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),

@@ -12,7 +12,6 @@ import '../shared/constants/app_theme.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
 import '../shared/widgets/input_dialog.dart';
 import '../features/entities/screens/entity_screen.dart';
-import '../features/anki/screens/anki_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
 import '../features/bookmarks/x_bookmark_service.dart';
@@ -241,13 +240,6 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
     _reloadData();
-  }
-
-  Future<void> _openAnki() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AnkiScreen()),
-    );
   }
 
   Future<void> _openObsidian() async {
@@ -703,13 +695,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'anki') { _openAnki(); }
-              else if (v == 'settings') { _openSettings(); }
+              if (v == 'settings') { _openSettings(); }
               else if (v == 'templates') { _openTemplates(); }
               else if (v == 'obsidian') { _openObsidian(); }
             },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'anki', child: Text('Anki')),
               PopupMenuItem(value: 'settings', child: Text('Settings')),
               PopupMenuItem(value: 'templates', child: Text('Templates')),
               PopupMenuItem(value: 'obsidian', child: Text('Open Obsidian')),

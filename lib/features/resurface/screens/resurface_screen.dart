@@ -14,7 +14,7 @@ import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/section_header.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
-import '../models/resurface_card.dart';
+import '../models/problem_note.dart';
 import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
@@ -55,8 +55,8 @@ class ResurfaceScreen extends StatefulWidget {
 }
 
 class ResurfaceScreenState extends State<ResurfaceScreen> {
-  // *** card counts for deck list (unchanged: only hasCard notes)
-  List<ResurfaceCard> _cards = [];
+  // problem note counts for deck list (only isProblemNote notes)
+  List<ProblemNote> _problemNotes = [];
   bool _loading = true;
   String? _error;
   String? _vaultPath;
@@ -67,6 +67,10 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   List<ResurfaceNote> _viewerNotes = [];
   int _viewerIndex = 0;
   bool _viewerBackRevealed = false;
+
+  // No-repeat state — session-only, never persisted.
+  String? _lastShownFilename;
+  Map<String, double> _viewerPriorities = {};
 
   // Incremented after each edit to force NoteDetailScreen to re-read its file.
   int _detailVersion = 0;
@@ -108,9 +112,9 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       excludedFolders: config.resurfaceExcludedFolders,
     );
     if (!mounted) return;
-    final cards = allNotes
-        .where((n) => n.hasCard)
-        .map((n) => ResurfaceCard(
+    final problemNotes = allNotes
+        .where((n) => n.isProblemNote)
+        .map((n) => ProblemNote(
               sourcePath: n.sourcePath,
               sourceFile: n.sourceFile,
               front: n.front!,
@@ -120,7 +124,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         .toList();
     setState(() {
       _allNotes = allNotes;
-      _cards = cards;
+      _problemNotes = problemNotes;
       _loading = false;
     });
   }
@@ -170,18 +174,28 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       final fb = splitFrontBack(split.body);
       final idx = _viewerNotes.indexWhere((n) => n.sourcePath == filePath);
       if (idx == -1) return;
-      final wasCard = _viewerNotes[idx].hasCard;
+      final wasProblemNote = _viewerNotes[idx].isProblemNote;
+      final yaml = parseYamlMap(split.frontmatter);
       final updated = ResurfaceNote(
         sourcePath: filePath,
         sourceFile: p.basename(filePath),
         body: split.body,
-        hasCard: fb != null,
+        isProblemNote: fb != null,
         front: fb?.front,
         back: fb?.back,
         decks: parseDeckMetadata(split.frontmatter),
+        category: yaml != null && yaml['category'] is String
+            ? yaml['category'] as String
+            : null,
+        tags: yaml != null && yaml['tags'] is List
+            ? (yaml['tags'] as List).whereType<String>().toList()
+            : const [],
+        ankiNoteId: yaml != null && yaml['anki_note_id'] != null
+            ? '${yaml['anki_note_id']}'
+            : null,
       );
       // *** note lost its separator → remove from viewer.
-      if (wasCard && fb == null) {
+      if (wasProblemNote && fb == null) {
         setState(() {
           _viewerNotes.removeAt(idx);
           _viewerIndex =
@@ -190,10 +204,10 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         return;
       }
       // Non-*** note gained a separator → update is_star in log.
-      if (!wasCard && fb != null) {
+      if (!wasProblemNote && fb != null) {
         ReviewLogService.markReviewed(
           p.basenameWithoutExtension(filePath),
-          isStar: true,
+          isProblemNote: true,
         );
       }
       setState(() => _viewerNotes[idx] = updated);
@@ -218,6 +232,8 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       _viewerNotes = [];
       _viewerIndex = 0;
       _viewerBackRevealed = false;
+      _lastShownFilename = null;
+      _viewerPriorities = {};
       _searchActive = false;
       _searchController.clear();
       _searchQuery = '';
@@ -248,7 +264,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     // Include activated non-*** notes that belong to this deck.
     final log = await ReviewLogService.loadFullLog();
     final activatedPlain = _allNotes
-        .where((n) => !n.hasCard)
+        .where((n) => !n.isProblemNote)
         .where((n) {
           final e = log[p.basenameWithoutExtension(n.sourceFile)];
           return e != null && e.activatedBy.isNotEmpty;
@@ -257,28 +273,32 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         .toList();
 
     final allEligible = [...starNotes, ...activatedPlain];
-    final sorted = await GraphScoringService.sortByPriority(allEligible);
+    final result = await GraphScoringService.sortByPriority(allEligible);
     if (!mounted) return;
     setState(() {
       _stack.add(_CardViewerRoute(deckName));
-      _viewerNotes = sorted;
+      _viewerNotes = result.sorted;
+      _viewerPriorities = result.priorities;
       _viewerIndex = 0;
       _viewerBackRevealed = false;
     });
     widget.onNavigationChanged?.call();
-    if (sorted.isNotEmpty) {
-      final first = sorted.first;
+    if (result.sorted.isNotEmpty) {
+      final first = result.sorted.first;
       final firstName = p.basenameWithoutExtension(first.sourceFile);
-      ReviewLogService.markReviewed(firstName, isStar: first.hasCard);
+      _lastShownFilename = firstName;
+      ReviewLogService.markReviewed(firstName,
+          isProblemNote: first.isProblemNote,
+          scheduledInterval: result.priorities[firstName]);
       GraphScoringService.updateGraphScores(firstName);
     }
   }
 
   List<ResurfaceNote> _notesForDeck(String deckName) {
-    final cardNotes = _allNotes.where((n) => n.hasCard);
-    if (deckName == 'All Notes') return cardNotes.toList();
-    if (deckName == 'Default') return cardNotes.where((n) => n.decks.isEmpty).toList();
-    return cardNotes.where((n) => n.decks.contains(deckName)).toList();
+    final problemNotes = _allNotes.where((n) => n.isProblemNote);
+    if (deckName == 'All Notes') return problemNotes.toList();
+    if (deckName == 'Default') return problemNotes.where((n) => n.decks.isEmpty).toList();
+    return problemNotes.where((n) => n.decks.contains(deckName)).toList();
   }
 
   bool _noteBelongsToDeck(ResurfaceNote n, String deckName) {
@@ -304,16 +324,26 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   // ── Card viewer callbacks ─────────────────────────────────────────────────
 
   void _viewerGoNext() {
-    if (_viewerIndex < _viewerNotes.length - 1) {
-      setState(() {
-        _viewerIndex++;
-        _viewerBackRevealed = false;
-      });
-      final note = _viewerNotes[_viewerIndex];
-      final filename = p.basenameWithoutExtension(note.sourceFile);
-      ReviewLogService.markReviewed(filename, isStar: note.hasCard);
-      GraphScoringService.updateGraphScores(filename);
-    }
+    if (_viewerIndex >= _viewerNotes.length - 1) return;
+    final nextIdx = _viewerIndex + 1;
+    final nextName = p.basenameWithoutExtension(_viewerNotes[nextIdx].sourceFile);
+    setState(() {
+      // No-repeat: if the next note is the same as the last shown and there is
+      // a note after it to skip to, move it one position back in the queue.
+      if (nextName == _lastShownFilename && nextIdx + 1 < _viewerNotes.length) {
+        final skipped = _viewerNotes.removeAt(nextIdx);
+        _viewerNotes.insert(nextIdx + 1, skipped);
+      }
+      _viewerIndex = nextIdx;
+      _viewerBackRevealed = false;
+    });
+    final note = _viewerNotes[_viewerIndex];
+    final filename = p.basenameWithoutExtension(note.sourceFile);
+    _lastShownFilename = filename;
+    ReviewLogService.markReviewed(filename,
+        isProblemNote: note.isProblemNote,
+        scheduledInterval: _viewerPriorities[filename]);
+    GraphScoringService.updateGraphScores(filename);
   }
 
   void _viewerGoPrev() {
@@ -324,7 +354,10 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       });
       final note = _viewerNotes[_viewerIndex];
       final filename = p.basenameWithoutExtension(note.sourceFile);
-      ReviewLogService.markReviewed(filename, isStar: note.hasCard);
+      _lastShownFilename = filename;
+      ReviewLogService.markReviewed(filename,
+          isProblemNote: note.isProblemNote,
+          scheduledInterval: _viewerPriorities[filename]);
       GraphScoringService.updateGraphScores(filename);
     }
   }
@@ -358,7 +391,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   void _openSearchResult(ResurfaceNote note) {
-    if (note.hasCard) {
+    if (note.isProblemNote) {
       _pushDeck(
         p.basenameWithoutExtension(note.sourceFile),
         [note],
@@ -380,7 +413,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   List<_DeckInfo> get _deckItems {
     final named = <String, int>{};
     int defaultCount = 0;
-    for (final c in _cards) {
+    for (final c in _problemNotes) {
       if (c.decks.isEmpty) {
         defaultCount++;
       } else {
@@ -392,7 +425,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     final namedList = named.entries.map((e) => _DeckInfo(e.key, e.value)).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     return [
-      _DeckInfo('All Notes', _cards.length),
+      _DeckInfo('All Notes', _problemNotes.length),
       if (defaultCount > 0) _DeckInfo('Default', defaultCount),
       ...namedList,
     ];
@@ -414,7 +447,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (!mounted) return;
     setState(() {
       _allNotes.removeWhere((n) => n.sourcePath == note.sourcePath);
-      _cards.removeWhere((c) => c.sourcePath == note.sourcePath);
+      _problemNotes.removeWhere((c) => c.sourcePath == note.sourcePath);
       _viewerNotes.removeAt(_viewerIndex);
       _viewerIndex =
           _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
@@ -504,7 +537,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
                     style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
                   )
                 : null,
-            trailing: note.hasCard
+            trailing: note.isProblemNote
                 ? const Text('✦', style: TextStyle(color: AppColors.accent, fontSize: 12))
                 : null,
             onTap: () => _openSearchResult(note),
@@ -515,7 +548,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Widget _buildDeckList() {
-    if (_allNotes.isEmpty && _cards.isEmpty) {
+    if (_allNotes.isEmpty && _problemNotes.isEmpty) {
       return const EmptyState(
         icon: Icons.auto_awesome_outlined,
         message: 'No notes found.\nAdd a *** separator to a note.',
@@ -555,7 +588,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
                             style: AppTextStyles.entityName.copyWith(
                                 fontWeight: FontWeight.w600, fontSize: 16)),
                         const SizedBox(height: 2),
-                        Text('${_cards.length} cards to review',
+                        Text('${_problemNotes.length} problem notes to review',
                             style: AppTextStyles.bodySmall),
                       ],
                     ),
@@ -632,7 +665,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
                         style: AppTextStyles.entityName,
                       ),
                     ),
-                    if (note.hasCard)
+                    if (note.isProblemNote)
                       Text('✦',
                           style: AppTextStyles.meta.copyWith(
                               color: AppColors.accent, fontSize: 11)),
@@ -741,7 +774,7 @@ class _NoteViewerBody extends StatelessWidget {
         // ── Card body ───────────────────────────────────────────────────────
         Expanded(
           child: GestureDetector(
-            onTap: note.hasCard ? onToggleBack : null,
+            onTap: note.isProblemNote ? onToggleBack : null,
             onHorizontalDragEnd: (details) {
               final v = details.primaryVelocity ?? 0;
               if (v < -200) {
@@ -756,7 +789,7 @@ class _NoteViewerBody extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (note.hasCard) ...[
+                  if (note.isProblemNote) ...[
                     // Front — IBM Plex Serif 21px
                     _mdBodySerif(context, note.front!, fontSize: 21, height: 1.65),
                     const SizedBox(height: 38),

@@ -11,7 +11,8 @@ typedef _RawEntry = ({
   double graphScore,
   String? lastBoosted,
   List<String> activatedBy,
-  bool isStar,
+  bool isProblemNote,
+  double? scheduledInterval,
 });
 
 typedef _LogData = ({
@@ -57,7 +58,8 @@ class ReviewLogService {
           final score = item['graph_score'];
           final boosted = item['last_boosted'];
           final activated = item['activated_by'];
-          final isStar = item['is_star'];
+          final rawIsStar = item['is_star']; // YAML key preserved for backward compat
+          final scheduledInterval = item['scheduled_interval'];
           entries.add((
             note: note,
             lastReviewed: (date is String) ? date : null,
@@ -66,7 +68,9 @@ class ReviewLogService {
             activatedBy: (activated is YamlList)
                 ? activated.whereType<String>().toList()
                 : <String>[],
-            isStar: (isStar is bool) ? isStar : false,
+            isProblemNote: (rawIsStar is bool) ? rawIsStar : false,
+            scheduledInterval:
+                (scheduledInterval is num) ? scheduledInterval.toDouble() : null,
           ));
         }
       }
@@ -103,6 +107,10 @@ class ReviewLogService {
       if (e.lastBoosted != null) {
         buf.writeln('    last_boosted: "${e.lastBoosted}"');
       }
+      if (e.scheduledInterval != null) {
+        buf.writeln(
+            '    scheduled_interval: ${e.scheduledInterval!.toStringAsFixed(4)}');
+      }
       if (e.activatedBy.isEmpty) {
         buf.writeln('    activated_by: []');
       } else {
@@ -111,7 +119,7 @@ class ReviewLogService {
           buf.writeln('      - "$parent"');
         }
       }
-      buf.writeln('    is_star: ${e.isStar}');
+      buf.writeln('    is_star: ${e.isProblemNote}'); // YAML key preserved
     }
     buf.write('---\n');
     return buf.toString();
@@ -156,7 +164,8 @@ class ReviewLogService {
             String? lastBoosted,
             DateTime? lastReviewed,
             List<String> activatedBy,
-            bool isStar,
+            bool isProblemNote,
+            double? scheduledInterval,
           })>> loadFullLog() async {
     try {
       final vaultPath = await VaultService.getVaultPath();
@@ -168,7 +177,8 @@ class ReviewLogService {
             String? lastBoosted,
             DateTime? lastReviewed,
             List<String> activatedBy,
-            bool isStar,
+            bool isProblemNote,
+            double? scheduledInterval,
           })>{};
       for (final e in data.entries) {
         try {
@@ -178,7 +188,8 @@ class ReviewLogService {
             lastReviewed:
                 e.lastReviewed != null ? DateTime.tryParse(e.lastReviewed!) : null,
             activatedBy: e.activatedBy,
-            isStar: e.isStar,
+            isProblemNote: e.isProblemNote,
+            scheduledInterval: e.scheduledInterval,
           );
         } catch (_) {}
       }
@@ -210,7 +221,8 @@ class ReviewLogService {
 
   static Future<void> markReviewed(
     String noteFilename, {
-    bool isStar = false,
+    bool isProblemNote = false,
+    double? scheduledInterval,
   }) async {
     try {
       final vaultPath = await VaultService.getVaultPath();
@@ -229,14 +241,15 @@ class ReviewLogService {
             graphScore: 0.0,
             lastBoosted: null,
             activatedBy: <String>[],
-            isStar: isStar,
+            isProblemNote: isProblemNote,
+            scheduledInterval: scheduledInterval,
           ),
         ];
       } else {
         final existing = entries[idx];
-        // Promoted from non-star to star: clear activated_by.
+        // Promoted from non-problem-note to problem note: clear activated_by.
         final newActivatedBy =
-            (!existing.isStar && isStar) ? <String>[] : existing.activatedBy;
+            (!existing.isProblemNote && isProblemNote) ? <String>[] : existing.activatedBy;
         updated = [
           for (var i = 0; i < entries.length; i++)
             i == idx
@@ -246,7 +259,9 @@ class ReviewLogService {
                     graphScore: existing.graphScore,
                     lastBoosted: existing.lastBoosted,
                     activatedBy: newActivatedBy,
-                    isStar: isStar,
+                    isProblemNote: isProblemNote,
+                    scheduledInterval:
+                        scheduledInterval ?? existing.scheduledInterval,
                   )
                 : entries[i],
         ];
@@ -262,7 +277,7 @@ class ReviewLogService {
   }
 
   static Future<void> patchGraphScores(
-    Map<String, ({double rawScore, String lastBoosted, bool isStar})> updates,
+    Map<String, ({double rawScore, String lastBoosted, bool isProblemNote})> updates,
   ) async {
     try {
       final vaultPath = await VaultService.getVaultPath();
@@ -282,7 +297,8 @@ class ReviewLogService {
               graphScore: update.rawScore,
               lastBoosted: update.lastBoosted,
               activatedBy: <String>[],
-              isStar: update.isStar,
+              isProblemNote: update.isProblemNote,
+              scheduledInterval: null,
             ),
           ];
         } else {
@@ -295,7 +311,8 @@ class ReviewLogService {
                       graphScore: update.rawScore,
                       lastBoosted: update.lastBoosted,
                       activatedBy: entries[idx].activatedBy,
-                      isStar: update.isStar,
+                      isProblemNote: update.isProblemNote,
+                      scheduledInterval: entries[idx].scheduledInterval,
                     )
                   : entries[i],
           ];
@@ -328,7 +345,7 @@ class ReviewLogService {
   }
 
   /// Appends [reviewedStarNote] to the `activated_by` list of each note in
-  /// [targets] (filename → isStar). Creates entries for notes not yet in the log.
+  /// [targets] (filename → isProblemNote). Creates entries for notes not yet in the log.
   static Future<void> activateNotes(
     String reviewedStarNote,
     Map<String, bool> targets,
@@ -340,7 +357,7 @@ class ReviewLogService {
       var entries = data.entries;
       for (final kv in targets.entries) {
         final name = kv.key;
-        final isStar = kv.value;
+        final isProblemNoteFlag = kv.value;
         final idx = entries.indexWhere((e) => e.note == name);
         if (idx == -1) {
           entries = [
@@ -351,7 +368,8 @@ class ReviewLogService {
               graphScore: 0.0,
               lastBoosted: null,
               activatedBy: [reviewedStarNote],
-              isStar: isStar,
+              isProblemNote: isProblemNoteFlag,
+              scheduledInterval: null,
             ),
           ];
         } else {
@@ -366,7 +384,8 @@ class ReviewLogService {
                       graphScore: existing.graphScore,
                       lastBoosted: existing.lastBoosted,
                       activatedBy: [...existing.activatedBy, reviewedStarNote],
-                      isStar: isStar,
+                      isProblemNote: isProblemNoteFlag,
+                      scheduledInterval: existing.scheduledInterval,
                     )
                   : entries[i],
           ];

@@ -20,8 +20,6 @@ The architecture consistently rejects two alternatives: (1) treating Markdown as
     Projects/          — one .md file per project (canonical)
     Lists/             — legacy migration source only; no new files created here
     Templates/         — category templates; seeded on first launch; user-editable
-    Anki/              — one .md file per Anki card
-      .trash/          — soft-deleted cards
     Tasks/             — legacy migration source only; no new files created here
     Books/             — one .md file per book; convergence point for multiple enrichment sources
     Articles/          — one .md file per RSS-imported article
@@ -36,7 +34,7 @@ All subdirectories are created on first launch (`VaultService.ensureVaultDirecto
 
 ### Canonical ownership vs. projection
 
-The app **co-owns** certain files (entity files, Anki card files, book files) and **reads** others (the rest of the vault for resurfacing). Within co-owned files, ownership is further partitioned: only the keys in `_semanticSections` are rewritten on save; every other `##` section the user writes is preserved verbatim.
+The app **co-owns** certain files (entity files, book files) and **reads** others (the rest of the vault for resurfacing). Within co-owned files, ownership is further partitioned: only the keys in `_semanticSections` are rewritten on save; every other `##` section the user writes is preserved verbatim.
 
 Projections are computed at read time and never persisted:
 
@@ -55,7 +53,7 @@ Every semantic object has an identity anchor that survives renames and file move
 | Type | Anchor | Mutability |
 |---|---|---|
 | Entity | `alias` (frontmatter) | Immutable after creation |
-| Anki card | `anki_id` (frontmatter) | Immutable after first sync |
+| Problem note (AnkiDroid) | `anki_note_id` (frontmatter) | Written on first sync; stable |
 | Book | `alias` (frontmatter) | Stable |
 | Article | `alias` + GUID dedup key | Stable |
 | Task file | None | — |
@@ -82,7 +80,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
 | Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes (tab 1); activation model; graph-score + time-decay sort; full-text search; inline note editor; IBM Plex Serif card rendering; All Notes hero + Browse Notes list |
-| Anki | `Interesting/Anki/` | Bidirectional semantic sync with Anki; soft-delete |
+| AnkiDroid | Sources screen | Push problem notes to AnkiDroid via ContentProvider; `anki_note_id` written back to frontmatter |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
 | Hardcover | → Books | Bidirectional reading-state sync; accessed via Sources screen |
@@ -94,7 +92,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
 | Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note |
 
-Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/anki.md](docs/anki.md), [docs/projects.md](docs/projects.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md), [docs/bookmarks.md](docs/bookmarks.md).
+Full subsystem detail: [docs/entities.md](docs/entities.md), [docs/books.md](docs/books.md), [docs/ankidroid.md](docs/ankidroid.md), [docs/projects.md](docs/projects.md), [docs/readwise.md](docs/readwise.md), [docs/readera.md](docs/readera.md), [docs/resurface.md](docs/resurface.md), [docs/bookmarks.md](docs/bookmarks.md).
 
 ---
 
@@ -118,21 +116,21 @@ lib/
     projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
                              TaskFileScreen (todo-style) + ProjectListDetailScreen (list-style)
     tasks/                 — TaskBlock tree, TaskStorageService (block mutations only), TaskFileScreen (shared with projects)
-    anki/                  — AnkiCard, three services (connect/storage/sync), two screens
     books/                 — Book model, BookStorageService, HardcoverService/SyncService
     readwise/              — ReadwiseService, ReadwiseScreen (enriches Books/)
     rss/                   — RssFetchService, adapters (letterboxd/substack/generic),
                              ArticleStorageService, RssIngestionService, RssScreen
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
-    resurface/             — ResurfaceService (vault scan), ResurfaceNote + ResurfaceCard models,
+    resurface/             — ResurfaceService (vault scan), ResurfaceNote + ProblemNote models,
+                             AnkiDroidService (MethodChannel bridge; syncVault()),
                              ReviewLogService (review_log.md owner), GraphScoringService (BFS + decay),
                              ResurfaceScreen (All Notes hero + deck list + Browse Notes + card viewer),
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart    — BottomNavigationBar shell (four tabs: Home, Notes, Entities, Projects);
-                                AppBar: sensors → Sources, popup → Anki / Settings / Templates / Obsidian
-  screens/sources_screen.dart — Sources Inbox (Hardcover, Articles, Readwise, Bookmarks, Obsidian rows;
+                                AppBar: sensors → Sources, popup → Settings / Templates / Open Obsidian
+  screens/sources_screen.dart — Sources Inbox (Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid rows;
                                  Sync all button)
 ```
 
@@ -160,7 +158,7 @@ First launch shows a vault folder picker. The app creates all `Interesting/` sub
 - `shared_preferences` — vault path and settings persistence (bootstrap only)
 - `path` — cross-platform path manipulation
 - `permission_handler` — Android All Files Access gate
-- `http` — network requests (AnkiConnect, Grokipedia, Readwise, Hardcover, RSS; all user-triggered)
+- `http` — network requests (Grokipedia, Readwise, Hardcover, RSS; all user-triggered)
 - `xml` — RSS/XML parsing
 - `url_launcher` — Grokipedia article links; Obsidian `obsidian://` URI
 - `archive` — ZIP decoding for ReadEra `.bak` backup import

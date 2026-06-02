@@ -1,11 +1,11 @@
-class ResurfaceCard {
+class ProblemNote {
   final String sourcePath;
   final String sourceFile;
   final String front;
   final String back;
   final List<String> decks;
 
-  const ResurfaceCard({
+  const ProblemNote({
     required this.sourcePath,
     required this.sourceFile,
     required this.front,

@@ -10,6 +10,9 @@ import 'review_log_service.dart';
 
 const double kBaseBoost = 1.0;
 const double kDecayLambda = 0.1;
+const double kNoiseThresholdShort = 10.0;
+const double kNoiseThresholdMedium = 60.0;
+const double kNoiseLongFraction = 0.05;
 
 class GraphScoringService {
   static double decayedScore(double rawScore, DateTime? lastBoosted) {
@@ -27,7 +30,8 @@ class GraphScoringService {
               String? lastBoosted,
               DateTime? lastReviewed,
               List<String> activatedBy,
-              bool isStar,
+              bool isProblemNote,
+              double? scheduledInterval,
             })>
         log,
   ) {
@@ -58,13 +62,13 @@ class GraphScoringService {
 
       final graph = <String, Set<String>>{};
       final normalToOrig = <String, String>{};
-      final isStarMap = <String, bool>{};
+      final isProblemNoteMap = <String, bool>{};
       for (final note in notes) {
         final orig = p.basenameWithoutExtension(note.sourceFile);
         final key = orig.toLowerCase();
         normalToOrig[key] = orig;
         graph[key] = extractWikilinks(note.body).map((t) => t.toLowerCase()).toSet();
-        isStarMap[key] = note.hasCard;
+        isProblemNoteMap[key] = note.isProblemNote;
       }
 
       final reviewed = reviewedNoteFilename.toLowerCase();
@@ -94,22 +98,22 @@ class GraphScoringService {
       final today = DateTime.now().toIso8601String().substring(0, 10);
 
       final scoreUpdates =
-          <String, ({double rawScore, String lastBoosted, bool isStar})>{};
+          <String, ({double rawScore, String lastBoosted, bool isProblemNote})>{};
       final activationTargets = <String, bool>{};
 
       for (final entry in hopNodes.entries) {
         final d = entry.key;
         for (final key in entry.value) {
           final orig = normalToOrig[key] ?? key;
-          final isStar = isStarMap[key] ?? false;
+          final isProblemNoteFlag = isProblemNoteMap[key] ?? false;
           final existing = log[orig]?.graphScore ?? 0.0;
           scoreUpdates[orig] = (
             rawScore: existing + kBaseBoost / d,
             lastBoosted: today,
-            isStar: isStar,
+            isProblemNote: isProblemNoteFlag,
           );
           if (d >= minDeg) {
-            activationTargets[orig] = isStar;
+            activationTargets[orig] = isProblemNoteFlag;
           }
         }
       }
@@ -123,48 +127,71 @@ class GraphScoringService {
     } catch (_) {}
   }
 
-  static Future<List<ResurfaceNote>> sortByPriority(
+  static Future<({List<ResurfaceNote> sorted, Map<String, double> priorities})>
+      sortByPriority(
     List<ResurfaceNote> notes,
   ) async {
     try {
       final log = await ReviewLogService.loadFullLog();
       final today = DateTime.now();
       const neverReviewedDays = 365.0;
+      final rng = math.Random();
+
+      final preNoisePriorities = <String, double>{};
+      final sortPriorities = <String, double>{};
+
+      for (final note in notes) {
+        final key = p.basenameWithoutExtension(note.sourceFile);
+        final e = log[key];
+
+        final rawDays = e?.lastReviewed != null
+            ? today.difference(e!.lastReviewed!).inDays.toDouble()
+            : neverReviewedDays;
+
+        // Late-penalty cap: if note is reviewed much later than its scheduled
+        // interval, cap effective days to avoid permanent queue dominance.
+        final scheduledInterval = e?.scheduledInterval;
+        final effectiveDays = (scheduledInterval != null &&
+                e?.lastReviewed != null &&
+                rawDays > scheduledInterval * 1.5)
+            ? scheduledInterval * 1.5
+            : rawDays;
+
+        final scoreTerm = note.isProblemNote
+            ? decayedScore(
+                e?.graphScore ?? 0.0,
+                e?.lastBoosted != null
+                    ? DateTime.tryParse(e!.lastBoosted!)
+                    : null,
+              )
+            : _maxParentScore(e?.activatedBy ?? <String>[], log);
+
+        final preNoise = effectiveDays + scoreTerm;
+        preNoisePriorities[key] = preNoise;
+
+        // Noise: prevent pile-ups when many notes have similar staleness.
+        // Threshold uses rawDays (actual elapsed time, not capped).
+        double noise;
+        if (rawDays <= kNoiseThresholdShort) {
+          noise = rng.nextDouble() > 0.5 ? 1.0 : 0.0;
+        } else if (rawDays <= kNoiseThresholdMedium) {
+          noise = -3.0 + rng.nextDouble() * 6.0;
+        } else {
+          noise = rawDays * (rng.nextDouble() * 0.10 - kNoiseLongFraction);
+        }
+        sortPriorities[key] = preNoise + noise;
+      }
+
       final sorted = List.of(notes)
         ..sort((a, b) {
-          final keyA = p.basenameWithoutExtension(a.sourceFile);
-          final keyB = p.basenameWithoutExtension(b.sourceFile);
-          final ea = log[keyA];
-          final eb = log[keyB];
-          final daysA = ea?.lastReviewed != null
-              ? today.difference(ea!.lastReviewed!).inDays.toDouble()
-              : neverReviewedDays;
-          final daysB = eb?.lastReviewed != null
-              ? today.difference(eb!.lastReviewed!).inDays.toDouble()
-              : neverReviewedDays;
-          final prioA = daysA +
-              (a.hasCard
-                  ? decayedScore(
-                      ea?.graphScore ?? 0.0,
-                      ea?.lastBoosted != null
-                          ? DateTime.tryParse(ea!.lastBoosted!)
-                          : null,
-                    )
-                  : _maxParentScore(ea?.activatedBy ?? <String>[], log));
-          final prioB = daysB +
-              (b.hasCard
-                  ? decayedScore(
-                      eb?.graphScore ?? 0.0,
-                      eb?.lastBoosted != null
-                          ? DateTime.tryParse(eb!.lastBoosted!)
-                          : null,
-                    )
-                  : _maxParentScore(eb?.activatedBy ?? <String>[], log));
-          return prioB.compareTo(prioA);
+          final pa = sortPriorities[p.basenameWithoutExtension(a.sourceFile)] ?? 0.0;
+          final pb = sortPriorities[p.basenameWithoutExtension(b.sourceFile)] ?? 0.0;
+          return pb.compareTo(pa);
         });
-      return sorted;
+
+      return (sorted: sorted, priorities: preNoisePriorities);
     } catch (_) {
-      return notes;
+      return (sorted: notes, priorities: <String, double>{});
     }
   }
 }

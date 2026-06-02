@@ -37,7 +37,7 @@ class HomeDashboardScreen extends StatefulWidget {
 }
 
 class HomeDashboardScreenState extends State<HomeDashboardScreen> {
-  int _cardCount = 0;
+  int _problemNoteCount = 0;
   String? _firstCardFront;
   String? _firstCardDeck;
   List<ResurfaceNote> _recentNotes = [];
@@ -76,13 +76,14 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen> {
       }
       withStats.sort((a, b) => b.modified.compareTo(a.modified));
 
-      final cardNotes = notes.where((n) => n.hasCard).toList();
-      final sortedCards =
-          await GraphScoringService.sortByPriority(cardNotes);
+      final problemNotes = notes.where((n) => n.isProblemNote).toList();
+      final sortedResult =
+          await GraphScoringService.sortByPriority(problemNotes);
+      final sortedCards = sortedResult.sorted;
 
       if (!mounted) return;
       setState(() {
-        _cardCount = cardNotes.length;
+        _problemNoteCount = problemNotes.length;
         _firstCardFront =
             sortedCards.isNotEmpty ? sortedCards.first.front : null;
         _firstCardDeck = sortedCards.isNotEmpty &&
@@ -187,7 +188,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         style: AppTextStyles.bodySmall,
                       ),
                       Text(
-                        '$_cardCount cards to review',
+                        '$_problemNoteCount problem notes to review',
                         style: AppTextStyles.metaMuted,
                       ),
                     ],
@@ -345,7 +346,7 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen> {
                 ],
               ),
             ),
-            if (note.hasCard)
+            if (note.isProblemNote)
               Text(
                 '✦',
                 style: AppTextStyles.meta

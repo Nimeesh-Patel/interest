@@ -27,7 +27,7 @@ Start here based on task class:
 | Understanding the book enrichment source pattern | [docs/readwise.md](docs/readwise.md) (Readwise), [docs/readera.md](docs/readera.md) (ReadEra) |
 | Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
 | Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
-| Modifying Anki sync | [docs/anki.md](docs/anki.md), then `AnkiSyncService` |
+| Modifying AnkiDroid sync | [docs/ankidroid.md](docs/ankidroid.md), then `AnkiDroidService` |
 | Modifying resurfacing extraction, deck metadata, viewer, search, or note editing | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` / `NoteEditScreen` |
 | Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
 | Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
@@ -63,7 +63,7 @@ Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are r
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `AnkiConnectService`, `TaskStorageService`, `AnkiStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `ProjectStorageService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `TaskStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `AnkiDroidService`, `ProjectStorageService`.
 
 ## Save semantics
 
@@ -71,7 +71,7 @@ All services are **all-static, all-catch-null, never throw**. Errors surface via
 - **Inline note/title editing** (no explicit edit-mode toggle): tapping a note bullet or the entity title marks the screen dirty (`_markDirty()` takes a snapshot on first change, sets `_hasUnsavedChanges = true`). The AppBar shows a `check` icon only when `_hasUnsavedChanges == true`; tapping it calls `_saveEdit()`. When `_hasUnsavedChanges == false`, the AppBar shows the `edit` icon (full edit body for category/score/tags) and `more_vert`.
 - **Immediate save for shared mutations** (`_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared state the entity snapshot doesn't cover.
 - `saveData()` snapshots all entity lists before the async gap to prevent partial-save races.
-- `updated_at` stamped on every mutation: entities in `_save()`, Anki cards in `AnkiStorageService.saveCard()` and `createNewCard()`.
+- `updated_at` stamped on every mutation: entities in `_save()`.
 
 ## Write paths
 
@@ -81,7 +81,6 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 |---|---|
 | `MarkdownStorageService` | vault root (user entities; vault-wide `category:` scan) |
 | `LetterboxdAdapter` | vault root (RSS movies; bypasses `MarkdownStorageService`) |
-| `AnkiStorageService` | `Interesting/Anki/` + `.trash/` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
 | `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService`, `ReaderaIngestionService` write only via this |
@@ -96,12 +95,11 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | Type | Anchor | Mutability | Delete |
 |---|---|---|---|
 | Entity | `alias` (frontmatter) | Immutable after creation | Hard |
-| Anki card | `anki_id` (frontmatter) | Immutable after first Anki sync | Soft (`.trash/`) |
+| Problem note (AnkiDroid) | `anki_note_id` (frontmatter) | Written on first sync; stable | Hard |
 | Book | `alias` (frontmatter) | Stable | Hard |
 | Article | `alias` (frontmatter); GUID as dedup key | Stable | Hard |
 | Task file | None | — | Hard |
 
-Anki soft-delete rationale: a hard-deleted card re-synced from Anki would receive a new `anki_id`, permanently breaking the identity chain.
 
 ## Shared utilities — do not duplicate
 
@@ -119,7 +117,6 @@ Integration configuration lives in `Interesting/System/integrations.md` (vault-c
 | Key | Location | Rationale |
 |---|---|---|
 | `vault_path` | SharedPreferences | Must be known before vault is accessible |
-| `anki_connect_url` | SharedPreferences | Device-specific LAN address; not portable |
 | Readwise token | `integrations.md` | Portable; syncs via Obsidian Sync |
 | Hardcover token | `integrations.md` | Portable; syncs via Obsidian Sync |
 | RSS feed configs | `integrations.md` | Portable; syncs via Obsidian Sync |
@@ -129,7 +126,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 ## Subsystem constraints
 
-**Anki** — `anki_id` immutable (see identity anchors table); soft-delete only; review metadata (intervals, ease, due dates) never written to Markdown. Full details: [docs/anki.md](docs/anki.md).
+**AnkiDroid** — one-way push only (vault → AnkiDroid); only `anki_note_id` written back to frontmatter; deck from `category:` field (default "Problem Notes"); review history never written to Markdown. Full details: [docs/ankidroid.md](docs/ankidroid.md).
 
 **Projects** — unified semantic workspaces replacing Lists + Todos. New project files land in `Interesting/Projects/`. On first `ProjectStorageService.loadAll()`, existing files in `Lists/` and `Tasks/` are migrated to `Projects/` (best-effort, idempotent). Detail screen is always `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 
@@ -147,11 +144,11 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
-**Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `hasCard: true` when a `***` horizontal-rule separator is found outside code fences; `_cards` is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just `***` notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. **Deck list layout:** All Notes hero card (surface, `borderMid` border, card count) → named DECKS section → BROWSE NOTES section (all `_allNotes`, not just cards). Card viewer renders front/back in IBM Plex Serif. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
+**Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `isProblemNote: true` when a `***` horizontal-rule separator is found outside code fences; `_problemNotes` (type `List<ProblemNote>`) is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just problem notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. **Deck list layout:** All Notes hero card (surface, `borderMid` border, problem note count) → named DECKS section → BROWSE NOTES section (all `_allNotes`, not just problem notes). Card viewer renders front/back in IBM Plex Serif. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
 
 **Bookmarks** — write via `XBookmarkStorageService` → vault root; fetch pipeline: nitter (3 hardcoded instances) → syndication API → oEmbed → degraded; `_cleanBody` strips oEmbed attribution tails; `truncated: true` in frontmatter when full text unavailable (oEmbed fallback or all failed); note body uses `***` Resurface separator with empty front side; filenames preserve spaces and capitalisation (no slugify); `XBookmarkService.fetchMetadata` never throws. No screen, no scheduler, no re-fetch. Full details: [docs/bookmarks.md](docs/bookmarks.md).
 
-**Home dashboard** — `HomeDashboardScreen` is tab 0 in the 4-tab shell. Loads data from `ResurfaceService.getAllNotes()` (for card count, first card's front, recent notes) and from the entities passed in as constructor parameters. **Card peek hero** shows the top-priority card's front text (IBM Plex Serif 17px) from `GraphScoringService.sortByPriority()`. **Worth Revisiting** sorts entities by `(score × 0.4) + (daysSinceUpdated × 0.6)`, capped at 3 rows. **Persistent FAB** opens `showQuickAddSheet`. The screen is stateful; `HomeDashboardScreenState.reload()` is called externally after entity mutations to refresh the Worth Revisiting list. Do NOT add per-user statistics, streaks, or scheduling logic here.
+**Home dashboard** — `HomeDashboardScreen` is tab 0 in the 4-tab shell. Loads data from `ResurfaceService.getAllNotes()` (for problem note count, first problem note's front, recent notes) and from the entities passed in as constructor parameters. **Card peek hero** shows the top-priority problem note's front text (IBM Plex Serif 17px) from `GraphScoringService.sortByPriority()`. **Worth Revisiting** sorts entities by `(score × 0.4) + (daysSinceUpdated × 0.6)`, capped at 3 rows. **Persistent FAB** opens `showQuickAddSheet`. The screen is stateful; `HomeDashboardScreenState.reload()` is called externally after entity mutations to refresh the Worth Revisiting list. Do NOT add per-user statistics, streaks, or scheduling logic here.
 
 **Navigation shell** — `home_screen.dart` is a 4-tab `BottomNavigationBar` shell (0=Home, 1=Notes, 2=Entities, 3=Projects). Tab titles and AppBar actions are computed per-tab. FAB shows on tab 2 (Entities → Quick Add Sheet) and tab 3 (Projects → new project). Double-tapping tab 1 calls `ResurfaceScreenState.resetStack()`.
 

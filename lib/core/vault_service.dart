@@ -23,13 +23,9 @@ class VaultService {
 
   static Future<void> ensureVaultDirectories(String vaultPath) async {
     final edir = Directory(entitiesPath(vaultPath));
-    final tdir = Directory(templatesPath(vaultPath));
-    final adir = Directory(ankiPath(vaultPath));
-    final atdir = Directory(ankiTrashPath(vaultPath));
     if (!await edir.exists()) await edir.create(recursive: true);
+    final tdir = Directory(templatesPath(vaultPath));
     if (!await tdir.exists()) await tdir.create(recursive: true);
-    if (!await adir.exists()) await adir.create(recursive: true);
-    if (!await atdir.exists()) await atdir.create(recursive: true);
     final tsdir = Directory(tasksPath(vaultPath));
     if (!await tsdir.exists()) await tsdir.create(recursive: true);
     final bkdir = Directory(booksPath(vaultPath));
@@ -43,7 +39,6 @@ class VaultService {
     if (!await sysdir.exists()) await sysdir.create(recursive: true);
     final prdir = Directory(projectsPath(vaultPath));
     if (!await prdir.exists()) await prdir.create(recursive: true);
-    await _seedDefaultTemplates(tdir.path);
   }
 
   static Future<void> _migrateBoardsToLists(String vaultPath) async {
@@ -68,12 +63,6 @@ class VaultService {
   static String templatesPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Templates');
 
-  static String ankiPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Anki');
-
-  static String ankiTrashPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Anki', '.trash');
-
   static String tasksPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Tasks');
 
@@ -90,48 +79,4 @@ class VaultService {
       p.join(vaultPath, 'Interesting', 'Projects');
 
   static String bookmarksPath(String vaultPath) => vaultPath;
-
-  static Future<void> _seedDefaultTemplates(String templatesDirPath) async {
-    try {
-      final templates = {
-        'default.md': _tmpl('Default'),
-        'person.md': _tmpl('People'),
-        'product.md': _tmpl('Products'),
-        'idea.md': _tmpl('Ideas'),
-        'movie.md': _movieTmpl(),
-      };
-      for (final entry in templates.entries) {
-        final file = File(p.join(templatesDirPath, entry.key));
-        if (!await file.exists()) {
-          await file.writeAsString(entry.value);
-        }
-      }
-    } catch (_) {}
-  }
-
-  static String _tmpl(String category) => '''---
-category: $category
-template: true
----
-# {{title}}
-
-## Why Interesting
-
-## Related
-
-## Sources
-''';
-
-  static String _movieTmpl() => '''---
-category: Movies
-template: true
----
-# {{title}}
-
-## Thoughts
-
-## Related
-
-## Sources
-''';
 }
