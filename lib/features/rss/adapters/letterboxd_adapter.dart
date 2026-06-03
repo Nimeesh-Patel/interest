@@ -126,6 +126,11 @@ class LetterboxdAdapter implements RssAdapter {
     return index;
   }
 
+  static const _knownOrder = [
+    'alias', 'category', 'score', 'watched_date', 'letterboxd_url',
+    'tmdb_id', 'created_at', 'updated_at',
+  ];
+
   // ── File builder ──────────────────────────────────────────────────────────
 
   static String _buildMovieMarkdown({
@@ -139,23 +144,18 @@ class LetterboxdAdapter implements RssAdapter {
     required int createdAt,
     required int updatedAt,
   }) {
+    final fields = <String, dynamic>{
+      'alias': alias,
+      'category': 'Movies',
+      if (score != null) 'score': score.toStringAsFixed(1),
+      if (watchedDate != null && watchedDate.isNotEmpty) 'watched_date': watchedDate,
+      if (letterboxdUrl != null && letterboxdUrl.isNotEmpty) 'letterboxd_url': letterboxdUrl,
+      if (tmdbId != null && tmdbId.isNotEmpty) 'tmdb_id': tmdbId,
+      'created_at': msToIso(createdAt),
+      'updated_at': msToIso(updatedAt),
+    };
     final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('alias: $alias');
-    buf.writeln('category: Movies');
-    if (score != null) buf.writeln('score: ${score.toStringAsFixed(1)}');
-    if (watchedDate != null && watchedDate.isNotEmpty) {
-      buf.writeln('watched_date: $watchedDate');
-    }
-    if (letterboxdUrl != null && letterboxdUrl.isNotEmpty) {
-      buf.writeln('letterboxd_url: $letterboxdUrl');
-    }
-    if (tmdbId != null && tmdbId.isNotEmpty) {
-      buf.writeln('tmdb_id: $tmdbId');
-    }
-    buf.writeln('created_at: ${msToIso(createdAt)}');
-    buf.writeln('updated_at: ${msToIso(updatedAt)}');
-    buf.writeln('---');
+    buf.writeln(buildFrontmatterBlock(fields, _knownOrder));
     buf.writeln('# $title');
     buf.writeln();
     buf.writeln('## Thoughts');
@@ -192,48 +192,39 @@ class LetterboxdAdapter implements RssAdapter {
     final yaml = parseYamlMap(split.frontmatter);
     if (yaml == null) return;
 
-    final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('alias: ${yaml['alias'] ?? ''}');
-    buf.writeln('category: ${yaml['category'] ?? 'Movies'}');
-
     final newScore =
         score ?? (yaml['score'] is num ? (yaml['score'] as num).toDouble() : null);
-    if (newScore != null) buf.writeln('score: ${newScore.toStringAsFixed(1)}');
-
     final newWatched = (watchedDate != null && watchedDate.isNotEmpty)
         ? watchedDate
         : yaml['watched_date']?.toString();
-    if (newWatched != null && newWatched.isNotEmpty) {
-      buf.writeln('watched_date: $newWatched');
-    }
-
-    final newLetterboxdUrl =
-        (letterboxdUrl != null && letterboxdUrl.isNotEmpty)
-            ? letterboxdUrl
-            : yaml['letterboxd_url']?.toString();
-    if (newLetterboxdUrl != null && newLetterboxdUrl.isNotEmpty) {
-      buf.writeln('letterboxd_url: $newLetterboxdUrl');
-    }
-
+    final newLetterboxdUrl = (letterboxdUrl != null && letterboxdUrl.isNotEmpty)
+        ? letterboxdUrl
+        : yaml['letterboxd_url']?.toString();
     final newTmdbId = (tmdbId != null && tmdbId.isNotEmpty)
         ? tmdbId
         : yaml['tmdb_id']?.toString();
-    if (newTmdbId != null && newTmdbId.isNotEmpty) {
-      buf.writeln('tmdb_id: $newTmdbId');
-    }
-
     final rawTags = yaml['tags'];
-    if (rawTags is YamlList && rawTags.isNotEmpty) {
-      buf.writeln('tags:');
-      for (final t in rawTags) {
-        buf.writeln('  - $t');
-      }
-    }
+    final tags = (rawTags is YamlList && rawTags.isNotEmpty)
+        ? rawTags.map((t) => t.toString()).toList()
+        : null;
 
-    buf.writeln('created_at: ${yaml['created_at'] ?? msToIso(updatedAt)}');
-    buf.writeln('updated_at: ${msToIso(updatedAt)}');
-    buf.write('---');
+    final fields = <String, dynamic>{
+      'alias': yaml['alias'] ?? '',
+      'category': yaml['category'] ?? 'Movies',
+      if (newScore != null) 'score': newScore.toStringAsFixed(1),
+      if (newWatched != null && newWatched.isNotEmpty) 'watched_date': newWatched,
+      if (newLetterboxdUrl != null && newLetterboxdUrl.isNotEmpty)
+        'letterboxd_url': newLetterboxdUrl,
+      if (newTmdbId != null && newTmdbId.isNotEmpty) 'tmdb_id': newTmdbId,
+      if (tags != null) 'tags': tags,
+      'created_at': yaml['created_at']?.toString() ?? msToIso(updatedAt),
+      'updated_at': msToIso(updatedAt),
+    };
+    const knownOrder = [
+      'alias', 'category', 'score', 'watched_date', 'letterboxd_url',
+      'tmdb_id', 'tags', 'created_at', 'updated_at',
+    ];
+    final buf = StringBuffer(buildFrontmatterBlock(fields, knownOrder));
 
     final sections = parseSectionsH2(split.body);
     final h1 = extractH1(split.body) ?? yaml['alias']?.toString() ?? '';

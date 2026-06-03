@@ -3,6 +3,7 @@ package com.nimee.people_tracker
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.ichi2.anki.api.AddContentApi
 import io.flutter.embedding.android.FlutterActivity
@@ -92,21 +93,34 @@ class MainActivity : FlutterActivity() {
                             val back = call.argument<String>("back") ?: ""
                             val tags = call.argument<List<String>>("tags") ?: emptyList()
                             val api = AddContentApi(applicationContext)
-                            // addNewDeck and addNewBasicModel are idempotent in api-v1.1.0:
-                            // they find an existing deck/model by name before creating.
-                            val deckId = api.addNewDeck(deckName)
+                            val deckId = getOrCreateDeck(api, deckName)
                                 ?: return@setMethodCallHandler result.error(
                                     "DECK", "Failed to get or create deck: $deckName", null)
-                            val modelId = api.addNewBasicModel("com.nimeesh.interest.basic")
+                            val modelId = getBuiltInBasicModel(api)
                                 ?: return@setMethodCallHandler result.error(
-                                    "MODEL", "Failed to get or create model", null)
+                                    "BASIC_MODEL_NOT_FOUND",
+                                    "Basic model not found in AnkiDroid — open AnkiDroid and ensure it is installed correctly.",
+                                    null)
                             try {
-                                val noteId: Long = api.addNote(modelId, deckId, arrayOf(front, back), tags.toSet())
-                                    ?: return@setMethodCallHandler result.error(
-                                        "ADD_FAILED", "addNote returned null", null)
-                                result.success(noteId)
+                                Log.d("AnkiSync", "Adding note: model=$modelId deck=$deckId front_len=${front.length}")
+                                val noteId = api.addNote(modelId, deckId, arrayOf(front, back), tags.toSet())
+                                if (noteId == null || noteId <= 0L) {
+                                    val dupeMap = api.findDuplicateNotes(modelId, listOf(front))
+                                    val dupList = dupeMap?.get(0)
+                                    if (dupList != null && dupList.isNotEmpty()) {
+                                        val existingId = dupList.first().id
+                                        api.updateNoteFields(existingId, arrayOf(front, back))
+                                        result.success(existingId)
+                                    } else {
+                                        result.error("ADD_FAILED", "addNote returned null, not a duplicate", null)
+                                    }
+                                } else {
+                                    result.success(noteId)
+                                }
                             } catch (e: Exception) {
-                                result.error("ADD_FAILED", e.message, null)
+                                Log.e("AnkiSync", "Failed to add note: ${e.javaClass.name}: ${e.message}")
+                                Log.e("AnkiSync", Log.getStackTraceString(e))
+                                result.error("ADD_FAILED", "${e.javaClass.name}: ${e.message}", null)
                             }
                         }
 
@@ -134,6 +148,21 @@ class MainActivity : FlutterActivity() {
                     result.error("ANKI_ERROR", e.message, null)
                 }
             }
+    }
+
+    private fun getOrCreateDeck(api: AddContentApi, deckName: String): Long? {
+        val existing = api.getDeckList()?.entries
+            ?.firstOrNull { it.value.equals(deckName, ignoreCase = true) }
+            ?.key
+        return existing ?: api.addNewDeck(deckName)
+    }
+
+    private fun getBuiltInBasicModel(api: AddContentApi): Long? {
+        val models = api.getModelList() ?: return null
+        for ((id, name) in models) {
+            if (name == "Basic") return id
+        }
+        return null
     }
 
     private fun extractShareUrl(intent: Intent): String? {

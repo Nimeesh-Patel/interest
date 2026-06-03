@@ -11,9 +11,9 @@ This file is a **constraint registry**, not a narrative. Keep it:
 - **Hard-to-vary** — a rule that can be rephrased arbitrarily has no explanatory power.
 - **Current** — stale constraints erode trust in the rest.
 
-`README.md` is the architectural story (what + why). `CLAUDE.md` is the enforcement layer (do/don't + where). `docs/*.md` holds full subsystem detail. Don't duplicate across layers.
+`README.md` is the architectural story (what + why). `AGENTS.md` is the enforcement layer (do/don't + where). `docs/*.md` holds full subsystem detail. Don't duplicate across layers.
 
-**Update `README.md` and `CLAUDE.md` when:** a new write path appears, an architectural invariant changes, an identity anchor is added, or a service standard changes. Don't update for UI layout changes, sort options, or internal refactors that preserve external behavior.
+**Update `README.md` and `AGENTS.md` when:** a new write path appears, an architectural invariant changes, an identity anchor is added, or a service standard changes. Don't update for UI layout changes, sort options, or internal refactors that preserve external behavior.
 
 ---
 
@@ -26,15 +26,15 @@ Start here based on task class:
 | Adding or modifying a book enrichment source | [docs/books.md](docs/books.md), then `BookStorageService` |
 | Understanding the book enrichment source pattern | [docs/readwise.md](docs/readwise.md) (Readwise), [docs/readera.md](docs/readera.md) (ReadEra) |
 | Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
-| Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
+| Modifying or adding an RSS adapter | AGENTS.md § RSS ingestion, then `rss_adapter.dart` |
 | Modifying AnkiDroid sync | [docs/ankidroid.md](docs/ankidroid.md), then `AnkiDroidService` |
 | Modifying resurfacing extraction, deck metadata, viewer, search, or note editing | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` / `NoteEditScreen` |
 | Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
-| Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
-| Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
+| Modifying integration config storage | AGENTS.md § Configuration ownership, then `IntegrationsConfigService` |
+| Adding a new sort option | AGENTS.md § Sorting, then `MarkdownStorageService.sortEntities()` |
 | Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
 | Touching shared Markdown utilities | `lib/shared/markdown/md_utils.dart` (pure, no I/O) |
-| Understanding save/cancel/snapshot semantics | CLAUDE.md § Save semantics, then `entity_screen.dart` |
+| Understanding save/cancel/snapshot semantics | AGENTS.md § Save semantics, then `entity_screen.dart` |
 | Modifying the Home dashboard (card peek, Worth Revisiting, recent notes) | `lib/features/home/screens/home_dashboard_screen.dart` |
 | Modifying the Quick Add Sheet | `lib/shared/widgets/quick_add_sheet.dart` |
 | Modifying UI tokens, typography, or color palette | [docs/ui.md](docs/ui.md), then `app_theme.dart` + `app_text_styles.dart` |
@@ -88,8 +88,6 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | `IntegrationsConfigService` | `Interesting/System/` — vault-native integration config (`integrations.md`) |
 | `XBookmarkStorageService` | vault root (`VaultService.bookmarksPath`) |
 | `ResurfaceService` | **None** — read-only vault scan; never writes |
-| `ReviewLogService` | `Interesting/System/review_log.md` — review state; sole writer |
-| `TemplatesScreen` / `TemplateEditorScreen` | `Interesting/Templates/` — direct screen writes; no storage service intermediary |
 | `NoteEditScreen` | any vault `.md` file passed as `filePath` — writes only to that exact path; no storage service intermediary |
 
 ## Identity anchors
@@ -144,11 +142,9 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Hardcover** — bidirectional sync via GraphQL; explicit sync only via `HardcoverSyncService.sync()` (no background); two-pass: HC→MD then MD→HC; identity reconciliation prevents duplicate files. `HardcoverScreen` is a tab (not a pushed route); `HardcoverScreenState` is public so `HomeScreen` can drive sync and search via `GlobalKey`. Token in `integrations.md` via `IntegrationsConfigService`. Critical API quirks (me-as-List, cached_contributors-as-scalar, no isbn_13): [docs/books.md § API quirks](docs/books.md).
 
-**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ vault root; bypasses `MarkdownStorageService`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
+**RSS ingestion** — architecture: `RssFetchService` (HTTP+XML → `List<RssEntry>`) → `RssAdapter` → storage, dispatched by `RssIngestionService`. Adapters: `LetterboxdAdapter` (→ `Interesting/Entities/`), `SubstackAdapter`/`GenericAdapter` (→ `Interesting/Articles/` via `ArticleStorageService`). Feed configs in `Interesting/System/integrations.md` via `IntegrationsConfigService`. Identity dedup: guid > normalized URL > normalized title. Explicit sync only. To add a source type: add to `RssFeedType`, implement `RssAdapter`, wire in `RssIngestionService._adapterFor()`.
 
 **Resurface / Notes** — `ResurfaceService` is read-only (never writes); `NoteEditScreen` writes directly to the vault file path it receives (see Write paths). Scans vault via `getAllNotes()` for all `.md` files; `isProblemNote: true` when a `***` horizontal-rule separator is found outside code fences; `_problemNotes` (type `List<ProblemNote>`) is derived from `_allNotes` at load time (single scan, two projections). `splitFrontmatter()` strips YAML before scanning so frontmatter `---` delimiters are invisible to the extractor. Excluded folders configured in `integrations.md` via `IntegrationsConfigService` (default: `Interesting`, `.obsidian`, `Templates`, `Attachments`). The `***` separator is chosen over `---` to avoid visual ambiguity with YAML frontmatter delimiters. Deck metadata: optional `deck:` frontmatter field (scalar or YAML list); parsed via `parseDeckMetadata()` in `md_utils.dart`; deck filter is session-state only — never persisted. Inline search matches filename and body text across all vault notes (not just problem notes); session-state only. `NoteEditScreen` preserves frontmatter verbatim; structured mode writes `front\n\n***\n\nback`; plain mode writes body as-is; full edit writes raw file. **Deck list layout:** All Notes hero card (surface, `borderMid` border, problem note count) → named DECKS section → BROWSE NOTES section (all `_allNotes`, not just problem notes). Card viewer renders front/back in IBM Plex Serif. Do NOT add scheduling, review history, due dates, FSRS, deck databases, or any persistent card state. Do NOT add note creation. Full details: [docs/resurface.md](docs/resurface.md).
-
-**Review log** — `ReviewLogService` is the sole writer of `Interesting/System/review_log.md`; stores per-note boost/activation state and graph scores as nested YAML (a `settings:` map and a `reviews:` list). Read by `GraphScoringService` and `ResurfaceScreenState`. Uses a manual YAML serializer (not `buildFrontmatterBlock`) because the nested structure the flat builder cannot express. Do NOT migrate `_serialize()` to `buildFrontmatterBlock`. Do NOT add other writers.
 
 **Bookmarks** — write via `XBookmarkStorageService` → vault root; fetch pipeline: nitter (3 hardcoded instances) → syndication API → oEmbed → degraded; `_cleanBody` strips oEmbed attribution tails; `truncated: true` in frontmatter when full text unavailable (oEmbed fallback or all failed); note body uses `***` Resurface separator with empty front side; filenames preserve spaces and capitalisation (no slugify); `XBookmarkService.fetchMetadata` never throws. No screen, no scheduler, no re-fetch. Full details: [docs/bookmarks.md](docs/bookmarks.md).
 

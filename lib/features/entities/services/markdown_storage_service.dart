@@ -48,7 +48,7 @@ class MarkdownStorageService {
         if (entry is! File || !entry.path.endsWith('.md')) continue;
         final rel = p.relative(entry.path, from: vaultPath);
         final folders = p.split(rel)..removeLast();
-        if (folders.any((s) => s == '.obsidian')) continue;
+        if (folders.any((s) => s == '.obsidian' || s == 'Templates')) continue;
         try {
           final content = await entry.readAsString();
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
@@ -122,7 +122,7 @@ class MarkdownStorageService {
         if (entry is! File || !entry.path.endsWith('.md')) continue;
         final rel = p.relative(entry.path, from: vaultPath);
         final folders = p.split(rel)..removeLast();
-        if (folders.any((s) => s == '.obsidian')) continue;
+        if (folders.any((s) => s == '.obsidian' || s == 'Templates')) continue;
         try {
           final content = await entry.readAsString();
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);

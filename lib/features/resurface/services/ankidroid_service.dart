@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../../../shared/markdown/md_io.dart';
+import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_note.dart';
 
 class AnkiSyncResult {
@@ -46,15 +47,17 @@ class AnkiDroidService {
 
     for (final note in problemNotes) {
       try {
-        final stripped = _stripFrontmatter(note.body);
-        final sepIdx = stripped.indexOf('\n\n***\n\n');
-        final rawFront =
-            sepIdx >= 0 ? stripped.substring(0, sepIdx).trim() : stripped.trim();
-        final rawBack =
-            sepIdx >= 0 ? stripped.substring(sepIdx + 7).trim() : '';
+        final body = splitFrontmatter(note.body).body;
+        final parts = body.split(RegExp(r'\n\*\*\*\n'));
+        final effectiveParts =
+            parts.length > 1 ? parts : body.split(RegExp(r'\*\*\*'));
+        final frontMd =
+            effectiveParts.isNotEmpty ? effectiveParts[0].trim() : '';
+        final backMd =
+            effectiveParts.length > 1 ? effectiveParts[1].trim() : '';
 
-        final front = _prepareForAnki(rawFront);
-        final back = _prepareForAnki(rawBack);
+        final front = _markdownToAnkiHtml(frontMd);
+        final back = _markdownToAnkiHtml(backMd);
         final deckName = note.category ?? 'Default';
         final tags = note.tags;
         final ankiNoteId = note.ankiNoteId;
@@ -98,6 +101,13 @@ class AnkiDroidService {
             errors.add('${note.sourceFile}: add failed');
           }
         }
+      } on PlatformException catch (e) {
+        if (e.code == 'BASIC_MODEL_NOT_FOUND') {
+          errors.add(e.message ?? 'Basic model not found in AnkiDroid');
+          break;
+        }
+        failed++;
+        errors.add('${note.sourceFile}: ${e.message}');
       } catch (e) {
         failed++;
         errors.add('${note.sourceFile}: $e');
@@ -121,6 +131,8 @@ class AnkiDroidService {
       if (result is int) return result;
       if (result is String) return int.tryParse(result) ?? -1;
       return -1;
+    } on PlatformException {
+      rethrow;
     } catch (_) {
       return -1;
     }
@@ -152,19 +164,7 @@ class AnkiDroidService {
     }
   }
 
-  static String _stripFrontmatter(String content) {
-    if (!content.startsWith('---')) return content;
-    final end = content.indexOf('---', 3);
-    if (end == -1) return content;
-    return content.substring(end + 3).trimLeft();
-  }
-
-  static String _prepareForAnki(String text) {
-    // Strip wikilinks: [[Note|alias]] → alias, [[Note]] → Note
-    final delinked = text.replaceAllMapped(
-      RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
-      (m) => m.group(2) ?? m.group(1) ?? '',
-    );
-    return md.markdownToHtml(delinked, extensionSet: md.ExtensionSet.gitHubWeb);
-  }
+  static String _markdownToAnkiHtml(String text) =>
+      md.markdownToHtml(plainTextWikilinks(text),
+          extensionSet: md.ExtensionSet.gitHubWeb);
 }

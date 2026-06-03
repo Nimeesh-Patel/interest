@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../../../core/vault_service.dart';
+import '../../../shared/markdown/md_utils.dart';
 
 typedef _RawEntry = ({
   String note,
@@ -32,7 +33,7 @@ class ReviewLogService {
       final file = File(_logPath(vaultPath));
       if (!await file.exists()) return _emptyLog();
       final raw = await file.readAsString();
-      final fm = _extractFrontmatter(raw);
+      final fm = splitFrontmatter(raw).frontmatter;
       if (fm == null) return _emptyLog();
       final yaml = loadYaml(fm);
       if (yaml is! YamlMap) return _emptyLog();
@@ -81,14 +82,6 @@ class ReviewLogService {
   }
 
   static _LogData _emptyLog() => (minDegree: 2, maxDegree: 3, entries: []);
-
-  static String? _extractFrontmatter(String content) {
-    final lines = content.split('\n');
-    if (lines.isEmpty || lines[0].trim() != '---') return null;
-    final end = lines.indexWhere((l) => l.trim() == '---', 1);
-    if (end == -1) return null;
-    return lines.sublist(1, end).join('\n');
-  }
 
   static String _serialize(_LogData data) {
     final buf = StringBuffer('---\n');

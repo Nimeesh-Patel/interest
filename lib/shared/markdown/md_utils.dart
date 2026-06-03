@@ -136,6 +136,12 @@ List<String> extractWikilinks(String text) =>
 List<String> parseSectionAsWikilinks(String sectionContent) =>
     extractWikilinks(sectionContent);
 
+/// Strips wikilinks to plain text: [[Target|display]] → display, [[Target]] → Target.
+String plainTextWikilinks(String text) => text.replaceAllMapped(
+      RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+      (m) => m[2] ?? m[1]!,
+    );
+
 /// Rewrites [[Target]] and [[Target|Display]] as standard Markdown links
 /// using the `wikilink:` URI scheme so flutter_markdown can render and
 /// dispatch them via onTapLink.
