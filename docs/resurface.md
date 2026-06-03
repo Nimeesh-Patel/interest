@@ -168,9 +168,10 @@ Read by `GraphScoringService` before each BFS traversal. Configurable in Setting
 | `last_boosted` | ISO date or omitted | Date of last graph boost received |
 | `activated_by` | list of strings | Star note filenames whose reviews activated this note |
 | `is_star` | bool | Whether the note has a `***` separator |
+| `scheduled_interval` | float or omitted | Pre-noise priority score at time of last review; used by `GraphScoringService` as a late-penalty cap — if actual days since review exceed `scheduled_interval × 1.5`, effective days are capped to prevent permanent queue dominance |
 
 **Who writes what:**
-- `markReviewed(filename, isStar:)` — updates `last_reviewed` and `is_star`; clears `activated_by` if promoting from non-star to star
+- `markReviewed(filename, isStar:, scheduledInterval:)` — updates `last_reviewed`, `is_star`, and `scheduled_interval`; clears `activated_by` if promoting from non-star to star
 - `patchGraphScores(updates)` — updates `graph_score`, `last_boosted`, `is_star`
 - `activateNotes(reviewedStarNote, targets)` — appends to `activated_by`; creates entries for notes not yet in the log
 - `saveSettings(minDegree:, maxDegree:)` — updates the `settings:` section; preserves all entries

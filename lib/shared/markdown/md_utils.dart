@@ -31,7 +31,6 @@ import 'package:yaml/yaml.dart';
 
 /// Splits [body] into front/back at the first `***` separator outside code fences.
 /// Returns null if no valid separator found or either side is empty after trim.
-/// Mirrors ResurfaceService._extractFrontBack scanning logic (pure, no I/O).
 ({String front, String back})? splitFrontBack(String body) {
   final hrPattern = RegExp(r'^\*{3,}\s*$');
   final lines = body.split('\n');

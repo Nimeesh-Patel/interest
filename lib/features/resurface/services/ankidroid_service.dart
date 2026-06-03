@@ -47,17 +47,8 @@ class AnkiDroidService {
 
     for (final note in problemNotes) {
       try {
-        final body = splitFrontmatter(note.body).body;
-        final parts = body.split(RegExp(r'\n\*\*\*\n'));
-        final effectiveParts =
-            parts.length > 1 ? parts : body.split(RegExp(r'\*\*\*'));
-        final frontMd =
-            effectiveParts.isNotEmpty ? effectiveParts[0].trim() : '';
-        final backMd =
-            effectiveParts.length > 1 ? effectiveParts[1].trim() : '';
-
-        final front = _markdownToAnkiHtml(frontMd);
-        final back = _markdownToAnkiHtml(backMd);
+        final front = _markdownToAnkiHtml(note.front ?? '');
+        final back = _markdownToAnkiHtml(note.back ?? '');
         final deckName = note.category ?? 'Default';
         final tags = note.tags;
         final ankiNoteId = note.ankiNoteId;

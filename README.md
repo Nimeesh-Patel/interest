@@ -14,9 +14,9 @@ The architecture consistently rejects two alternatives: (1) treating Markdown as
 
 ```
 <vault>/
-  *.md                 — Bookmarks (one .md file per bookmark, written by XBookmarkStorageService)
+  *.md                 — Entities, movies (Letterboxd), and bookmarks at vault root
   Interesting/
-    Entities/          — one .md file per entity; semantic graph lives here
+    Entities/          — created on first launch; entities may live here or at vault root
     Projects/          — one .md file per project (canonical)
     Lists/             — legacy migration source only; no new files created here
     Templates/         — category templates; seeded on first launch; user-editable
@@ -87,7 +87,7 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 | ReadEra | → Books | Highlight import from `.bak`; patches ReadEra section only |
 | RSS | `Interesting/Articles/`, `Interesting/Entities/` | Feed ingestion; adapter-dispatched by source type |
 | Templates | `Interesting/Templates/` | One-time entity instantiation templates |
-| Sources screen | pushed from AppBar | Inbox-style hub: Hardcover, Articles, Readwise, Bookmarks, Obsidian rows; "Sync all" button |
+| Sources screen | pushed from AppBar | Inbox-style hub: Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid rows; "Sync all" button |
 | Android widget | native | Reads vault path from SharedPreferences; creates entities |
 | Grokipedia | read-only projection | External article display inline in entity screen; never writes |
 | Bookmarks | vault root | X bookmark ingestion via share sheet; nitter→syndication→oEmbed→degraded fetch chain; `***` Resurface separator in every note |

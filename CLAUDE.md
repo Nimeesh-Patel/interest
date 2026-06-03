@@ -156,7 +156,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Navigation shell** — `home_screen.dart` is a 4-tab `BottomNavigationBar` shell (0=Home, 1=Notes, 2=Entities, 3=Projects). Tab titles and AppBar actions are computed per-tab. FAB shows on tab 2 (Entities → Quick Add Sheet) and tab 3 (Projects → new project). Double-tapping tab 1 calls `ResurfaceScreenState.resetStack()`.
 
-**Sources Inbox** — `sources_screen.dart` is the full sources hub, pushed from the `sensors` AppBar icon. Five rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian. "Sync all" button triggers per-source sync where available. Obsidian row fires `obsidian://` URI. No state, no lifecycle hooks.
+**Sources Inbox** — `sources_screen.dart` is the full sources hub, pushed from the `sensors` AppBar icon. Six rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid. "Sync all" button triggers per-source sync where available. Obsidian row fires `obsidian://` URI. No state, no lifecycle hooks.
 
 **Obsidian launch** — moved from AppBar action to Sources Inbox row. Fires `obsidian://` URI, returns. No sync logic, no state, no lifecycle hooks.
 

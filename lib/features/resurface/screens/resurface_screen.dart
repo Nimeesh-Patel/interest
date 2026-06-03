@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path/path.dart' as p;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
@@ -19,6 +18,7 @@ import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
 import '../services/review_log_service.dart';
+import '_note_md_helpers.dart';
 import 'note_detail_screen.dart';
 import 'note_edit_screen.dart';
 
@@ -168,50 +168,28 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Future<void> _reloadViewerNote(String filePath) async {
-    try {
-      final raw = await File(filePath).readAsString();
-      final split = splitFrontmatter(raw);
-      final fb = splitFrontBack(split.body);
-      final idx = _viewerNotes.indexWhere((n) => n.sourcePath == filePath);
-      if (idx == -1) return;
-      final wasProblemNote = _viewerNotes[idx].isProblemNote;
-      final yaml = parseYamlMap(split.frontmatter);
-      final updated = ResurfaceNote(
-        sourcePath: filePath,
-        sourceFile: p.basename(filePath),
-        body: split.body,
-        isProblemNote: fb != null,
-        front: fb?.front,
-        back: fb?.back,
-        decks: parseDeckMetadata(split.frontmatter),
-        category: yaml != null && yaml['category'] is String
-            ? yaml['category'] as String
-            : null,
-        tags: yaml != null && yaml['tags'] is List
-            ? (yaml['tags'] as List).whereType<String>().toList()
-            : const [],
-        ankiNoteId: yaml != null && yaml['anki_note_id'] != null
-            ? '${yaml['anki_note_id']}'
-            : null,
+    final updated = await ResurfaceService.loadSingleNote(filePath);
+    if (updated == null) return;
+    final idx = _viewerNotes.indexWhere((n) => n.sourcePath == filePath);
+    if (idx == -1) return;
+    final wasProblemNote = _viewerNotes[idx].isProblemNote;
+    // *** note lost its separator → remove from viewer.
+    if (wasProblemNote && !updated.isProblemNote) {
+      setState(() {
+        _viewerNotes.removeAt(idx);
+        _viewerIndex =
+            _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
+      });
+      return;
+    }
+    // Non-*** note gained a separator → update is_star in log.
+    if (!wasProblemNote && updated.isProblemNote) {
+      ReviewLogService.markReviewed(
+        p.basenameWithoutExtension(filePath),
+        isProblemNote: true,
       );
-      // *** note lost its separator → remove from viewer.
-      if (wasProblemNote && fb == null) {
-        setState(() {
-          _viewerNotes.removeAt(idx);
-          _viewerIndex =
-              _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
-        });
-        return;
-      }
-      // Non-*** note gained a separator → update is_star in log.
-      if (!wasProblemNote && fb != null) {
-        ReviewLogService.markReviewed(
-          p.basenameWithoutExtension(filePath),
-          isProblemNote: true,
-        );
-      }
-      setState(() => _viewerNotes[idx] = updated);
-    } catch (_) {}
+    }
+    setState(() => _viewerNotes[idx] = updated);
   }
 
   void goBack() {
@@ -522,7 +500,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         final note = results[i];
         final title = p.basenameWithoutExtension(note.sourceFile);
         final rawSnippet = _snippetFor(note);
-        final snippet = rawSnippet.replaceAll(RegExp(r'\[\[([^\]]+)\]\]'), r'$1');
+        final snippet = plainTextWikilinks(rawSnippet);
         return Container(
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -730,37 +708,12 @@ class _NoteViewerBody extends StatelessWidget {
     return dot > 0 ? filename.substring(0, dot) : filename;
   }
 
-  MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
-    final color = textColor ?? AppColors.textPrimary;
-    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-          letterSpacing: -0.3,
-          color: color),
-      h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
-      h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
-      p: TextStyle(fontSize: 16, height: 1.6, color: color),
-      listBullet: TextStyle(fontSize: 16, height: 1.6, color: color),
-      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
-    );
-  }
-
-  void _onTapLink(String text, String? href, String title) {
-    if (href == null) return;
-    if (href.startsWith('wikilink:')) {
-      final target = Uri.decodeComponent(href.substring('wikilink:'.length));
-      onNavigateToNote(target);
-    } else if (href.startsWith('http:') || href.startsWith('https:')) {
-      launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Widget _mdBody(BuildContext context, String data, {Color? textColor}) => MarkdownBody(
-        data: substituteWikilinks(data),
-        styleSheet: _mdStyle(context, textColor: textColor),
-        onTapLink: _onTapLink,
+  Widget _mdBody(BuildContext context, String data, {Color? textColor}) =>
+      noteMarkdownBody(
+        context,
+        data,
+        textColor: textColor,
+        onTapLink: (_, href, _) => onNoteLinkTap(href, onNavigateToNote),
       );
 
   @override
@@ -804,7 +757,7 @@ class _NoteViewerBody extends StatelessWidget {
                   ] else ...[
                     MarkdownBody(
                       data: '# ${_stripExtension(note.sourceFile)}',
-                      styleSheet: _mdStyle(context),
+                      styleSheet: noteMarkdownStyle(context),
                     ),
                     const SizedBox(height: 16),
                     _mdBody(context, note.body),
@@ -933,7 +886,7 @@ class _NoteViewerBody extends StatelessWidget {
         ),
         a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
       ),
-      onTapLink: _onTapLink,
+      onTapLink: (_, href, _) => onNoteLinkTap(href, onNavigateToNote),
     );
   }
 }

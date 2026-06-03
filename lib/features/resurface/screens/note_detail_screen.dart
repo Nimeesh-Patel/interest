@@ -1,11 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '_note_md_helpers.dart';
 
 /// Body-only note viewer. No Scaffold — the caller (ResurfaceScreen) owns the
 /// AppBar. Navigation out of this widget goes via [onNavigateToNote].
@@ -75,33 +74,13 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     }
   }
 
-  MarkdownStyleSheet _mdStyle(BuildContext context, {Color? textColor}) {
-    final color = textColor ?? AppColors.textPrimary;
-    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: color),
-      h2: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: color),
-      h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: color),
-      p: TextStyle(fontSize: 16, height: 1.6, color: color),
-      listBullet: TextStyle(fontSize: 16, height: 1.6, color: color),
-      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
-    );
-  }
-
-  void _onTapLink(String text, String? href, String title) {
-    if (href == null) return;
-    if (href.startsWith('wikilink:')) {
-      final target = Uri.decodeComponent(href.substring('wikilink:'.length));
-      widget.onNavigateToNote(target);
-    } else if (href.startsWith('http:') || href.startsWith('https:')) {
-      launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
-    }
-  }
-
   Widget _mdBody(BuildContext context, String data, {Color? textColor}) =>
-      MarkdownBody(
-        data: substituteWikilinks(data),
-        styleSheet: _mdStyle(context, textColor: textColor),
-        onTapLink: _onTapLink,
+      noteMarkdownBody(
+        context,
+        data,
+        textColor: textColor,
+        onTapLink: (_, href, _) =>
+            onNoteLinkTap(href, widget.onNavigateToNote),
       );
 
   @override
