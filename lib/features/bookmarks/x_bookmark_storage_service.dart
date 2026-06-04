@@ -69,13 +69,14 @@ class XBookmarkStorageService {
   }
 
   /// Returns a slug that does not yet exist as a file in [dirPath].
-  /// Appends -2, -3, … if [base].md already exists.
+  /// Appends -2, -3, … if the slugified form of [base] already exists.
   static String uniqueSlug(String base, String dirPath) {
-    if (!File(p.join(dirPath, '$base.md')).existsSync()) return base;
-    var n = 2;
-    while (File(p.join(dirPath, '$base-$n.md')).existsSync()) {
-      n++;
-    }
-    return '$base-$n';
+    final dir = Directory(dirPath);
+    final existing = dir.existsSync()
+        ? dir.listSync().whereType<File>()
+            .map((f) => p.basenameWithoutExtension(f.path))
+            .toSet()
+        : <String>{};
+    return generateUniqueId(base, existing, fallback: 'bookmark');
   }
 }

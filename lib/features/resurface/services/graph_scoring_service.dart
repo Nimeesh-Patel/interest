@@ -1,7 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:path/path.dart' as p;
-
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_note.dart';
@@ -61,17 +59,14 @@ class GraphScoringService {
       final notes = await ResurfaceService.getAllNotes(vaultPath);
 
       final graph = <String, Set<String>>{};
-      final normalToOrig = <String, String>{};
       final isProblemNoteMap = <String, bool>{};
       for (final note in notes) {
-        final orig = p.basenameWithoutExtension(note.sourceFile);
-        final key = orig.toLowerCase();
-        normalToOrig[key] = orig;
+        final key = noteKey(note.sourceFile);
         graph[key] = extractWikilinks(note.body).map((t) => t.toLowerCase()).toSet();
         isProblemNoteMap[key] = note.isProblemNote;
       }
 
-      final reviewed = reviewedNoteFilename.toLowerCase();
+      final reviewed = noteKey(reviewedNoteFilename);
 
       // BFS up to maxDeg; collect nodes keyed by exact hop distance.
       final hopNodes = <int, Set<String>>{};
@@ -104,25 +99,27 @@ class GraphScoringService {
       for (final entry in hopNodes.entries) {
         final d = entry.key;
         for (final key in entry.value) {
-          final orig = normalToOrig[key] ?? key;
           final isProblemNoteFlag = isProblemNoteMap[key] ?? false;
-          final existing = log[orig]?.graphScore ?? 0.0;
-          scoreUpdates[orig] = (
+          final existing = log[key]?.graphScore ?? 0.0;
+          scoreUpdates[key] = (
             rawScore: existing + kBaseBoost / d,
             lastBoosted: today,
             isProblemNote: isProblemNoteFlag,
           );
           if (d >= minDeg) {
-            activationTargets[orig] = isProblemNoteFlag;
+            activationTargets[key] = isProblemNoteFlag;
           }
         }
       }
 
       if (scoreUpdates.isNotEmpty) {
-        await ReviewLogService.patchGraphScores(scoreUpdates);
-      }
-      if (activationTargets.isNotEmpty) {
-        await ReviewLogService.activateNotes(reviewedNoteFilename, activationTargets);
+        final activations = <String, List<String>>{
+          for (final key in activationTargets.keys) key: [reviewed],
+        };
+        await ReviewLogService.updateGraphState(
+          vaultPath,
+          GraphStateUpdate(scores: scoreUpdates, activations: activations),
+        );
       }
     } catch (_) {}
   }
@@ -141,7 +138,7 @@ class GraphScoringService {
       final sortPriorities = <String, double>{};
 
       for (final note in notes) {
-        final key = p.basenameWithoutExtension(note.sourceFile);
+        final key = noteKey(note.sourceFile);
         final e = log[key];
 
         final rawDays = e?.lastReviewed != null
@@ -184,8 +181,8 @@ class GraphScoringService {
 
       final sorted = List.of(notes)
         ..sort((a, b) {
-          final pa = sortPriorities[p.basenameWithoutExtension(a.sourceFile)] ?? 0.0;
-          final pb = sortPriorities[p.basenameWithoutExtension(b.sourceFile)] ?? 0.0;
+          final pa = sortPriorities[noteKey(a.sourceFile)] ?? 0.0;
+          final pb = sortPriorities[noteKey(b.sourceFile)] ?? 0.0;
           return pb.compareTo(pa);
         });
 

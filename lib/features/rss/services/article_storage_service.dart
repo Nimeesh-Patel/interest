@@ -121,62 +121,46 @@ class ArticleStorageService {
   // ── Alias generation ──────────────────────────────────────────────────────
 
   static String uniqueAlias(String title, String dirPath) {
-    final base = slugify(title).isNotEmpty ? slugify(title) : 'article';
-    if (!File(p.join(dirPath, '$base.md')).existsSync()) return base;
-    var n = 2;
-    while (File(p.join(dirPath, '$base-$n.md')).existsSync()) {
-      n++;
-    }
-    return '$base-$n';
+    final dir = Directory(dirPath);
+    final existing = dir.existsSync()
+        ? dir.listSync().whereType<File>()
+            .map((f) => p.basenameWithoutExtension(f.path))
+            .toSet()
+        : <String>{};
+    return generateUniqueId(title, existing, fallback: 'article');
   }
 
   // ── Builders ──────────────────────────────────────────────────────────────
 
   static String _buildContent(Article article) {
+    final fields = <String, dynamic>{
+      'type': 'article',
+      'alias': article.alias,
+      if (article.feedId?.isNotEmpty == true) 'feed_id': article.feedId,
+      if (article.guid?.isNotEmpty == true) 'guid': article.guid,
+      if (article.url?.isNotEmpty == true) 'url': article.url,
+      if (article.author?.isNotEmpty == true) 'author': article.author,
+      if (article.publishedAt?.isNotEmpty == true) 'published_at': article.publishedAt,
+      'created_at': article.createdAt,
+      'updated_at': article.updatedAt,
+    };
     final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('type: article');
-    buf.writeln('alias: ${article.alias}');
-    if (article.feedId != null && article.feedId!.isNotEmpty) {
-      buf.writeln('feed_id: ${article.feedId}');
-    }
-    if (article.guid != null && article.guid!.isNotEmpty) {
-      buf.writeln('guid: ${_yamlValue(article.guid!)}');
-    }
-    if (article.url != null && article.url!.isNotEmpty) {
-      buf.writeln('url: ${_yamlValue(article.url!)}');
-    }
-    if (article.author != null && article.author!.isNotEmpty) {
-      buf.writeln('author: ${_yamlValue(article.author!)}');
-    }
-    if (article.publishedAt != null && article.publishedAt!.isNotEmpty) {
-      buf.writeln('published_at: ${article.publishedAt}');
-    }
-    buf.writeln('created_at: ${article.createdAt}');
-    buf.writeln('updated_at: ${article.updatedAt}');
-    buf.writeln('---');
+    buf.writeln(buildFrontmatterBlock(fields, _articleKnownOrder));
     buf.writeln('# ${article.title}');
     buf.writeln();
     buf.writeln('## Summary');
-    if (article.summary != null && article.summary!.isNotEmpty) {
+    if (article.summary?.isNotEmpty == true) {
       buf.writeln();
       buf.write(article.summary);
     }
     buf.writeln();
     buf.writeln();
     buf.writeln('## Sources');
-    if (article.url != null && article.url!.isNotEmpty) {
+    if (article.url?.isNotEmpty == true) {
       buf.writeln();
       buf.writeln('- ${article.url}');
     }
     return buf.toString();
   }
 
-  static String _yamlValue(String s) {
-    if (s.contains(':') || s.contains('#') || s.contains("'") ||
-        s.startsWith(' ') || s.endsWith(' ')) {
-      return '"${s.replaceAll('"', '\\"')}"';
-    }
-    return s;
-  }
 }

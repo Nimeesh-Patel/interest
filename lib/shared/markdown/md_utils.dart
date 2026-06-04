@@ -1,6 +1,7 @@
 // Pure Markdown text utilities. No I/O, no dart:io.
 // All functions are top-level — no state, no class wrappers.
 
+import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 // ── Frontmatter split ─────────────────────────────────────────────────────────
@@ -188,6 +189,10 @@ int? parseIsoToMs(String? iso) {
 
 // ── String helpers ────────────────────────────────────────────────────────────
 
+/// Canonical note identity string derived from a file path or bare filename.
+/// Use this everywhere a note name is used as a map key or log entry.
+String noteKey(String filePath) => p.basenameWithoutExtension(filePath).toLowerCase();
+
 /// Lowercases [name], collapses whitespace to hyphens, strips non-alphanumeric.
 /// Returns empty string if [name] is whitespace-only.
 String slugify(String name) => name
@@ -217,6 +222,24 @@ String generateUniqueId(
   return '$base-$n';
 }
 
+/// Strips HTML tags and common entities from [html], collapsing excess newlines.
+String stripHtml(String html) {
+  if (html.isEmpty) return '';
+  var text = html
+      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '')
+      .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n')
+      .replaceAll(RegExp(r'<[^>]+>'), '')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ');
+  text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return text.trim();
+}
+
 // ── Frontmatter builder ───────────────────────────────────────────────────────
 
 /// Builds a `---`-delimited frontmatter block from [fields].
@@ -243,19 +266,27 @@ void _writeFmField(StringBuffer buf, String key, dynamic val) {
     if (val.isEmpty) return;
     buf.writeln('$key:');
     for (final item in val) {
-      buf.writeln('  - ${_yamlScalar(item.toString())}');
+      buf.writeln('  - ${yamlScalar(item.toString())}');
     }
   } else {
     final s = val.toString();
     if (s.isEmpty) return;
-    buf.writeln('$key: ${_yamlScalar(s)}');
+    buf.writeln('$key: ${yamlScalar(s)}');
   }
 }
 
-String _yamlScalar(String s) {
-  if (s.contains(':') || s.contains('#') || s.contains("'") ||
-      s.startsWith(' ') || s.endsWith(' ')) {
-    return '"${s.replaceAll('"', '\\"')}"';
+/// Quotes and escapes [s] for use as a YAML scalar value when needed.
+/// Wraps in double-quotes if the value is empty, or contains `:`, `#`, `"`,
+/// `'`, or leading/trailing whitespace. Backslashes are escaped before quotes.
+String yamlScalar(String s) {
+  if (s.isEmpty ||
+      s.contains(':') ||
+      s.contains('#') ||
+      s.contains('"') ||
+      s.contains("'") ||
+      s.startsWith(' ') ||
+      s.endsWith(' ')) {
+    return '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
   }
   return s;
 }

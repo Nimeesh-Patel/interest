@@ -7,6 +7,7 @@ import 'package:yaml/yaml.dart';
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
+import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../core/vault_service.dart';
 
@@ -552,6 +553,11 @@ class MarkdownStorageService {
 
     return buf.toString();
   }
+
+  // ── Frontmatter patches ────────────────────────────────────────────────────
+
+  static Future<void> patchAnkiNoteId(String filePath, int noteId) =>
+      patchFrontmatterField(filePath, 'anki_note_id', '$noteId');
 
   // ── Private: defaults ──────────────────────────────────────────────────────
 

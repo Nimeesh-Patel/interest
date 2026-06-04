@@ -214,14 +214,14 @@ class IntegrationsConfigService {
     buf.writeln('## Readwise');
     buf.writeln();
     if (config.readwiseToken != null && config.readwiseToken!.isNotEmpty) {
-      buf.writeln('token: ${_yamlQuote(config.readwiseToken!)}');
+      buf.writeln('token: ${yamlScalar(config.readwiseToken!)}');
     }
 
     buf.writeln();
     buf.writeln('## Hardcover');
     buf.writeln();
     if (config.hardcoverToken != null && config.hardcoverToken!.isNotEmpty) {
-      buf.writeln('token: ${_yamlQuote(config.hardcoverToken!)}');
+      buf.writeln('token: ${yamlScalar(config.hardcoverToken!)}');
     }
 
     buf.writeln();
@@ -229,8 +229,8 @@ class IntegrationsConfigService {
     buf.writeln();
     for (final feed in config.rssFeeds) {
       buf.writeln('- id: ${feed['id']}');
-      buf.writeln('  name: ${_yamlQuote(feed['name']?.toString() ?? '')}');
-      buf.writeln('  url: ${_yamlQuote(feed['url']?.toString() ?? '')}');
+      buf.writeln('  name: ${yamlScalar(feed['name']?.toString() ?? '')}');
+      buf.writeln('  url: ${yamlScalar(feed['url']?.toString() ?? '')}');
       buf.writeln('  type: ${feed['type']}');
     }
 
@@ -245,11 +245,4 @@ class IntegrationsConfigService {
     return '${buf.toString().trimRight()}\n';
   }
 
-  static String _yamlQuote(String v) {
-    if (v.isEmpty || v.contains(':') || v.contains('#') || v.contains('"') ||
-        v.startsWith(' ') || v.endsWith(' ')) {
-      return '"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-    }
-    return v;
-  }
 }

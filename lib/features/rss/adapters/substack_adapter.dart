@@ -4,7 +4,6 @@ import '../models/article.dart';
 import '../models/rss_entry.dart';
 import '../models/rss_import_result.dart';
 import '../services/article_storage_service.dart';
-import '../services/rss_utils.dart';
 import 'rss_adapter.dart';
 
 class SubstackAdapter implements RssAdapter {

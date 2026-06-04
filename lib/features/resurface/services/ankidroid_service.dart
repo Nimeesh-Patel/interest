@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
 
-import '../../../shared/markdown/md_io.dart';
+import '../../entities/services/markdown_storage_service.dart';
 import '../models/resurface_note.dart';
 
 class AnkiSyncResult {
@@ -72,8 +72,7 @@ class AnkiDroidService {
             // Note was deleted from AnkiDroid — re-add and write new ID back.
             final newId = await _addNote(deckName, front, back, tags);
             if (newId > 0) {
-              await patchFrontmatterField(
-                  note.sourcePath, 'anki_note_id', '$newId');
+              await MarkdownStorageService.patchAnkiNoteId(note.sourcePath, newId);
               added++;
             } else {
               failed++;
@@ -83,8 +82,7 @@ class AnkiDroidService {
         } else {
           final newId = await _addNote(deckName, front, back, tags);
           if (newId > 0) {
-            await patchFrontmatterField(
-                note.sourcePath, 'anki_note_id', '$newId');
+            await MarkdownStorageService.patchAnkiNoteId(note.sourcePath, newId);
             added++;
           } else {
             failed++;

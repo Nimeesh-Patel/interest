@@ -22,6 +22,17 @@ typedef _LogData = ({
   List<_RawEntry> entries,
 });
 
+/// Typed payload for a single atomic graph-state write.
+/// All map keys must use [noteKey] notation (lowercase basename).
+class GraphStateUpdate {
+  /// noteKey → (rawScore, lastBoosted ISO string, isProblemNote)
+  final Map<String, ({double rawScore, String lastBoosted, bool isProblemNote})> scores;
+  /// noteKey → reviewer noteKeys to append to activated_by (deduped on write)
+  final Map<String, List<String>> activations;
+
+  const GraphStateUpdate({required this.scores, required this.activations});
+}
+
 class ReviewLogService {
   static String _logPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'System', 'review_log.md');
@@ -140,7 +151,7 @@ class ReviewLogService {
       for (final e in data.entries) {
         if (e.lastReviewed == null) continue;
         try {
-          map[e.note] = DateTime.parse(e.lastReviewed!);
+          map[noteKey(e.note)] = DateTime.parse(e.lastReviewed!);
         } catch (_) {}
       }
       return map;
@@ -175,7 +186,7 @@ class ReviewLogService {
           })>{};
       for (final e in data.entries) {
         try {
-          map[e.note] = (
+          map[noteKey(e.note)] = (
             graphScore: e.graphScore,
             lastBoosted: e.lastBoosted,
             lastReviewed:
@@ -223,13 +234,14 @@ class ReviewLogService {
       final data = await _readAll(vaultPath);
       final entries = data.entries;
       final today = DateTime.now().toIso8601String().substring(0, 10);
-      final idx = entries.indexWhere((e) => e.note == noteFilename);
+      final name = noteKey(noteFilename);
+      final idx = entries.indexWhere((e) => noteKey(e.note) == name);
       final List<_RawEntry> updated;
       if (idx == -1) {
         updated = [
           ...entries,
           (
-            note: noteFilename,
+            note: name,
             lastReviewed: today,
             graphScore: 0.0,
             lastBoosted: null,
@@ -247,7 +259,7 @@ class ReviewLogService {
           for (var i = 0; i < entries.length; i++)
             i == idx
                 ? (
-                    note: noteFilename,
+                    note: name,
                     lastReviewed: today,
                     graphScore: existing.graphScore,
                     lastBoosted: existing.lastBoosted,
@@ -278,9 +290,9 @@ class ReviewLogService {
       final data = await _readAll(vaultPath);
       var entries = data.entries;
       for (final kv in updates.entries) {
-        final name = kv.key;
+        final name = noteKey(kv.key);
         final update = kv.value;
-        final idx = entries.indexWhere((e) => e.note == name);
+        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
         if (idx == -1) {
           entries = [
             ...entries,
@@ -326,12 +338,115 @@ class ReviewLogService {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return;
       final data = await _readAll(vaultPath);
-      final updated = data.entries.where((e) => e.note != noteFilename).toList();
+      final name = noteKey(noteFilename);
+      final updated = data.entries.where((e) => noteKey(e.note) != name).toList();
       await File(_logPath(vaultPath)).writeAsString(
         _serialize((
           minDegree: data.minDegree,
           maxDegree: data.maxDegree,
           entries: updated,
+        )),
+      );
+    } catch (_) {}
+  }
+
+  /// Applies [update] (score patches + activation additions) in one read-mutate-write cycle.
+  /// Accepts [vaultPath] directly to avoid a redundant VaultService lookup when the
+  /// caller already has it.
+  static Future<void> updateGraphState(
+    String vaultPath,
+    GraphStateUpdate update,
+  ) async {
+    try {
+      final data = await _readAll(vaultPath);
+      var entries = data.entries;
+
+      // ── Apply score patches ────────────────────────────────────────────────
+      for (final kv in update.scores.entries) {
+        final name = noteKey(kv.key);
+        final u = kv.value;
+        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
+        if (idx == -1) {
+          entries = [
+            ...entries,
+            (
+              note: name,
+              lastReviewed: null,
+              graphScore: u.rawScore,
+              lastBoosted: u.lastBoosted,
+              activatedBy: <String>[],
+              isProblemNote: u.isProblemNote,
+              scheduledInterval: null,
+            ),
+          ];
+        } else {
+          entries = [
+            for (var i = 0; i < entries.length; i++)
+              i == idx
+                  ? (
+                      note: name,
+                      lastReviewed: entries[idx].lastReviewed,
+                      graphScore: u.rawScore,
+                      lastBoosted: u.lastBoosted,
+                      activatedBy: entries[idx].activatedBy,
+                      isProblemNote: u.isProblemNote,
+                      scheduledInterval: entries[idx].scheduledInterval,
+                    )
+                  : entries[i],
+          ];
+        }
+      }
+
+      // ── Apply activation additions ─────────────────────────────────────────
+      for (final kv in update.activations.entries) {
+        final name = noteKey(kv.key);
+        final reviewers = kv.value;
+        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
+        if (idx == -1) {
+          final isProblemNoteFlag = update.scores[name]?.isProblemNote ?? false;
+          entries = [
+            ...entries,
+            (
+              note: name,
+              lastReviewed: null,
+              graphScore: 0.0,
+              lastBoosted: null,
+              activatedBy: reviewers.toList(),
+              isProblemNote: isProblemNoteFlag,
+              scheduledInterval: null,
+            ),
+          ];
+        } else {
+          final existing = entries[idx];
+          var newActivatedBy = existing.activatedBy;
+          for (final reviewer in reviewers) {
+            if (!newActivatedBy.contains(reviewer)) {
+              newActivatedBy = [...newActivatedBy, reviewer];
+            }
+          }
+          if (identical(newActivatedBy, existing.activatedBy)) continue;
+          entries = [
+            for (var i = 0; i < entries.length; i++)
+              i == idx
+                  ? (
+                      note: name,
+                      lastReviewed: existing.lastReviewed,
+                      graphScore: existing.graphScore,
+                      lastBoosted: existing.lastBoosted,
+                      activatedBy: newActivatedBy,
+                      isProblemNote: existing.isProblemNote,
+                      scheduledInterval: existing.scheduledInterval,
+                    )
+                  : entries[i],
+          ];
+        }
+      }
+
+      await File(_logPath(vaultPath)).writeAsString(
+        _serialize((
+          minDegree: data.minDegree,
+          maxDegree: data.maxDegree,
+          entries: entries,
         )),
       );
     } catch (_) {}
@@ -347,11 +462,12 @@ class ReviewLogService {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return;
       final data = await _readAll(vaultPath);
+      final reviewer = noteKey(reviewedStarNote);
       var entries = data.entries;
       for (final kv in targets.entries) {
-        final name = kv.key;
+        final name = noteKey(kv.key);
         final isProblemNoteFlag = kv.value;
-        final idx = entries.indexWhere((e) => e.note == name);
+        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
         if (idx == -1) {
           entries = [
             ...entries,
@@ -360,14 +476,14 @@ class ReviewLogService {
               lastReviewed: null,
               graphScore: 0.0,
               lastBoosted: null,
-              activatedBy: [reviewedStarNote],
+              activatedBy: [reviewer],
               isProblemNote: isProblemNoteFlag,
               scheduledInterval: null,
             ),
           ];
         } else {
           final existing = entries[idx];
-          if (existing.activatedBy.contains(reviewedStarNote)) continue;
+          if (existing.activatedBy.contains(reviewer)) continue;
           entries = [
             for (var i = 0; i < entries.length; i++)
               i == idx
@@ -376,7 +492,7 @@ class ReviewLogService {
                       lastReviewed: existing.lastReviewed,
                       graphScore: existing.graphScore,
                       lastBoosted: existing.lastBoosted,
-                      activatedBy: [...existing.activatedBy, reviewedStarNote],
+                      activatedBy: [...existing.activatedBy, reviewer],
                       isProblemNote: isProblemNoteFlag,
                       scheduledInterval: existing.scheduledInterval,
                     )
