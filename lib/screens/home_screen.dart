@@ -31,6 +31,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static final _shareChannel = MethodChannel('people.nimee/share');
+  static final _deeplinkChannel = MethodChannel('com.nimeesh.interest/deeplink');
 
   final MarkdownStorageService _storage = MarkdownStorageService();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
@@ -58,10 +59,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadData();
     _shareChannel.setMethodCallHandler(_onShareMethod);
+    _deeplinkChannel.setMethodCallHandler(_onDeeplinkMethod);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final url =
           await _shareChannel.invokeMethod<String?>('getInitialShareUrl');
       if (url != null && mounted) _ingestShareUrl(url);
+      final noteName =
+          await _deeplinkChannel.invokeMethod<String?>('getInitialDeeplinkNote');
+      if (noteName != null && mounted) _openNoteFromDeeplink(noteName);
     });
   }
 
@@ -96,6 +101,22 @@ class _HomeScreenState extends State<HomeScreen> {
       final url = call.arguments as String?;
       if (url != null && mounted) _ingestShareUrl(url);
     }
+  }
+
+  Future<void> _onDeeplinkMethod(MethodCall call) async {
+    if (call.method == 'openNote') {
+      final name = call.arguments as String?;
+      if (name != null && mounted) _openNoteFromDeeplink(name);
+    }
+  }
+
+  void _openNoteFromDeeplink(String noteName) {
+    setState(() => _currentTab = 1);
+    // ResurfaceScreen is always mounted (IndexedStack) — state is live.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _resurfaceKey.currentState?.openNoteByName(noteName);
+    });
   }
 
   Future<void> _ingestShareUrl(String url) async {

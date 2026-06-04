@@ -159,6 +159,37 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (didSave == true) _reloadAfterEdit(fp);
   }
 
+  /// Called by HomeScreen when an interest://note deep link arrives.
+  /// Routes problem notes to the card viewer, plain notes to the detail screen.
+  Future<void> openNoteByName(String name) async {
+    final lower = name.toLowerCase();
+    final note = _allNotes
+        .where((n) => p.basenameWithoutExtension(n.sourceFile).toLowerCase() == lower)
+        .firstOrNull;
+    if (note != null) {
+      _openSearchResult(note);
+      return;
+    }
+    // Fallback: vault-wide scan for notes in excluded folders or during loading race.
+    if (_vaultPath == null || !mounted) return;
+    final path = await ResurfaceService.resolveWikilink(_vaultPath!, name);
+    if (!mounted) return;
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Note not found: $name')),
+      );
+      return;
+    }
+    final loaded = await ResurfaceService.loadSingleNote(path);
+    if (!mounted) return;
+    if (loaded != null) {
+      _openSearchResult(loaded);
+    } else {
+      setState(() => _stack.add(_NoteDetailRoute(path)));
+      widget.onNavigationChanged?.call();
+    }
+  }
+
   void _reloadAfterEdit(String filePath) {
     if (_stack.last is _NoteDetailRoute) {
       setState(() => _detailVersion++);

@@ -13,7 +13,9 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val shareChannelName = "people.nimee/share"
     private val ankiChannelName = "com.nimeesh.interest/ankidroid"
+    private val deeplinkChannelName = "com.nimeesh.interest/deeplink"
     private var pendingShareUrl: String? = null
+    private var pendingDeeplinkNote: String? = null
     private var pendingAnkiPermissionResult: MethodChannel.Result? = null
 
     companion object {
@@ -23,14 +25,21 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingShareUrl = extractShareUrl(intent)
+        pendingDeeplinkNote = extractDeeplinkNote(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val url = extractShareUrl(intent) ?: return
-        flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
-            MethodChannel(messenger, shareChannelName).invokeMethod("onShareIntent", url)
+        extractShareUrl(intent)?.let { url ->
+            flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                MethodChannel(messenger, shareChannelName).invokeMethod("onShareIntent", url)
+            }
+        }
+        extractDeeplinkNote(intent)?.let { noteName ->
+            flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                MethodChannel(messenger, deeplinkChannelName).invokeMethod("openNote", noteName)
+            }
         }
     }
 
@@ -51,12 +60,23 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Share intent channel (unchanged)
+        // Share intent channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, shareChannelName)
             .setMethodCallHandler { call, result ->
                 if (call.method == "getInitialShareUrl") {
                     result.success(pendingShareUrl)
                     pendingShareUrl = null
+                } else {
+                    result.notImplemented()
+                }
+            }
+
+        // Deep-link channel (interest://note/<name>)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deeplinkChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "getInitialDeeplinkNote") {
+                    result.success(pendingDeeplinkNote)
+                    pendingDeeplinkNote = null
                 } else {
                     result.notImplemented()
                 }
@@ -169,5 +189,12 @@ class MainActivity : FlutterActivity() {
         if (intent.action != Intent.ACTION_SEND) return null
         if (intent.type != "text/plain") return null
         return intent.getStringExtra(Intent.EXTRA_TEXT)
+    }
+
+    private fun extractDeeplinkNote(intent: Intent): String? {
+        if (intent.action != Intent.ACTION_VIEW) return null
+        val uri = intent.data ?: return null
+        if (uri.scheme != "interest" || uri.host != "note") return null
+        return uri.lastPathSegment  // Android Uri auto-decodes %20 → space
     }
 }

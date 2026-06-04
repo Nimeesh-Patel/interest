@@ -72,3 +72,45 @@ Deck lookup uses `getOrCreateDeck` in `MainActivity.kt`, which checks `api.deckL
 If AnkiDroid is not installed: snackbar "AnkiDroid not installed", no crash.  
 If permission is denied: snackbar "Permission denied", no crash.  
 Per-note errors are accumulated in `AnkiSyncResult.errors` and reported in the final snackbar without aborting the rest of the sync.
+
+## Wikilink deep-links
+
+### URI scheme
+
+```
+interest://note/<percent-encoded-note-name>
+```
+
+Example: a wikilink `[[Zeno's Paradox]]` becomes `interest://note/Zeno's%20Paradox`.
+
+### Export transformation
+
+During sync, `AnkiDroidService._wikilinkToAnkiLink()` rewrites wikilinks in the Markdown source before passing it to the HTML renderer:
+
+| Vault syntax | Rendered in AnkiDroid card |
+|---|---|
+| `[[Note Name]]` | `<a href="interest://note/Note%20Name">Note Name</a>` |
+| `[[Note Name\|alias]]` | `<a href="interest://note/Note%20Name">alias</a>` |
+
+The note name is percent-encoded with `Uri.encodeComponent` (same function used by `substituteWikilinks` in `md_utils.dart`). If encoding fails for any reason the link is omitted and only the display text is emitted — no crash.
+
+Markdown files in the vault are never modified. Wikilink rendering inside Interest (Notes tab) is unchanged.
+
+### Incoming intent handling
+
+```
+interest://note/<name> intent (VIEW)
+  → MainActivity.kt extractDeeplinkNote()   decode URI path segment
+  → MethodChannel "com.nimeesh.interest/deeplink"
+      cold start  → getInitialDeeplinkNote (polled from initState)
+      warm start  → openNote (pushed via onNewIntent)
+  → HomeScreen._openNoteFromDeeplink()      switch to Notes tab (index 1)
+  → ResurfaceScreenState.openNoteByName()   resolve and route
+      problem note (***) → card viewer
+      plain note         → detail screen
+      not found          → snackbar "Note not found: <name>"
+```
+
+### Ownership boundary
+
+Interest owns all note resolution and rendering. AnkiDroid is a launch point only — it fires the URI and hands control back. No note data flows from AnkiDroid into Interest.

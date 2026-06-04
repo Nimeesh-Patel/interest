@@ -2,7 +2,6 @@ import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../../../shared/markdown/md_io.dart';
-import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_note.dart';
 
 class AnkiSyncResult {
@@ -156,6 +155,25 @@ class AnkiDroidService {
   }
 
   static String _markdownToAnkiHtml(String text) =>
-      md.markdownToHtml(plainTextWikilinks(text),
+      md.markdownToHtml(_wikilinkToAnkiLink(text),
           extensionSet: md.ExtensionSet.gitHubWeb);
+
+  /// Converts [[Note Name]] and [[Note Name|alias]] into Markdown links
+  /// using the interest://note/ deep-link scheme so AnkiDroid renders them
+  /// as tappable anchors. Falls back to plain display text on encode failure.
+  static String _wikilinkToAnkiLink(String text) {
+    return text.replaceAllMapped(
+      RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+      (m) {
+        final noteName = m.group(1)!.trim();
+        final display = m.group(2)?.trim() ?? noteName;
+        try {
+          final encoded = Uri.encodeComponent(noteName);
+          return '[$display](interest://note/$encoded)';
+        } catch (_) {
+          return display;
+        }
+      },
+    );
+  }
 }
