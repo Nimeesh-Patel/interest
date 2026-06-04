@@ -18,6 +18,7 @@ import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
 import '../services/review_log_service.dart';
+import '../controllers/card_viewer_controller.dart';
 import '_note_md_helpers.dart';
 import 'note_detail_screen.dart';
 import 'note_edit_screen.dart';
@@ -63,14 +64,8 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
 
   final List<_ResurfaceRoute> _stack = [const _DeckListRoute()];
 
-  // Viewer state: notes (both *** and activated non-***), hoisted to survive detail pushes.
-  List<ResurfaceNote> _viewerNotes = [];
-  int _viewerIndex = 0;
-  bool _viewerBackRevealed = false;
-
-  // No-repeat state — session-only, never persisted.
-  String? _lastShownFilename;
-  Map<String, double> _viewerPriorities = {};
+  // Card viewer: queue, position, no-repeat logic, review session.
+  final _controller = CardViewerController();
 
   // Incremented after each edit to force NoteDetailScreen to re-read its file.
   int _detailVersion = 0;
@@ -143,8 +138,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   /// Absolute path of the note currently visible; null when deck list is showing.
   String? get currentEditFilePath => switch (_stack.last) {
         _NoteDetailRoute(:final filePath) => filePath,
-        _CardViewerRoute() =>
-          _viewerNotes.isEmpty ? null : _viewerNotes[_viewerIndex].sourcePath,
+        _CardViewerRoute() => _controller.current?.sourcePath,
         _DeckListRoute() => null,
       };
 
@@ -201,16 +195,13 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   Future<void> _reloadViewerNote(String filePath) async {
     final updated = await ResurfaceService.loadSingleNote(filePath);
     if (updated == null) return;
-    final idx = _viewerNotes.indexWhere((n) => n.sourcePath == filePath);
+    final notes = _controller.notes;
+    final idx = notes.indexWhere((n) => n.sourcePath == filePath);
     if (idx == -1) return;
-    final wasProblemNote = _viewerNotes[idx].isProblemNote;
+    final wasProblemNote = notes[idx].isProblemNote;
     // *** note lost its separator → remove from viewer.
     if (wasProblemNote && !updated.isProblemNote) {
-      setState(() {
-        _viewerNotes.removeAt(idx);
-        _viewerIndex =
-            _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
-      });
+      setState(() => _controller.removeAt(idx));
       return;
     }
     // Non-*** note gained a separator → update is_star in log.
@@ -220,14 +211,14 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         isProblemNote: true,
       );
     }
-    setState(() => _viewerNotes[idx] = updated);
+    setState(() => _controller.reloadNote(idx, updated));
   }
 
   void goBack() {
     if (_stack.length <= 1) return;
     setState(() {
       _stack.removeLast();
-      if (_stack.last is _CardViewerRoute) _viewerBackRevealed = false;
+      if (_stack.last is _CardViewerRoute) _controller.resetBackRevealed();
     });
     widget.onNavigationChanged?.call();
   }
@@ -238,11 +229,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       _stack
         ..clear()
         ..add(const _DeckListRoute());
-      _viewerNotes = [];
-      _viewerIndex = 0;
-      _viewerBackRevealed = false;
-      _lastShownFilename = null;
-      _viewerPriorities = {};
+      _controller.reset();
       _searchActive = false;
       _searchController.clear();
       _searchQuery = '';
@@ -286,21 +273,9 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (!mounted) return;
     setState(() {
       _stack.add(_CardViewerRoute(deckName));
-      _viewerNotes = result.sorted;
-      _viewerPriorities = result.priorities;
-      _viewerIndex = 0;
-      _viewerBackRevealed = false;
+      _controller.load(result.sorted, result.priorities);
     });
     widget.onNavigationChanged?.call();
-    if (result.sorted.isNotEmpty) {
-      final first = result.sorted.first;
-      final firstName = p.basenameWithoutExtension(first.sourceFile);
-      _lastShownFilename = firstName;
-      ReviewLogService.markReviewed(firstName,
-          isProblemNote: first.isProblemNote,
-          scheduledInterval: result.priorities[firstName]);
-      GraphScoringService.updateGraphScores(firstName);
-    }
   }
 
   List<ResurfaceNote> _notesForDeck(String deckName) {
@@ -329,49 +304,6 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     setState(() => _stack.add(_NoteDetailRoute(path)));
     widget.onNavigationChanged?.call();
   }
-
-  // ── Card viewer callbacks ─────────────────────────────────────────────────
-
-  void _viewerGoNext() {
-    if (_viewerIndex >= _viewerNotes.length - 1) return;
-    final nextIdx = _viewerIndex + 1;
-    final nextName = p.basenameWithoutExtension(_viewerNotes[nextIdx].sourceFile);
-    setState(() {
-      // No-repeat: if the next note is the same as the last shown and there is
-      // a note after it to skip to, move it one position back in the queue.
-      if (nextName == _lastShownFilename && nextIdx + 1 < _viewerNotes.length) {
-        final skipped = _viewerNotes.removeAt(nextIdx);
-        _viewerNotes.insert(nextIdx + 1, skipped);
-      }
-      _viewerIndex = nextIdx;
-      _viewerBackRevealed = false;
-    });
-    final note = _viewerNotes[_viewerIndex];
-    final filename = p.basenameWithoutExtension(note.sourceFile);
-    _lastShownFilename = filename;
-    ReviewLogService.markReviewed(filename,
-        isProblemNote: note.isProblemNote,
-        scheduledInterval: _viewerPriorities[filename]);
-    GraphScoringService.updateGraphScores(filename);
-  }
-
-  void _viewerGoPrev() {
-    if (_viewerIndex > 0) {
-      setState(() {
-        _viewerIndex--;
-        _viewerBackRevealed = false;
-      });
-      final note = _viewerNotes[_viewerIndex];
-      final filename = p.basenameWithoutExtension(note.sourceFile);
-      _lastShownFilename = filename;
-      ReviewLogService.markReviewed(filename,
-          isProblemNote: note.isProblemNote,
-          scheduledInterval: _viewerPriorities[filename]);
-      GraphScoringService.updateGraphScores(filename);
-    }
-  }
-
-  void _viewerToggleBack() => setState(() => _viewerBackRevealed = !_viewerBackRevealed);
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -441,7 +373,8 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Future<void> _deleteCurrentNote(BuildContext context) async {
-    final note = _viewerNotes[_viewerIndex];
+    final note = _controller.current;
+    if (note == null) return;
     final confirmed = await showConfirmDialog(
       context,
       title: 'Delete note',
@@ -457,11 +390,9 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     setState(() {
       _allNotes.removeWhere((n) => n.sourcePath == note.sourcePath);
       _problemNotes.removeWhere((c) => c.sourcePath == note.sourcePath);
-      _viewerNotes.removeAt(_viewerIndex);
-      _viewerIndex =
-          _viewerIndex.clamp(0, (_viewerNotes.length - 1).clamp(0, 1 << 30));
+      _controller.removeAt(_controller.index);
     });
-    if (_viewerNotes.isEmpty) goBack();
+    if (_controller.isEmpty) goBack();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -688,16 +619,16 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   Widget _buildCardViewer() {
-    if (_viewerNotes.isEmpty) {
+    if (_controller.isEmpty) {
       return const EmptyState(icon: Icons.auto_awesome_outlined, message: 'No notes.');
     }
     return _NoteViewerBody(
-      notes: _viewerNotes,
-      currentIndex: _viewerIndex,
-      backRevealed: _viewerBackRevealed,
-      onNext: _viewerGoNext,
-      onPrev: _viewerGoPrev,
-      onToggleBack: _viewerToggleBack,
+      notes: _controller.notes,
+      currentIndex: _controller.index,
+      backRevealed: _controller.backRevealed,
+      onNext: () => setState(() => _controller.goNext()),
+      onPrev: () => setState(() => _controller.goPrev()),
+      onToggleBack: () => setState(() => _controller.toggleBack()),
       onNavigateToNote: _handleWikilinkTap,
       onDeleteNote: () => _deleteCurrentNote(context),
     );

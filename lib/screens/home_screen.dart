@@ -3,10 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
+import '../features/entities/controllers/entity_list_controller.dart';
 import '../features/entities/models/category.dart';
 import '../features/entities/models/entity.dart';
-import '../features/entities/models/entity_link.dart';
-import '../features/entities/services/markdown_storage_service.dart';
 import '../shared/constants/app_spacing.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/widgets/bottom_sheet_menu.dart';
@@ -33,17 +32,17 @@ class _HomeScreenState extends State<HomeScreen> {
   static final _shareChannel = MethodChannel('people.nimee/share');
   static final _deeplinkChannel = MethodChannel('com.nimeesh.interest/deeplink');
 
-  final MarkdownStorageService _storage = MarkdownStorageService();
   final _projectsKey = GlobalKey<ProjectsScreenState>();
   final _resurfaceKey = GlobalKey<ResurfaceScreenState>();
   final _homeDashboardKey = GlobalKey<HomeDashboardScreenState>();
-  List<Entity> _entities = [];
-  List<Category> _categories = [];
-  List<String> _tags = [];
-  List<EntityLink> _entityLinks = [];
-  String? _selectedCategoryId;
-  String _searchQuery = '';
-  String _sortOrder = 'latest';
+
+  late final _controller = EntityListController(
+    onDataChanged: () {
+      if (mounted) setState(() {});
+      _homeDashboardKey.currentState?.reload();
+    },
+  );
+
   bool _isLoading = true;
   bool _isAddingCategory = false;
   // Tabs: 0=Home, 1=Notes, 2=Entities, 3=Projects
@@ -80,16 +79,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
-    final data = await _storage.loadData();
-    if (mounted) {
-      setState(() {
-        _entities = data.entities;
-        _categories = data.categories;
-        _tags = data.tags;
-        _entityLinks = data.entityLinks;
-        _isLoading = false;
-      });
-    }
+    await _controller.loadData();
+    if (mounted) setState(() => _isLoading = false);
     final vault = await VaultService.getVaultPath();
     if (vault != null) {
       await IntegrationsConfigService.migrateFromPrefs(vault);
@@ -112,7 +103,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openNoteFromDeeplink(String noteName) {
     setState(() => _currentTab = 1);
-    // ResurfaceScreen is always mounted (IndexedStack) — state is live.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _resurfaceKey.currentState?.openNoteByName(noteName);
@@ -166,70 +156,14 @@ class _HomeScreenState extends State<HomeScreen> {
         .showSnackBar(SnackBar(content: Text(saveError ?? 'Saved to Bookmarks')));
   }
 
-  Future<void> _reloadData() async {
-    final data = await _storage.loadData();
-    if (mounted) {
-      setState(() {
-        _entities = data.entities;
-        _categories = data.categories;
-        _tags = data.tags;
-        _entityLinks = data.entityLinks;
-      });
-    }
-  }
-
-  void _save() {
-    _storage.saveData(
-      entities: _entities,
-      categories: _categories,
-      tags: _tags,
-      entityLinks: _entityLinks,
-    );
-  }
-
   // ── Entity operations ─────────────────────────────────────────────────────
 
-  List<Entity> get _filtered {
-    var list = _entities;
-    if (_selectedCategoryId != null) {
-      list = list.where((e) => e.categoryId == _selectedCategoryId).toList();
-    }
-    if (_searchQuery.isNotEmpty) {
-      final q = _searchQuery.toLowerCase();
-      list = list.where((e) => e.name.toLowerCase().contains(q)).toList();
-    }
-    return MarkdownStorageService.sortEntities(list, _sortOrder);
-  }
-
-  String get _effectiveCategoryId {
-    if (_selectedCategoryId != null) return _selectedCategoryId!;
-    return 'default';
-  }
-
   void _addEntity(String name) {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final id = MarkdownStorageService.generateEntityId(trimmed, _entities);
-    final entity = Entity(
-      id: id,
-      name: trimmed,
-      categoryId: _effectiveCategoryId,
-      createdAt: now,
-      updatedAt: now,
-    );
-    setState(() => _entities.add(entity));
-    _save();
+    _controller.addEntity(name);
     _addController.clear();
   }
 
-  void _deleteEntity(Entity entity) {
-    setState(() {
-      _entities.removeWhere((e) => e.id == entity.id);
-      _entityLinks.removeWhere((l) => l.from == entity.id || l.to == entity.id);
-    });
-    _save();
-  }
+  void _deleteEntity(Entity entity) => _controller.deleteEntity(entity);
 
   Future<void> _openEntity(Entity entity) async {
     await Navigator.push(
@@ -237,15 +171,15 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => EntityScreen(
           entity: entity,
-          storage: _storage,
-          allEntities: _entities,
-          allCategories: _categories,
-          allTags: _tags,
-          allEntityLinks: _entityLinks,
+          storage: _controller.storage,
+          allEntities: _controller.entities,
+          allCategories: _controller.categories,
+          allTags: _controller.tags,
+          allEntityLinks: _controller.entityLinks,
         ),
       ),
     );
-    await _reloadData();
+    await _controller.reloadData();
   }
 
   Future<void> _openTemplates() async {
@@ -260,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
-    _reloadData();
+    _controller.reloadData();
   }
 
   Future<void> _openObsidian() async {
@@ -278,19 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Category operations ───────────────────────────────────────────────────
 
   void _addCategory(String name) {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) {
-      setState(() => _isAddingCategory = false);
-      _newCategoryController.clear();
-      return;
-    }
-    final id = MarkdownStorageService.generateCategoryId(trimmed, _categories);
-    setState(() {
-      _categories.add(Category(id: id, name: trimmed));
-      _isAddingCategory = false;
-    });
+    setState(() => _isAddingCategory = false);
     _newCategoryController.clear();
-    _save();
+    _controller.addCategory(name);
   }
 
   void _showCategoryOptions(Category category) {
@@ -315,27 +239,15 @@ class _HomeScreenState extends State<HomeScreen> {
       initialValue: category.name,
       confirmLabel: 'Rename',
     );
-    if (name != null) {
-      setState(() => category.name = name);
-      _save();
-    }
+    if (name != null) _controller.renameCategory(category, name);
   }
 
   void _deleteCategory(Category category) {
-    final inUse = _entities.any((e) => e.categoryId == category.id);
-    if (inUse) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Cannot delete "${category.name}" — it has entities. Reassign them first.'),
-        ),
-      );
-      return;
+    final error = _controller.deleteCategory(category);
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
     }
-    setState(() {
-      _categories.removeWhere((c) => c.id == category.id);
-      if (_selectedCategoryId == category.id) _selectedCategoryId = null;
-    });
-    _save();
   }
 
   // ── Entities tab UI ───────────────────────────────────────────────────────
@@ -349,14 +261,14 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _CategoryChip(
             label: 'All',
-            selected: _selectedCategoryId == null,
-            onTap: () => setState(() => _selectedCategoryId = null),
+            selected: _controller.selectedCategoryId == null,
+            onTap: () => setState(() => _controller.selectedCategoryId = null),
           ),
-          for (final cat in _categories)
+          for (final cat in _controller.categories)
             _CategoryChip(
               label: cat.name,
-              selected: _selectedCategoryId == cat.id,
-              onTap: () => setState(() => _selectedCategoryId = cat.id),
+              selected: _controller.selectedCategoryId == cat.id,
+              onTap: () => setState(() => _controller.selectedCategoryId = cat.id),
               onLongPress: () => _showCategoryOptions(cat),
             ),
           if (_isAddingCategory)
@@ -395,10 +307,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAddBar() {
-    final catName = _selectedCategoryId != null
-        ? _categories
+    final catName = _controller.selectedCategoryId != null
+        ? _controller.categories
             .firstWhere(
-              (c) => c.id == _selectedCategoryId,
+              (c) => c.id == _controller.selectedCategoryId,
               orElse: () => Category(id: '', name: 'entity'),
             )
             .name
@@ -441,19 +353,19 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: InputDecoration(
           hintText: 'Search…',
           prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary),
-          suffixIcon: _searchQuery.isNotEmpty
+          suffixIcon: _controller.searchQuery.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
                     _searchController.clear();
-                    setState(() => _searchQuery = '');
+                    setState(() => _controller.searchQuery = '');
                   },
                 )
               : null,
           isDense: true,
         ),
         textInputAction: TextInputAction.search,
-        onChanged: (v) => setState(() => _searchQuery = v),
+        onChanged: (v) => setState(() => _controller.searchQuery = v),
       ),
     );
   }
@@ -468,8 +380,9 @@ class _HomeScreenState extends State<HomeScreen> {
   };
 
   Widget _buildSortBar() {
-    final count = _filtered.length;
-    final sortLabel = _sortLabels[_sortOrder] ?? 'Latest';
+    final items = _controller.filtered;
+    final count = items.length;
+    final sortLabel = _sortLabels[_controller.sortOrder] ?? 'Latest';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 8),
       child: Row(
@@ -500,19 +413,19 @@ class _HomeScreenState extends State<HomeScreen> {
     showBottomSheetMenu(context, items: [
       for (final entry in _sortLabels.entries)
         BottomSheetMenuItem(
-          icon: _sortOrder == entry.key ? Icons.check : Icons.sort,
+          icon: _controller.sortOrder == entry.key ? Icons.check : Icons.sort,
           label: entry.value,
-          onTap: () => setState(() => _sortOrder = entry.key),
+          onTap: () => setState(() => _controller.sortOrder = entry.key),
         ),
     ]);
   }
 
   Widget _buildEntityList() {
-    final items = _filtered;
+    final items = _controller.filtered;
     if (items.isEmpty) {
       return Center(
         child: Text(
-          _searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
+          _controller.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
           style: const TextStyle(color: AppColors.textSecondary),
         ),
       );
@@ -522,7 +435,7 @@ class _HomeScreenState extends State<HomeScreen> {
       itemCount: items.length,
       itemBuilder: (ctx, i) {
         final entity = items[i];
-        final catName = _categories
+        final catName = _controller.categories
             .firstWhere((c) => c.id == entity.categoryId,
                 orElse: () => Category(id: '', name: ''))
             .name;
@@ -733,19 +646,19 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           HomeDashboardScreen(
             key: _homeDashboardKey,
-            entities: _entities,
-            categories: _categories,
+            entities: _controller.entities,
+            categories: _controller.categories,
             onBeginReview: () => setState(() => _currentTab = 1),
             onEntityTap: _openEntity,
             onAddTap: () => showQuickAddSheet(
               context,
-              entities: _entities,
-              categories: _categories,
-              tags: _tags,
-              allEntityLinks: _entityLinks,
-              storage: _storage,
+              entities: _controller.entities,
+              categories: _controller.categories,
+              tags: _controller.tags,
+              allEntityLinks: _controller.entityLinks,
+              storage: _controller.storage,
               onCreated: (entity) async {
-                await _reloadData();
+                await _controller.reloadData();
                 if (mounted) await _openEntity(entity);
               },
             ),
@@ -761,16 +674,14 @@ class _HomeScreenState extends State<HomeScreen> {
       floatingActionButton: switch (_currentTab) {
         2 => _EntitiesFab(onTap: () => showQuickAddSheet(
               context,
-              entities: _entities,
-              categories: _categories,
-              tags: _tags,
-              allEntityLinks: _entityLinks,
-              storage: _storage,
+              entities: _controller.entities,
+              categories: _controller.categories,
+              tags: _controller.tags,
+              allEntityLinks: _controller.entityLinks,
+              storage: _controller.storage,
               onCreated: (entity) async {
-                await _reloadData();
-                if (mounted) {
-                  await _openEntity(entity);
-                }
+                await _controller.reloadData();
+                if (mounted) await _openEntity(entity);
               },
             )),
         3 => FloatingActionButton(
@@ -881,4 +792,3 @@ class _EntitiesFab extends StatelessWidget {
     );
   }
 }
-

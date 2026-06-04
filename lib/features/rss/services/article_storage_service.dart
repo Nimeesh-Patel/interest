@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../models/article.dart';
 
 /// In-memory deduplication index built once per import run.
@@ -58,11 +59,10 @@ class ArticleStorageService {
   static Future<ArticleIndex> buildIndex(String vaultPath) async {
     final index = ArticleIndex();
     try {
-      final dir = Directory(VaultService.articlesPath(vaultPath));
-      if (!await dir.exists()) return index;
-
-      await for (final entry in dir.list()) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
+      await for (final entry in VaultScanner.scan(
+        VaultService.articlesPath(vaultPath),
+        recursive: false,
+      )) {
         try {
           final content = await entry.readAsString();
           final split = splitFrontmatter(content);

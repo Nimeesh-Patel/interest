@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../models/resurface_note.dart';
 
 class ResurfaceService {
@@ -41,13 +42,10 @@ class ResurfaceService {
   }) async {
     final notes = <ResurfaceNote>[];
     try {
-      final vaultDir = Directory(vaultPath);
-      await for (final entry in vaultDir.list(recursive: true)) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
-        final relative = p.relative(entry.path, from: vaultPath);
-        final segments = p.split(relative);
-        final folders = segments.sublist(0, segments.length - 1);
-        if (folders.any((seg) => excludedFolders.contains(seg))) continue;
+      await for (final entry in VaultScanner.scan(
+        vaultPath,
+        excludedFolders: excludedFolders.toSet(),
+      )) {
         try {
           final content = await entry.readAsString();
           final split = splitFrontmatter(content);

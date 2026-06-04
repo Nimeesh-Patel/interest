@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../models/rss_entry.dart';
 import '../models/rss_import_result.dart';
 import '../services/rss_utils.dart';
@@ -98,11 +99,10 @@ class LetterboxdAdapter implements RssAdapter {
       String entitiesDirPath) async {
     final index = <String, String>{};
     try {
-      final dir = Directory(entitiesDirPath);
-      if (!await dir.exists()) return index;
-
-      await for (final entry in dir.list()) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
+      await for (final entry in VaultScanner.scan(
+        entitiesDirPath,
+        recursive: false,
+      )) {
         try {
           final content = await entry.readAsString();
           final split = splitFrontmatter(content);

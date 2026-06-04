@@ -2,14 +2,16 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:path/path.dart' as p;
-import 'package:yaml/yaml.dart';
 
 import '../models/category.dart';
 import '../models/entity.dart';
 import '../models/entity_link.dart';
 import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../../../core/vault_service.dart';
+import 'entity_file_parser.dart';
+import 'entity_file_writer.dart';
 
 typedef AppData = ({
   List<Entity> entities,
@@ -17,17 +19,6 @@ typedef AppData = ({
   List<String> tags,
   List<EntityLink> entityLinks,
 });
-
-// ── Section type registry ────────────────────────────────────────────────────
-
-enum SectionType { wikilinks, list, generic }
-
-// Sections the app owns semantically. Everything else is user territory.
-const Map<String, SectionType> _semanticSections = {
-  'Why Interesting': SectionType.list,
-  'Related': SectionType.wikilinks,
-  'Sources': SectionType.list,
-};
 
 class MarkdownStorageService {
   String? _vaultPath;
@@ -44,17 +35,15 @@ class MarkdownStorageService {
       final pendingRelated = <String, List<String>>{};
       final catNames = <String, String>{};
 
-      final vaultDir = Directory(vaultPath);
-      await for (final entry in vaultDir.list(recursive: true)) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
-        final rel = p.relative(entry.path, from: vaultPath);
-        final folders = p.split(rel)..removeLast();
-        if (folders.any((s) => s == '.obsidian' || s == 'Templates')) continue;
+      await for (final entry in VaultScanner.scan(
+        vaultPath,
+        excludedFolders: const {'.obsidian', 'Templates'},
+      )) {
         try {
           final content = await entry.readAsString();
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
           if (yaml == null || !yaml.containsKey('category')) continue;
-          final result = _parseEntityFile(content, entry.path);
+          final result = EntityFileParser.parseEntityFile(content, entry.path);
           entities.add(result.entity);
           pendingRelated[result.entity.id] = result.relatedNames;
           final catId = result.entity.categoryId;
@@ -118,12 +107,10 @@ class MarkdownStorageService {
 
       // Vault-wide alias → path lookup: finds entities wherever they live.
       final existingAliasToPath = <String, String>{};
-      final scanDir = Directory(vaultPath);
-      await for (final entry in scanDir.list(recursive: true)) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
-        final rel = p.relative(entry.path, from: vaultPath);
-        final folders = p.split(rel)..removeLast();
-        if (folders.any((s) => s == '.obsidian' || s == 'Templates')) continue;
+      await for (final entry in VaultScanner.scan(
+        vaultPath,
+        excludedFolders: const {'.obsidian', 'Templates'},
+      )) {
         try {
           final content = await entry.readAsString();
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
@@ -168,21 +155,23 @@ class MarkdownStorageService {
         if (existingFilePath != null) {
           try {
             final existingContent = await File(existingFilePath).readAsString();
-            content = _patchEntityContent(
+            content = EntityFileWriter.patchEntityContent(
               existingContent: existingContent,
               entity: entity,
               categoryName: categoryName,
               relatedEntityNames: relatedNames,
             );
           } catch (_) {
-            content = await _buildNewEntityContent(
+            content = await EntityFileWriter.buildNewEntityContent(
+              vaultPath: vaultPath,
               entity: entity,
               categoryName: categoryName,
               relatedEntityNames: relatedNames,
             );
           }
         } else {
-          content = await _buildNewEntityContent(
+          content = await EntityFileWriter.buildNewEntityContent(
+            vaultPath: vaultPath,
             entity: entity,
             categoryName: categoryName,
             relatedEntityNames: relatedNames,
@@ -254,304 +243,6 @@ class MarkdownStorageService {
         sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     }
     return sorted;
-  }
-
-  // ── Private: parse ─────────────────────────────────────────────────────────
-
-  static ({Entity entity, List<String> relatedNames, String categoryName})
-      _parseEntityFile(String content, String filePath) {
-    final split = splitFrontmatter(content);
-    final body = split.body;
-    final basename = p.basenameWithoutExtension(filePath);
-
-    String alias = slugify(basename).isEmpty ? 'entity' : slugify(basename);
-    String categoryName = '';
-    double? score;
-    List<String> tags = [];
-    String? watchedDate;
-    String? letterboxdUrl;
-    String? tmdbId;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    int createdAt = now;
-    int updatedAt = now;
-
-    final yaml = parseYamlMap(split.frontmatter);
-    if (yaml != null) {
-      final rawAlias = yaml['alias'];
-      if (rawAlias != null) {
-        final a = slugify(rawAlias.toString());
-        if (a.isNotEmpty) { alias = a; }
-      }
-      categoryName = yaml['category']?.toString() ?? '';
-      final rawScore = yaml['score'];
-      if (rawScore is num) score = rawScore.toDouble();
-      final rawTags = yaml['tags'];
-      if (rawTags is YamlList) {
-        tags = rawTags.map((t) => t.toString()).toList();
-      }
-      createdAt = parseIsoToMs(yaml['created_at']?.toString()) ?? now;
-      updatedAt = parseIsoToMs(yaml['updated_at']?.toString()) ?? createdAt;
-      watchedDate = yaml['watched_date']?.toString();
-      letterboxdUrl = yaml['letterboxd_url']?.toString();
-      tmdbId = yaml['tmdb_id']?.toString();
-    }
-
-    final name = extractH1(body) ?? basename;
-
-    // Dynamic section parse — discovers ALL sections in the file
-    final rawSections = parseSectionsH2(body);
-    final notes = parseSectionAsList(rawSections['Why Interesting'] ?? '');
-    final links = parseSectionAsList(rawSections['Sources'] ?? '');
-    final relatedNames = {
-      ...parseSectionAsWikilinks(rawSections['Related'] ?? ''),
-      ...extractWikilinks(body),
-    }.toList();
-
-    final catId = categoryName.isEmpty
-        ? 'uncategorized'
-        : (slugify(categoryName).isEmpty ? 'uncategorized' : slugify(categoryName));
-
-    final entity = Entity(
-      id: alias,
-      name: name,
-      categoryId: catId,
-      notes: notes,
-      links: links,
-      tags: tags,
-      score: score,
-      createdAt: createdAt,
-      updatedAt: updatedAt,
-      rawSections: rawSections,
-      watchedDate: watchedDate,
-      letterboxdUrl: letterboxdUrl,
-      tmdbId: tmdbId,
-    );
-
-    return (entity: entity, relatedNames: relatedNames, categoryName: categoryName);
-  }
-
-  // ── Private: frontmatter builder ───────────────────────────────────────────
-
-  static String _buildFrontmatter({
-    required Entity entity,
-    required String categoryName,
-  }) {
-    final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('alias: ${entity.id}');
-    buf.writeln('category: $categoryName');
-    if (entity.score != null) {
-      buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
-    }
-    if (entity.watchedDate != null) buf.writeln('watched_date: ${entity.watchedDate}');
-    if (entity.letterboxdUrl != null) buf.writeln('letterboxd_url: ${entity.letterboxdUrl}');
-    if (entity.tmdbId != null) buf.writeln('tmdb_id: ${entity.tmdbId}');
-    if (entity.tags.isNotEmpty) {
-      buf.writeln('tags:');
-      for (final tag in entity.tags) {
-        buf.writeln('  - $tag');
-      }
-    }
-    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
-    buf.write('---');
-    return buf.toString();
-  }
-
-  // ── Private: semantic section renderer ─────────────────────────────────────
-
-  static String _renderSemanticSection(
-    String sectionName,
-    Entity entity,
-    List<String> relatedEntityNames,
-  ) {
-    switch (sectionName) {
-      case 'Why Interesting':
-        return entity.notes.map((n) => '- $n').join('\n');
-      case 'Sources':
-        return entity.links.map((l) => '- $l').join('\n');
-      case 'Related':
-        return relatedEntityNames.map((n) => '- [[$n]]').join('\n');
-      default:
-        return '';
-    }
-  }
-
-  // ── Private: section-aware patch ───────────────────────────────────────────
-
-  static String _patchEntityContent({
-    required String existingContent,
-    required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
-  }) {
-    final split = splitFrontmatter(existingContent);
-    final body = split.body;
-    final rawSections = parseSectionsH2(body);
-
-    final newFrontmatter = _buildFrontmatter(
-      entity: entity,
-      categoryName: categoryName,
-    );
-
-    final buf = StringBuffer();
-    buf.writeln('# ${entity.name}');
-
-    for (final sectionName in rawSections.keys) {
-      buf.writeln();
-      buf.writeln('## $sectionName');
-
-      if (_semanticSections.containsKey(sectionName)) {
-        final rendered = _renderSemanticSection(sectionName, entity, relatedEntityNames);
-        if (rendered.isNotEmpty) {
-          buf.writeln();
-          buf.write(rendered);
-        }
-      } else {
-        // Unknown section — preserve exactly as found
-        final raw = rawSections[sectionName]!;
-        if (raw.isNotEmpty) {
-          buf.writeln();
-          buf.write(raw);
-        }
-      }
-    }
-
-    // Append semantic sections that exist in app data but were absent from the file
-    for (final sectionName in _semanticSections.keys) {
-      if (!rawSections.containsKey(sectionName)) {
-        final rendered = _renderSemanticSection(sectionName, entity, relatedEntityNames);
-        if (rendered.isNotEmpty) {
-          buf.writeln();
-          buf.writeln('## $sectionName');
-          buf.writeln();
-          buf.write(rendered);
-        }
-      }
-    }
-
-    return '$newFrontmatter\n${buf.toString().trimRight()}\n';
-  }
-
-  // ── Private: template system ───────────────────────────────────────────────
-
-  Future<String?> _loadTemplate(String categoryName) async {
-    try {
-      final vaultPath = _vaultPath;
-      if (vaultPath == null) return null;
-      final tdir = VaultService.templatesPath(vaultPath);
-      final slug = slugify(categoryName);
-
-      if (slug.isNotEmpty) {
-        final catFile = File(p.join(tdir, '$slug.md'));
-        if (await catFile.exists()) {
-          final content = await catFile.readAsString();
-          if (_isTemplate(content)) return content;
-        }
-      }
-
-      final defaultFile = File(p.join(tdir, 'default.md'));
-      if (await defaultFile.exists()) {
-        final content = await defaultFile.readAsString();
-        if (_isTemplate(content)) return content;
-      }
-
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static bool _isTemplate(String content) {
-    final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
-    return yaml != null && yaml['template'] == true;
-  }
-
-  static String _instantiateTemplate(String templateContent, String title) =>
-      templateContent.replaceAll('{{title}}', title);
-
-  // ── Private: new entity content builder ────────────────────────────────────
-
-  Future<String> _buildNewEntityContent({
-    required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
-  }) async {
-    final templateContent = await _loadTemplate(categoryName);
-    if (templateContent != null) {
-      final instantiated = _instantiateTemplate(templateContent, entity.name);
-      return _patchEntityContent(
-        existingContent: instantiated,
-        entity: entity,
-        categoryName: categoryName,
-        relatedEntityNames: relatedEntityNames,
-      );
-    }
-    // legacy-fallback
-    return _buildEntityMarkdown(
-      entity: entity,
-      categoryName: categoryName,
-      relatedEntityNames: relatedEntityNames,
-    );
-  }
-
-  // ── Private: write (legacy-fallback) ───────────────────────────────────────
-
-  // Kept as ultimate fallback for when no template is available and no existing
-  // file can be patched. Intentionally does NOT include movie-specific fields
-  // (watchedDate, letterboxdUrl, tmdbId) — those are only written by _buildFrontmatter.
-  static String _buildEntityMarkdown({
-    required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
-  }) {
-    final buf = StringBuffer();
-
-    buf.writeln('---');
-    buf.writeln('alias: ${entity.id}');
-    buf.writeln('category: $categoryName');
-    if (entity.score != null) {
-      buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
-    }
-    if (entity.tags.isNotEmpty) {
-      buf.writeln('tags:');
-      for (final tag in entity.tags) {
-        buf.writeln('  - $tag');
-      }
-    }
-    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
-    buf.writeln('---');
-    buf.writeln('# ${entity.name}');
-
-    if (entity.notes.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Why Interesting');
-      buf.writeln();
-      for (final note in entity.notes) {
-        buf.writeln('- $note');
-      }
-    }
-
-    if (relatedEntityNames.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Related');
-      buf.writeln();
-      for (final name in relatedEntityNames) {
-        buf.writeln('- [[$name]]');
-      }
-    }
-
-    if (entity.links.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Sources');
-      buf.writeln();
-      for (final link in entity.links) {
-        buf.writeln('- $link');
-      }
-    }
-
-    return buf.toString();
   }
 
   // ── Frontmatter patches ────────────────────────────────────────────────────

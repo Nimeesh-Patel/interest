@@ -563,3 +563,121 @@ These findings are real but require architectural decisions before acting:
   simpler dedup candidates are done.
 - **`MainActivity.kt` decomposition** — sound, but requires Kotlin refactoring and platform
   channel renaming. Defer.
+
+---
+
+## Conjecture Outcomes
+
+Each entry records a conjecture that was treated as a falsifiable claim, whether it held, and
+what new problems (if any) became visible.
+
+---
+
+**C1: `generateUniqueId()` is dead code after R5 — FALSIFIED**
+
+Conjecture: after R5 unified the two wrapper callers, the canonical function might itself be
+uncalled and deletable.
+
+Finding: `generateUniqueId()` has 4 active callers post-R5, all producing values written to
+vault files as immutable aliases:
+- `x_bookmark_storage_service.dart:80` — slug used as filename + `alias` frontmatter field
+- `article_storage_service.dart:130` — alias used as filename + `alias` frontmatter field
+- `markdown_storage_service.dart:223` (`generateEntityId`) — entity alias
+- `markdown_storage_service.dart:226` (`generateCategoryId`) — category alias
+
+R5 made the two wrappers delegate to `generateUniqueId()` rather than reimplementing it. The
+function now has more callers, not fewer. It is canonical infrastructure.
+
+No code changes. New problems visible: none. The boundary is correct.
+
+---
+
+**C2: Single VaultScanner eliminates five independent scan implementations — HELD (with interface adjustment)**
+
+Conjecture: all five vault scans share the problem "given a root, yield all .md files excluding
+configured folders" and can be unified.
+
+Adjustment required: scan 4 (`ArticleStorageService.buildIndex`) and scan 5
+(`LetterboxdAdapter._buildMovieIndex`) are non-recursive shallow scans of specific
+subdirectories, not vault-wide sweeps. The proposed interface needed a `recursive` parameter.
+Final interface: `VaultScanner.scan(String basePath, {Set<String> excludedFolders, bool recursive})`.
+
+Callers after refactor:
+- `MarkdownStorageService.loadData/saveData`: `scan(vaultPath, excludedFolders: {'.obsidian','Templates'})`
+- `ResurfaceService.getAllNotes`: `scan(vaultPath, excludedFolders: configuredFolders.toSet())`
+- `ArticleStorageService.buildIndex`: `scan(articlesDir, recursive: false)`
+- `LetterboxdAdapter._buildMovieIndex`: `scan(vaultPath, recursive: false)`
+
+VaultScanner owns no domain knowledge — pure file iteration with exclusion.
+Created: `lib/shared/markdown/vault_scanner.dart`.
+
+New problems visible: none.
+
+---
+
+**C3: MarkdownStorageService split into three services each with one reason to change — HELD**
+
+Conjecture: EntityFileParser (parse path), EntityFileWriter (write path), and
+MarkdownStorageService (orchestration) form a coherent split. Parser and writer have no shared
+mutable state — both are pure transforms on strings/maps.
+
+Outcome: Parser and writer were not coupled. Extraction was clean:
+- `EntityFileParser.parseEntityFile(content, filePath)` — moved `_parseEntityFile` and all its
+  parsing helpers. Imports `path`, `yaml`, `Entity`, `md_utils`.
+- `EntityFileWriter` — moved `_patchEntityContent`, `_buildFrontmatter`, `_renderSemanticSection`,
+  `_buildNewEntityContent`, `loadTemplate`, `_buildEntityMarkdown`. Also took `SectionType` enum
+  and `_semanticSections` const. `_loadTemplate` became a static method taking `vaultPath`.
+- `MarkdownStorageService` shrunk from 568 to ~210 lines; retains orchestration, ID generation,
+  link helpers, `sortEntities` (kept here per CLAUDE.md enforcement point).
+- `sortEntities()` was NOT moved to `md_utils` — md_utils is type-free (no domain models);
+  CLAUDE.md names MarkdownStorageService as the enforcement point for new sort options.
+
+New problems visible: none.
+
+---
+
+**C4: ResurfaceScreen split into DeckList + CardViewerController + NoteCardRenderer — HELD**
+
+Conjecture: deck list display, card queue/position/no-repeat, and review logging are independent
+problems. Extraction would reduce ResurfaceScreen without increasing coordination complexity.
+
+Adjustment for setState-only constraint: `CardViewerController` is a plain Dart class (no
+ChangeNotifier). All mutating calls go through parent `setState(() => _controller.method())`.
+`_NoteViewerBody` was already a stateless widget — no extraction needed there.
+
+Outcome:
+- `CardViewerController` owns: `_notes`, `_index`, `_backRevealed`, `_lastShownFilename`,
+  `_priorities`. Methods: `load`, `goNext`, `goPrev`, `toggleBack`, `resetBackRevealed`,
+  `reloadNote`, `removeAt`, `reset`. Calls `ReviewSession.record` from within navigation methods.
+- `ReviewSession` wraps `ReviewLogService.markReviewed` + `GraphScoringService.updateGraphScores`.
+  Created as a field on the controller. No lifecycle management needed (no resources to release).
+- `_pushDeck` simplified: calls `_controller.load(sorted, priorities)` inside setState; first-note
+  review recording moved into `controller.load()`.
+- `ResurfaceScreenState` retains: `_stack`, `_allNotes`, `_problemNotes`, search state, all
+  public API methods, all build methods.
+- Created: `lib/features/resurface/controllers/card_viewer_controller.dart`.
+
+New problems visible: none. State transitions held the boundary correctly.
+
+---
+
+**C5: HomeScreen EntityListController extraction — HELD**
+
+Conjecture: entity/category state and operations can be extracted to EntityListController,
+leaving HomeScreen as a navigation shell + platform intent handler only. Falsification condition:
+entity state and tab navigation so entangled that the controller must reference non-entity concerns.
+
+Outcome: extraction was clean. No entanglement found between entity data and navigation state.
+- `EntityListController` owns: `entities`, `categories`, `tags`, `entityLinks`, `selectedCategoryId`,
+  `searchQuery`, `sortOrder`, and all CRUD operations. `onDataChanged` callback triggers parent
+  setState + HomeDashboard reload — controller never references widget lifecycle.
+- `MarkdownStorageService` instance moved to controller as `storage` field; passed to EntityScreen
+  and QuickAddSheet via `_controller.storage`.
+- `deleteCategory()` returns a `String?` error (null = success) — dialog/snackbar stays in
+  HomeScreen; pure validation/mutation in controller.
+- `HomeScreen` retains: `_currentTab`, GlobalKeys, platform channels, share intent,
+  deep link, `_isAddingCategory` (pure UI flag), text controllers, all build methods, navigation.
+- `loadData()` does NOT call onDataChanged (caller controls the setState + isLoading transition).
+  `reloadData()` calls onDataChanged — used for all post-mutation reloads.
+
+New problems visible: none.
