@@ -6,6 +6,13 @@ import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/project_file.dart';
 
+class ProjectMeta {
+  final String title;
+  final Map<dynamic, dynamic> frontmatterMap;
+  final String body;
+  const ProjectMeta({required this.title, required this.frontmatterMap, required this.body});
+}
+
 class ProjectStorageService {
   static final _taskRegex = RegExp(r'^\s*-\s+\[([ xX])\]\s+');
 
@@ -125,6 +132,56 @@ class ProjectStorageService {
       final file = File(project.filePath);
       if (await file.exists()) await file.delete();
     } catch (_) {}
+  }
+
+  static Future<String?> loadProjectContent(String filePath) async {
+    try {
+      return await File(filePath).readAsString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<ProjectMeta?> loadProjectMeta(String filePath) async {
+    try {
+      final content = await loadProjectContent(filePath);
+      if (content == null) return null;
+      final split = splitFrontmatter(content);
+      final yamlMap = parseYamlMap(split.frontmatter) ?? {};
+      final title = extractH1(split.body) ?? p.basenameWithoutExtension(filePath);
+      return ProjectMeta(title: title, frontmatterMap: yamlMap, body: split.body);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveProjectContent(String filePath, String content) async {
+    try {
+      await File(filePath).writeAsString(content);
+    } catch (_) {}
+  }
+
+  // Named ByPath to avoid conflict with renameProject(vaultPath, ProjectFile, newName).
+  static Future<String?> renameProjectByPath(String filePath, String newTitle) async {
+    try {
+      final lines = await File(filePath).readAsLines();
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
+          lines[i] = '# $newTitle';
+          break;
+        }
+      }
+      final safeName = newTitle.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final newPath = p.join(p.dirname(filePath), '$safeName.md');
+      await File(filePath).writeAsString(lines.join('\n'));
+      if (newPath != filePath) {
+        if (await File(newPath).exists()) return null;
+        await File(filePath).rename(newPath);
+      }
+      return newPath;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<String?> renameProject(

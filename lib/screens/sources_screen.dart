@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/integrations_config_service.dart';
-import '../core/vault_service.dart';
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
 import '../features/resurface/services/ankidroid_service.dart';
-import '../features/resurface/services/resurface_service.dart';
+import '../features/resurface/services/ankidroid_sync_controller.dart';
 import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
@@ -111,27 +109,17 @@ class _SourcesScreenState extends State<SourcesScreen> {
 
     setState(() => _syncingAnki = true);
 
-    final vaultPath = await VaultService.getVaultPath();
+    final result = await AnkiDroidSyncController.sync();
+
     if (!mounted) return;
-    if (vaultPath == null) {
-      setState(() => _syncingAnki = false);
+    setState(() => _syncingAnki = false);
+
+    if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No vault configured')),
       );
       return;
     }
-
-    final config = await IntegrationsConfigService.load(vaultPath);
-    final allNotes = await ResurfaceService.getAllNotes(
-      vaultPath,
-      excludedFolders: config.resurfaceExcludedFolders,
-    );
-    final problemNotes = allNotes.where((n) => n.isProblemNote).toList();
-
-    final result = await AnkiDroidService.syncVault(problemNotes);
-
-    if (!mounted) return;
-    setState(() => _syncingAnki = false);
 
     final total = result.added + result.updated;
 

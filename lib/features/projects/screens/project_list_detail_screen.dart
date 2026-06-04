@@ -1,13 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_theme.dart';
-import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/input_dialog.dart';
 import '../../../shared/widgets/wikilink_text.dart';
+import '../services/project_storage_service.dart';
 
 class ProjectListDetailScreen extends StatefulWidget {
   final String filePath;
@@ -46,35 +44,29 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
   }
 
   Future<void> _load() async {
-    try {
-      final content = await File(widget.filePath).readAsString();
-      final split = splitFrontmatter(content);
-      final body = split.body;
-      final title = extractH1(body) ?? _title;
-      final items = body
-          .split('\n')
-          .where((l) => l.startsWith('- '))
-          .map((l) => l.substring(2))
-          .toList();
-      if (mounted) {
-        setState(() {
-          _title = title;
-          _items = items;
-          _loading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    final meta = await ProjectStorageService.loadProjectMeta(widget.filePath);
+    if (!mounted) return;
+    if (meta == null) {
+      setState(() => _loading = false);
+      return;
     }
+    final items = meta.body
+        .split('\n')
+        .where((l) => l.startsWith('- '))
+        .map((l) => l.substring(2))
+        .toList();
+    setState(() {
+      _title = meta.title;
+      _items = items;
+      _loading = false;
+    });
   }
 
   Future<void> _save() async {
-    try {
-      final h1 = _title.isNotEmpty ? '# $_title\n\n' : '';
-      final itemLines = _items.map((i) => '- $i').join('\n');
-      final content = '---\ntype: list\n---\n$h1$itemLines\n';
-      await File(widget.filePath).writeAsString(content);
-    } catch (_) {}
+    final h1 = _title.isNotEmpty ? '# $_title\n\n' : '';
+    final itemLines = _items.map((i) => '- $i').join('\n');
+    final content = '---\ntype: list\n---\n$h1$itemLines\n';
+    await ProjectStorageService.saveProjectContent(widget.filePath, content);
   }
 
   void _saveEdit(int index) async {
@@ -134,28 +126,7 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
     if (name == null) return;
     final trimmed = name.trim();
     if (trimmed.isEmpty || trimmed == _title) return;
-    // Read vault path from the file path — derive it isn't needed; pass null-safe
-    // renameProject needs vaultPath; derive it from the file's directory chain.
-    // ProjectStorageService.renameProject updates H1 and renames the file.
-    // We don't have vaultPath here, so we patch title+file directly.
-    try {
-      final lines = await File(widget.filePath).readAsLines();
-      for (int i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
-          lines[i] = '# $trimmed';
-          break;
-        }
-      }
-      final safeName = trimmed.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final dir = File(widget.filePath).parent.path;
-      final newPath = '$dir${Platform.pathSeparator}$safeName.md';
-      await File(widget.filePath).writeAsString(lines.join('\n'));
-      if (newPath != widget.filePath) {
-        if (!await File(newPath).exists()) {
-          await File(widget.filePath).rename(newPath);
-        }
-      }
-    } catch (_) {}
+    await ProjectStorageService.renameProjectByPath(widget.filePath, trimmed);
     if (!mounted) return;
     setState(() => _title = trimmed);
     widget.onRenamed?.call();

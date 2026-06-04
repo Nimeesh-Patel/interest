@@ -426,7 +426,7 @@ Ordered by estimated impact. Each proposes exactly one concrete change.
 
 ---
 
-**R1: Extract `AnkiDroidSyncController` from `SourcesScreen`**
+**R1: Extract `AnkiDroidSyncController` from `SourcesScreen`** ✓ DONE
 
 Move lines 91–163 of `sources_screen.dart` into a dedicated service. `SourcesScreen` calls
 `controller.sync()` and receives a result DTO. Result dialogs remain in the screen but are
@@ -434,6 +434,10 @@ constructed from the DTO.
 
 - Fixes: Boundary Violation §4
 - Impact: `SourcesScreen` becomes navigation-only; sync logic is independently testable
+- Implemented: `lib/features/resurface/services/ankidroid_sync_controller.dart` (all-static,
+  returns `AnkiSyncResult?` — null signals no vault configured). Pre-flight checks
+  (`isAvailable`, `requestPermission`) remain in the screen as they reference only
+  `AnkiDroidService`.
 
 ---
 
@@ -449,7 +453,7 @@ directly.
 
 ---
 
-**R3: Extract `ProjectListDetailScreen` file I/O into `ProjectStorageService`**
+**R3: Extract `ProjectListDetailScreen` file I/O into `ProjectStorageService`** ✓ DONE
 
 Move the file read/write, frontmatter parsing, H1 patching, and rename logic from
 `ProjectListDetailScreen` (lines 50, 76, 142–157) into `ProjectStorageService` methods. The
@@ -457,6 +461,13 @@ screen calls service methods only.
 
 - Fixes: Boundary Violation §1 (critical)
 - Impact: Removes the only screen that currently owns its own persistence
+- Implemented: added `ProjectMeta` class + `loadProjectContent`, `loadProjectMeta`,
+  `saveProjectContent`, `renameProjectByPath` to `ProjectStorageService`. Screen has zero
+  `File`, `splitFrontmatter`, or `extractH1` references; `dart:io` import removed.
+- Deviation: method named `renameProjectByPath(String filePath, String newTitle)` rather than
+  `renameProject(...)` — Dart has no overloading and the existing
+  `renameProject(vaultPath, ProjectFile, newName)` (called from `projects_screen.dart`) must
+  not change.
 
 ---
 
