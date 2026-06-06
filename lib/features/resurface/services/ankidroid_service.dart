@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:path/path.dart' as p;
 
+import '../../../shared/markdown/md_utils.dart';
 import '../../entities/services/markdown_storage_service.dart';
 import '../models/resurface_note.dart';
 
@@ -38,7 +40,7 @@ class AnkiDroidService {
   }
 
   static Future<AnkiSyncResult> syncVault(
-      List<ResurfaceNote> problemNotes) async {
+      List<ResurfaceNote> problemNotes, String vaultPath) async {
     int added = 0;
     int updated = 0;
     int failed = 0;
@@ -46,7 +48,13 @@ class AnkiDroidService {
 
     for (final note in problemNotes) {
       try {
-        final front = _markdownToAnkiHtml(note.front ?? '');
+        final noteDisplayName = p.basenameWithoutExtension(note.sourcePath);
+        final obsUri = obsidianUri(vaultPath, note.sourcePath);
+        final obsLinkHtml =
+            '<div style="text-align:right;font-size:0.75em;margin-bottom:6px;opacity:0.6;">'
+            '<a href="$obsUri">$noteDisplayName ↗</a>'
+            '</div>';
+        final front = obsLinkHtml + _markdownToAnkiHtml(note.front ?? '');
         final back = _markdownToAnkiHtml(note.back ?? '');
         final deckName = note.category ?? 'Default';
         final tags = note.tags;

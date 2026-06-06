@@ -193,6 +193,15 @@ int? parseIsoToMs(String? iso) {
 /// Use this everywhere a note name is used as a map key or log entry.
 String noteKey(String filePath) => p.basenameWithoutExtension(filePath).toLowerCase();
 
+/// Returns an `obsidian://open` URI for [noteFilePath] inside [vaultPath].
+/// Pure — no I/O. Both vault name and note name are percent-encoded.
+String obsidianUri(String vaultPath, String noteFilePath) {
+  final vaultName = p.basename(vaultPath);
+  final noteName = p.basenameWithoutExtension(noteFilePath);
+  return 'obsidian://open?vault=${Uri.encodeComponent(vaultName)}'
+      '&file=${Uri.encodeComponent(noteName)}';
+}
+
 /// Lowercases [name], collapses whitespace to hyphens, strips non-alphanumeric.
 /// Returns empty string if [name] is whitespace-only.
 String slugify(String name) => name

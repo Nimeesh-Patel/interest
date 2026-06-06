@@ -76,6 +76,48 @@ class ResurfaceService {
     return notes;
   }
 
+  /// Returns all vault notes that contain a wikilink to [noteFilePath].
+  /// Scans the full vault (no folder exclusions) for complete coverage.
+  /// Results sorted alphabetically by sourceFile. Never throws.
+  static Future<List<ResurfaceNote>> getBacklinks(
+      String vaultPath, String noteFilePath) async {
+    final targetKey = noteKey(noteFilePath);
+    final results = <ResurfaceNote>[];
+    try {
+      await for (final entry in VaultScanner.scan(vaultPath)) {
+        if (entry.path == noteFilePath) continue;
+        try {
+          final content = await entry.readAsString();
+          final split = splitFrontmatter(content);
+          final links = extractWikilinks(split.body);
+          if (!links.any((l) => l.toLowerCase() == targetKey)) continue;
+          final fb = splitFrontBack(split.body);
+          final yaml = parseYamlMap(split.frontmatter);
+          results.add(ResurfaceNote(
+            sourcePath: entry.path,
+            sourceFile: p.basename(entry.path),
+            body: split.body,
+            isProblemNote: fb != null,
+            front: fb?.front,
+            back: fb?.back,
+            decks: parseDeckMetadata(split.frontmatter),
+            category: yaml != null && yaml['category'] is String
+                ? yaml['category'] as String
+                : null,
+            tags: yaml != null && yaml['tags'] is List
+                ? (yaml['tags'] as List).whereType<String>().toList()
+                : const [],
+            ankiNoteId: yaml != null && yaml['anki_note_id'] != null
+                ? '${yaml['anki_note_id']}'
+                : null,
+          ));
+        } catch (_) {}
+      }
+    } catch (_) {}
+    results.sort((a, b) => a.sourceFile.compareTo(b.sourceFile));
+    return results;
+  }
+
   /// Reads a single vault file and returns a [ResurfaceNote].
   /// Returns null if the file cannot be read. Never throws.
   static Future<ResurfaceNote?> loadSingleNote(String filePath) async {

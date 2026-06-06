@@ -77,7 +77,12 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 **Resolution:** `ResurfaceService.resolveWikilink(vaultPath, targetName)` searches the whole vault recursively (no folder exclusions) for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first match's absolute path, or `null`.
 
-**Navigation:** a successful tap pushes a `_NoteDetailRoute` onto `ResurfaceScreenState`'s internal stack. No match shows a `SnackBar`. Multiple wikilink hops accumulate as stacked routes; back pops one level at a time. Tapping the Notes tab icon calls `resetStack()`, collapsing to the deck list in one tap.
+**In-app navigation** (`_handleWikilinkTap`): a successful tap always pushes a `_NoteDetailRoute` onto `ResurfaceScreenState`'s internal stack — the plain note viewer — regardless of whether the target note has a `***` separator. Rationale: wikilink traversal is a reading/context path, not a review session. No match shows a `SnackBar`. Multiple wikilink hops accumulate as stacked routes; back pops one level at a time. Tapping the Notes tab icon calls `resetStack()`, collapsing to the deck list in one tap.
+
+**Deep links from AnkiDroid** (`openNoteByName`, called from `HomeScreen._openNoteFromDeeplink`): when an `interest://note/<name>` URI arrives, the note name is already decoded by Android's `Uri.lastPathSegment` — no additional decoding in Flutter. Resolution is two-step: (1) case-insensitive scan of `_allNotes` already in memory; (2) fallback to `ResurfaceService.resolveWikilink()` for a full vault scan. Routing after resolution differs from in-app taps:
+- problem note (`***`) → `_CardViewerRoute` (card viewer, in review session)
+- plain note → `_NoteDetailRoute` (plain viewer)
+- not found → `SnackBar` "Note not found: \<name\>"
 
 ---
 
@@ -257,6 +262,58 @@ priority = daysSinceReview + max_parent_score
 `daysSinceReview` = `today − last_reviewed` in integer days. If never reviewed: treated as 365.
 
 Higher priority surfaces first. Within ties, order is stable (Dart's sort is stable).
+
+---
+
+## Backlinks
+
+Every note viewer (detail screen and card viewer) shows a **Backlinks** section at the bottom of the note content, loaded asynchronously after the main content is displayed.
+
+### Computation
+
+`ResurfaceService.getBacklinks(vaultPath, noteFilePath)` — read-only, never throws.
+
+1. Scans the full vault via `VaultScanner.scan(vaultPath)` with **no folder exclusions** (complete coverage).
+2. For each file, calls `extractWikilinks(body)` on the body text (frontmatter stripped).
+3. Collects files where any wikilink target, lowercased, equals `noteKey(noteFilePath)`.
+4. Excludes the current note itself.
+5. Returns `List<ResurfaceNote>` sorted alphabetically by `sourceFile`.
+
+The canonical identity comparison uses `noteKey()` (basename without extension, lowercased), matching how Obsidian resolves wikilinks by filename.
+
+### Display
+
+`BacklinksSection` widget — stateful, self-loading.
+
+- Calls `VaultService.getVaultPath()` then `ResurfaceService.getBacklinks()` in `initState`.
+- Renders nothing (`SizedBox.shrink()`) until loading completes — no spinner.
+- Shows `SectionHeader('Backlinks')` followed by tappable note names, or `"No backlinks"` text.
+- Tapping a backlink calls `onNavigateToNote(basenameWithoutExtension)`, following the same path as wikilink taps.
+- `key: ValueKey(noteFilePath)` is set by the card viewer so the widget resets when the user navigates to a different note.
+
+### Placement
+
+| Viewer | Position |
+|---|---|
+| `NoteDetailScreen` (plain note) | After note body |
+| `NoteDetailScreen` (problem note) | After back content (always visible, even before tap-to-reveal) |
+| `_NoteViewerBody` (plain note) | After note body |
+| `_NoteViewerBody` (problem note) | Inside the `backRevealed` block, after back content — only visible once back is revealed |
+
+---
+
+## Open in Obsidian
+
+An `open_in_new` icon button appears in HomeScreen's AppBar whenever a note is being viewed (i.e. `ResurfaceScreenState.currentEditFilePath != null`). It sits to the left of the existing Edit button.
+
+**Tap action:** `ResurfaceScreenState.launchObsidianForCurrentNote(context)`.
+
+1. Reads `_vaultPath` and `currentEditFilePath` from state.
+2. Calls `obsidianUri(vaultPath, filePath)` — pure utility in `md_utils.dart`.
+3. Launches with `url_launcher` using `LaunchMode.externalApplication`.
+4. If Obsidian is not installed or launch fails: snackbar `"Obsidian not installed"`.
+
+**URI format:** `obsidian://open?vault=<encoded-vault>&file=<encoded-note>` — same scheme used by the AnkiDroid card link (Feature 1) and the Sources screen Obsidian row.
 
 ---
 

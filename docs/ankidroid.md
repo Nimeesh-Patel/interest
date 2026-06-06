@@ -100,17 +100,48 @@ Markdown files in the vault are never modified. Wikilink rendering inside Intere
 
 ```
 interest://note/<name> intent (VIEW)
-  → MainActivity.kt extractDeeplinkNote()   decode URI path segment
+  → MainActivity.kt extractDeeplinkNote()   Uri.lastPathSegment — auto-decodes %20 → space
   → MethodChannel "com.nimeesh.interest/deeplink"
       cold start  → getInitialDeeplinkNote (polled from initState)
       warm start  → openNote (pushed via onNewIntent)
   → HomeScreen._openNoteFromDeeplink()      switch to Notes tab (index 1)
-  → ResurfaceScreenState.openNoteByName()   resolve and route
-      problem note (***) → card viewer
-      plain note         → detail screen
+  → ResurfaceScreenState.openNoteByName()   resolve and route (see below)
+      problem note (***) → card viewer (_CardViewerRoute)
+      plain note         → detail screen (_NoteDetailRoute)
       not found          → snackbar "Note not found: <name>"
 ```
+
+**Decoding:** Android's `Uri.lastPathSegment` percent-decodes the note name segment before it reaches Flutter (e.g. `%20` → space). No `Uri.decodeComponent()` call is needed on the Flutter side.
+
+**Resolution in `openNoteByName()`:** two-step.
+1. Case-insensitive scan of `_allNotes` (already loaded in `ResurfaceScreenState`) — fast path; covers the common case.
+2. If not found there: `ResurfaceService.resolveWikilink(vaultPath, name)` — full recursive vault scan. Handles notes in excluded folders, or the rare race where the deep link fires before loading completes.
 
 ### Ownership boundary
 
 Interest owns all note resolution and rendering. AnkiDroid is a launch point only — it fires the URI and hands control back. No note data flows from AnkiDroid into Interest.
+
+---
+
+## Obsidian note link in card front
+
+Every synced card's front field is prepended with a right-aligned link to the source note in Obsidian:
+
+```html
+<div style="text-align:right;font-size:0.75em;margin-bottom:6px;opacity:0.6;">
+  <a href="obsidian://open?vault=<encoded-vault>&file=<encoded-note>">Note Name ↗</a>
+</div>
+```
+
+**URI construction:** `obsidianUri(vaultPath, noteFilePath)` in `md_utils.dart` — pure, no I/O.
+- vault name = last path segment of vault path (e.g. `nimeesh vault`)
+- note name = basename without `.md` extension
+- Both encoded with `Uri.encodeComponent()`
+
+**Placement:** prepended to the converted HTML of `note.front`, before the question text. The back field is unchanged.
+
+**Updates:** when the note is re-synced (via `anki_note_id` match → `updateNote`), the front field is rebuilt automatically, so a rename is reflected on the next sync without any additional logic.
+
+**Launching:** AnkiDroid's HTML renderer fires the `obsidian://` href natively when the user taps the link during review. No Flutter code is involved in the tap.
+
+**If Obsidian is not installed:** Android's intent system receives the `obsidian://` URI from AnkiDroid. If no app handles it, Android shows a system "no app found" error or silently drops it depending on OS version. Flutter has no error-handling path for this case — the tap is outside Flutter's process.

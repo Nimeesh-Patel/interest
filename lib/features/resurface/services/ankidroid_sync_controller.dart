@@ -16,7 +16,7 @@ class AnkiDroidSyncController {
         excludedFolders: config.resurfaceExcludedFolders,
       );
       final problemNotes = allNotes.where((n) => n.isProblemNote).toList();
-      return await AnkiDroidService.syncVault(problemNotes);
+      return await AnkiDroidService.syncVault(problemNotes, vaultPath);
     } catch (_) {
       return null;
     }

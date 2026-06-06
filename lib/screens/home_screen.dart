@@ -610,7 +610,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {});
               },
             ),
-          if (notesEditPath != null)
+          if (notesEditPath != null) ...[
+            IconButton(
+              icon: const Icon(Icons.open_in_new),
+              tooltip: 'Open in Obsidian',
+              onPressed: () => notesState!.launchObsidianForCurrentNote(context),
+            ),
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'Edit note',
@@ -619,6 +624,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {});
               },
             ),
+          ],
           IconButton(
             icon: const Icon(Icons.sensors),
             tooltip: 'Sources',

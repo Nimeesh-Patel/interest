@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
@@ -19,6 +20,7 @@ import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
 import '../services/review_log_service.dart';
 import '../controllers/card_viewer_controller.dart';
+import '_backlinks_section.dart';
 import '_note_md_helpers.dart';
 import 'note_detail_screen.dart';
 import 'note_edit_screen.dart';
@@ -151,6 +153,30 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       MaterialPageRoute(builder: (_) => NoteEditScreen(filePath: fp)),
     );
     if (didSave == true) _reloadAfterEdit(fp);
+  }
+
+  /// Called by HomeScreen. Launches Obsidian for the currently visible note.
+  Future<void> launchObsidianForCurrentNote(BuildContext context) async {
+    final fp = currentEditFilePath;
+    if (fp == null || _vaultPath == null) return;
+    final uri = obsidianUri(_vaultPath!, fp);
+    try {
+      final launched = await launchUrl(
+        Uri.parse(uri),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Obsidian not installed')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Obsidian not installed')),
+        );
+      }
+    }
   }
 
   /// Called by HomeScreen when an interest://note deep link arrives.
@@ -715,6 +741,11 @@ class _NoteViewerBody extends StatelessWidget {
                       const SizedBox(height: 30),
                       // Back — IBM Plex Serif 17px
                       _mdBodySerif(context, note.back!, fontSize: 17, height: 1.78),
+                      BacklinksSection(
+                        key: ValueKey(note.sourcePath),
+                        noteFilePath: note.sourcePath,
+                        onNavigateToNote: onNavigateToNote,
+                      ),
                     ],
                   ] else ...[
                     MarkdownBody(
@@ -723,6 +754,11 @@ class _NoteViewerBody extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     _mdBody(context, note.body),
+                    BacklinksSection(
+                      key: ValueKey(note.sourcePath),
+                      noteFilePath: note.sourcePath,
+                      onNavigateToNote: onNavigateToNote,
+                    ),
                   ],
                 ],
               ),

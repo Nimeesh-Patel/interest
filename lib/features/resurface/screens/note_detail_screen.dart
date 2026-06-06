@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '_backlinks_section.dart';
 import '_note_md_helpers.dart';
 
 /// Body-only note viewer. No Scaffold — the caller (ResurfaceScreen) owns the
@@ -117,6 +118,10 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                 const SizedBox(height: 16),
                 _mdBody(context, _back!, textColor: AppColors.textPrimary),
               ],
+            BacklinksSection(
+              noteFilePath: widget.filePath,
+              onNavigateToNote: widget.onNavigateToNote,
+            ),
             ],
           ),
         ),
@@ -126,7 +131,16 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     if (_plainContent != null) {
       return SingleChildScrollView(
         padding: const EdgeInsets.all(20),
-        child: _mdBody(context, _plainContent!),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _mdBody(context, _plainContent!),
+            BacklinksSection(
+              noteFilePath: widget.filePath,
+              onNavigateToNote: widget.onNavigateToNote,
+            ),
+          ],
+        ),
       );
     }
 
