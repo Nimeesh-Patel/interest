@@ -79,7 +79,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 
 | Storage layer | Directory |
 |---|---|
-| `MarkdownStorageService` | vault root (user entities; vault-wide `category:` scan) |
+| `MarkdownStorageService` | vault root (user entities; vault-wide scan, entity iff frontmatter has both `category:` **and** `alias:` — `category:` alone matches problem notes; see [docs/entities.md](docs/entities.md) § Entity discovery) |
 | `LetterboxdAdapter` | `Interesting/Articles/` via `ArticleStorageService` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |

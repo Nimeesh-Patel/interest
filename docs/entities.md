@@ -23,13 +23,21 @@ Entities are the canonical semantic objects of the `Interesting/` namespace. All
 
 ---
 
-Core subsystem. Entities live in `Interesting/Entities/` as `.md` files. The in-memory model is a parsed projection over those files. `MarkdownStorageService` is the single I/O layer. For architectural invariants (immutable alias, patch-not-rebuild, semantic sections, full-body wikilink scan) see [CLAUDE.md](../CLAUDE.md).
+Core subsystem. Entity `.md` files live at the **vault root** (legacy files in `Interesting/Entities/` are still read in place). `MarkdownStorageService` discovers them with a **vault-wide scan**, not a directory listing. The in-memory model is a parsed projection over those files. `MarkdownStorageService` is the single I/O layer. For architectural invariants (immutable alias, patch-not-rebuild, semantic sections, full-body wikilink scan) see [CLAUDE.md](../CLAUDE.md).
+
+## Entity discovery (do not loosen)
+
+A vault `.md` file is an entity **iff its frontmatter contains both `category:` and `alias:`** — encoded once in `EntityFileParser.isEntityFrontmatter()` and used by every scan in `MarkdownStorageService` (`loadData`, `saveData`).
+
+`category:` **alone is not sufficient.** Problem notes (Resurface `***` cards) carry `category:` for AnkiDroid deck mapping but never an `alias:`. In June 2026 a refactor changed discovery from a `Interesting/Entities/` directory listing to a vault-wide `category:`-only scan; problem notes were then loaded as entities and `saveData` rewrote them in entity format, destroying their body, `***` separator, and idea text (signature: `alias`/`created_at`/`updated_at` added, `up:`/`anki_note_id:` dropped, body reduced to a lone `# Title`). Requiring both keys excludes problem notes; bookmarks, books, and articles have `alias:` but no `category:`, so they are excluded too.
+
+Defence in depth: even if discovery regressed again, `saveData` skips any target file whose existing frontmatter lacks `alias:`, and `EntityFileWriter.patchEntityContent()` throws a `StateError` rather than overwrite a file that is neither an entity (`alias:`) nor a template (`template:`). `MarkdownStorageService.findCorruptedNotes(vaultPath)` (and a `kDebugMode` log on every `loadData`) reports husks matching the corruption signature for review — detection only; it never restores or rewrites.
 
 ---
 
 ## File formats
 
-### Entity file — `Interesting/Entities/<filename>.md`
+### Entity file — vault root `<filename>.md`
 
 ```markdown
 ---
@@ -104,7 +112,7 @@ Four lists load on startup and stay in memory:
 
 | List | Derived from |
 |------|-------------|
-| `entities` | `Interesting/Entities/*.md` frontmatter + body |
+| `entities` | vault `.md` files with both `category:` and `alias:` (frontmatter + body) |
 | `categories` | distinct `entity.category` values across all entities |
 | `tags` | all entity tag values, deduplicated |
 | `entityLinks` | `extractWikilinks(body)` over all entity files (full-body scan) |
@@ -121,7 +129,7 @@ All-static service. The sole I/O layer for entities.
 
 | Method | Description |
 |--------|-------------|
-| `loadData()` | Scans `Interesting/Entities/`; returns all four lists |
+| `loadData()` | Vault-wide scan (excl. `.obsidian`, `Templates`); entity iff frontmatter has both `category:` and `alias:`; returns all four lists |
 | `saveData(...)` | Writes entity files; snapshots all lists before the async gap |
 | `sortEntities(entities, sortOrder)` | All entity list sorting routes through here — never sort inline |
 | `linkExists(from, to, links)` | Checks for an existing entity link in either direction |

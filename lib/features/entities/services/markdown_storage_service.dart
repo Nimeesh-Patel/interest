@@ -34,6 +34,7 @@ class MarkdownStorageService {
       final entities = <Entity>[];
       final pendingRelated = <String, List<String>>{};
       final catNames = <String, String>{};
+      final corrupted = <String>[];
 
       await for (final entry in VaultScanner.scan(
         vaultPath,
@@ -41,8 +42,11 @@ class MarkdownStorageService {
       )) {
         try {
           final content = await entry.readAsString();
+          if (kDebugMode && EntityFileParser.isCorruptedHusk(content)) {
+            corrupted.add(entry.path);
+          }
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
-          if (yaml == null || !yaml.containsKey('category')) continue;
+          if (!EntityFileParser.isEntityFrontmatter(yaml)) continue;
           final result = EntityFileParser.parseEntityFile(content, entry.path);
           entities.add(result.entity);
           pendingRelated[result.entity.id] = result.relatedNames;
@@ -51,6 +55,12 @@ class MarkdownStorageService {
             catNames[catId] = result.categoryName;
           }
         } catch (_) {}
+      }
+
+      if (kDebugMode && corrupted.isNotEmpty) {
+        debugPrint('⚠ MarkdownStorageService: ${corrupted.length} possible '
+            'corrupted note husk(s) (entity frontmatter over an H1-only body) — '
+            'review for content restoration:\n  ${corrupted.join('\n  ')}');
       }
 
       final categories = catNames.isEmpty
@@ -114,8 +124,8 @@ class MarkdownStorageService {
         try {
           final content = await entry.readAsString();
           final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
-          if (yaml == null || !yaml.containsKey('category')) continue;
-          final alias = yaml['alias']?.toString();
+          if (!EntityFileParser.isEntityFrontmatter(yaml)) continue;
+          final alias = yaml!['alias']?.toString();
           if (alias != null) existingAliasToPath[alias] = entry.path;
         } catch (_) {}
       }
@@ -123,45 +133,69 @@ class MarkdownStorageService {
       final currentAliases = snapEntities.map((e) => e.id).toSet();
 
       for (final entity in snapEntities) {
-        final categoryName = catMap[entity.categoryId] ?? entity.categoryId;
+        try {
+          final categoryName = catMap[entity.categoryId] ?? entity.categoryId;
 
-        final relatedNames = <String>[];
-        for (final link in snapLinks) {
-          String? otherId;
-          if (link.from == entity.id) { otherId = link.to; }
-          else if (link.to == entity.id) { otherId = link.from; }
-          if (otherId != null) {
-            final other = entityMap[otherId];
-            if (other != null) relatedNames.add(other.name);
+          final relatedNames = <String>[];
+          for (final link in snapLinks) {
+            String? otherId;
+            if (link.from == entity.id) { otherId = link.to; }
+            else if (link.to == entity.id) { otherId = link.from; }
+            if (otherId != null) {
+              final other = entityMap[otherId];
+              if (other != null) relatedNames.add(other.name);
+            }
           }
-        }
 
-        final filename = '${sanitizeFilename(entity.name)}.md';
-        final oldPath = existingAliasToPath[entity.id];
-        // Existing entity: keep in the same directory (pre- or post-migration).
-        // New entity: write to vault root.
-        final newPath = oldPath != null
-            ? p.join(p.dirname(oldPath), filename)
-            : p.join(vaultPath, filename);
+          final filename = '${sanitizeFilename(entity.name)}.md';
+          final oldPath = existingAliasToPath[entity.id];
+          // Existing entity: keep in the same directory (pre- or post-migration).
+          // New entity: write to vault root.
+          final newPath = oldPath != null
+              ? p.join(p.dirname(oldPath), filename)
+              : p.join(vaultPath, filename);
 
-        if (oldPath != null && oldPath != newPath) {
-          try { await File(oldPath).delete(); } catch (_) {}
-        }
+          // Resolve the file this write would land on, if one already exists.
+          final existingFilePath =
+              oldPath ?? (await File(newPath).exists() ? newPath : null);
 
-        // Patch existing file or build from template for new entities
-        final existingFilePath = oldPath ?? (await File(newPath).exists() ? newPath : null);
-        String content;
-
-        if (existingFilePath != null) {
-          try {
+          String content;
+          if (existingFilePath != null) {
             final existingContent = await File(existingFilePath).readAsString();
-            content = EntityFileWriter.patchEntityContent(
-              existingContent: existingContent,
-              entity: entity,
-              categoryName: categoryName,
-              relatedEntityNames: relatedNames,
-            );
-          } catch (_) {
+
+            // Orchestration guard (primary defence against the June 2026
+            // corruption): never overwrite a file that is not itself an entity.
+            // A target lacking `alias:` is a problem note or plain note that
+            // merely shares this name — skip it, keep the entity in memory, and
+            // never destroy the user's content.
+            final fm = parseYamlMap(splitFrontmatter(existingContent).frontmatter);
+            if (!(fm?.containsKey('alias') ?? false)) {
+              debugPrint('MarkdownStorageService.saveData: refusing to overwrite '
+                  'non-entity file (no alias:): $existingFilePath');
+              continue;
+            }
+
+            try {
+              content = EntityFileWriter.patchEntityContent(
+                existingContent: existingContent,
+                entity: entity,
+                categoryName: categoryName,
+                relatedEntityNames: relatedNames,
+              );
+            } on StateError {
+              // Writer guard fired: do NOT fall back to a rebuild — that would
+              // re-create the very corruption this prevents. Re-throw to the
+              // per-entity handler, which logs and skips this entity only.
+              rethrow;
+            } catch (_) {
+              content = await EntityFileWriter.buildNewEntityContent(
+                vaultPath: vaultPath,
+                entity: entity,
+                categoryName: categoryName,
+                relatedEntityNames: relatedNames,
+              );
+            }
+          } else {
             content = await EntityFileWriter.buildNewEntityContent(
               vaultPath: vaultPath,
               entity: entity,
@@ -169,16 +203,15 @@ class MarkdownStorageService {
               relatedEntityNames: relatedNames,
             );
           }
-        } else {
-          content = await EntityFileWriter.buildNewEntityContent(
-            vaultPath: vaultPath,
-            entity: entity,
-            categoryName: categoryName,
-            relatedEntityNames: relatedNames,
-          );
-        }
 
-        await File(newPath).writeAsString(content);
+          // Commit: remove the old file only now that content is ready (rename).
+          if (oldPath != null && oldPath != newPath) {
+            try { await File(oldPath).delete(); } catch (_) {}
+          }
+          await File(newPath).writeAsString(content);
+        } catch (e) {
+          debugPrint('MarkdownStorageService.saveData: skipped "${entity.name}": $e');
+        }
       }
 
       for (final entry in existingAliasToPath.entries) {
@@ -249,6 +282,32 @@ class MarkdownStorageService {
 
   static Future<void> patchAnkiNoteId(String filePath, int noteId) =>
       patchFrontmatterField(filePath, 'anki_note_id', '$noteId');
+
+  // ── Diagnostics ──────────────────────────────────────────────────────────
+
+  /// Scans [vaultPath] for notes matching the June 2026 corruption signature
+  /// (see [EntityFileParser.isCorruptedHusk]). Returns the matching file paths
+  /// for human review. Read-only; never writes; never throws.
+  ///
+  /// Matches may include legitimately empty, template-less entities — the
+  /// husk and the empty entity are structurally indistinguishable. Treat the
+  /// result as a candidate list, not a list of certainties.
+  static Future<List<String>> findCorruptedNotes(String vaultPath) async {
+    final hits = <String>[];
+    try {
+      await for (final entry in VaultScanner.scan(
+        vaultPath,
+        excludedFolders: const {'.obsidian', 'Templates'},
+      )) {
+        try {
+          if (EntityFileParser.isCorruptedHusk(await entry.readAsString())) {
+            hits.add(entry.path);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return hits;
+  }
 
   // ── Private: defaults ──────────────────────────────────────────────────────
 

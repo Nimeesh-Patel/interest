@@ -74,6 +74,25 @@ class EntityFileWriter {
     required List<String> relatedEntityNames,
   }) {
     final split = splitFrontmatter(existingContent);
+
+    // Guard (CLAUDE.md error-correction): never rewrite a file that is neither
+    // an existing entity (`alias:`) nor an instantiated template (`template:`).
+    // This is the last line of defence against the June 2026 corruption, where
+    // problem notes were patched as entities and lost their body. It throws —
+    // not skips — so a discovery regression fails loudly instead of silently
+    // destroying content. saveData wraps each entity so this never aborts a
+    // batch, and must NOT fall back to a rebuild when it fires.
+    final existingFm = parseYamlMap(split.frontmatter);
+    final looksLikeEntity = existingFm?.containsKey('alias') ?? false;
+    final looksLikeTemplate = existingFm?['template'] == true;
+    if (!looksLikeEntity && !looksLikeTemplate) {
+      throw StateError(
+        'patchEntityContent refused: target is neither an entity (`alias:`) nor '
+        'a template (`template:`), so it is not an entity file. Refusing to '
+        'overwrite user content with entity markdown.',
+      );
+    }
+
     final body = split.body;
     final rawSections = parseSectionsH2(body);
 
