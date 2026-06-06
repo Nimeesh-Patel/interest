@@ -23,7 +23,7 @@ class RssIngestionService {
   }
 
   static RssAdapter _adapterFor(RssFeed feed) => switch (feed.type) {
-        RssFeedType.letterboxd => const LetterboxdAdapter(),
+        RssFeedType.letterboxd => LetterboxdAdapter(feedId: feed.id),
         RssFeedType.substack => SubstackAdapter(feedId: feed.id),
         RssFeedType.generic => GenericAdapter(feedId: feed.id),
       };

@@ -22,9 +22,10 @@ class ResurfaceService {
   ) async {
     try {
       final target = targetName.toLowerCase();
-      final vaultDir = Directory(vaultPath);
-      await for (final entry in vaultDir.list(recursive: true)) {
-        if (entry is! File || !entry.path.endsWith('.md')) continue;
+      await for (final entry in VaultScanner.scan(
+        vaultPath,
+        excludedFolders: const <String>{},
+      )) {
         if (p.basenameWithoutExtension(entry.path).toLowerCase() == target) {
           return entry.path;
         }
@@ -48,28 +49,12 @@ class ResurfaceService {
       )) {
         try {
           final content = await entry.readAsString();
+          // Check exclude_resurface before building the note object.
           final split = splitFrontmatter(content);
           final yaml = parseYamlMap(split.frontmatter);
           if (yaml != null && yaml['exclude_resurface'] == true) continue;
-          final fb = splitFrontBack(split.body);
-          notes.add(ResurfaceNote(
-            sourcePath: entry.path,
-            sourceFile: p.basename(entry.path),
-            body: split.body,
-            isProblemNote: fb != null,
-            front: fb?.front,
-            back: fb?.back,
-            decks: parseDeckMetadata(split.frontmatter),
-            category: yaml != null && yaml['category'] is String
-                ? yaml['category'] as String
-                : null,
-            tags: yaml != null && yaml['tags'] is List
-                ? (yaml['tags'] as List).whereType<String>().toList()
-                : const [],
-            ankiNoteId: yaml != null && yaml['anki_note_id'] != null
-                ? '${yaml['anki_note_id']}'
-                : null,
-          ));
+          final note = _parseNoteFile(entry, content);
+          if (note != null) notes.add(note);
         } catch (_) {}
       }
     } catch (_) {}
@@ -91,26 +76,8 @@ class ResurfaceService {
           final split = splitFrontmatter(content);
           final links = extractWikilinks(split.body);
           if (!links.any((l) => l.toLowerCase() == targetKey)) continue;
-          final fb = splitFrontBack(split.body);
-          final yaml = parseYamlMap(split.frontmatter);
-          results.add(ResurfaceNote(
-            sourcePath: entry.path,
-            sourceFile: p.basename(entry.path),
-            body: split.body,
-            isProblemNote: fb != null,
-            front: fb?.front,
-            back: fb?.back,
-            decks: parseDeckMetadata(split.frontmatter),
-            category: yaml != null && yaml['category'] is String
-                ? yaml['category'] as String
-                : null,
-            tags: yaml != null && yaml['tags'] is List
-                ? (yaml['tags'] as List).whereType<String>().toList()
-                : const [],
-            ankiNoteId: yaml != null && yaml['anki_note_id'] != null
-                ? '${yaml['anki_note_id']}'
-                : null,
-          ));
+          final note = _parseNoteFile(entry, content);
+          if (note != null) results.add(note);
         } catch (_) {}
       }
     } catch (_) {}
@@ -123,12 +90,22 @@ class ResurfaceService {
   static Future<ResurfaceNote?> loadSingleNote(String filePath) async {
     try {
       final content = await File(filePath).readAsString();
+      return _parseNoteFile(File(filePath), content);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Private factory ────────────────────────────────────────────────────────
+
+  static ResurfaceNote? _parseNoteFile(File file, String content) {
+    try {
       final split = splitFrontmatter(content);
       final yaml = parseYamlMap(split.frontmatter);
       final fb = splitFrontBack(split.body);
       return ResurfaceNote(
-        sourcePath: filePath,
-        sourceFile: p.basename(filePath),
+        sourcePath: file.path,
+        sourceFile: p.basename(file.path),
         body: split.body,
         isProblemNote: fb != null,
         front: fb?.front,

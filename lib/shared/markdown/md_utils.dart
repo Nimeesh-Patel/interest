@@ -126,11 +126,12 @@ String? extractH1(String body) {
 
 // ── Wikilink extractor ────────────────────────────────────────────────────────
 
-final _wikilinkRegex = RegExp(r'\[\[([^\]]+)\]\]');
-
-/// Returns all `[[name]]` targets found anywhere in [text].
-List<String> extractWikilinks(String text) =>
-    _wikilinkRegex.allMatches(text).map((m) => m.group(1)!).toList();
+/// Returns all `[[target]]` names found in [text], stripping any `|alias` suffix.
+/// `[[Note Name]]` → `"Note Name"`;  `[[Note Name|alias]]` → `"Note Name"`.
+List<String> extractWikilinks(String text) {
+  final pattern = RegExp(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]');
+  return pattern.allMatches(text).map((m) => m.group(1)!.trim()).toList();
+}
 
 /// Returns wikilink targets from a pre-parsed section content string.
 List<String> parseSectionAsWikilinks(String sectionContent) =>
@@ -152,6 +153,22 @@ String substituteWikilinks(String text) {
       final target = m.group(1)!.trim();
       final display = m.group(2)?.trim() ?? target;
       return '[$display](wikilink:${Uri.encodeComponent(target)})';
+    },
+  );
+}
+
+/// Rewrites `[[wikilinks]]` to HTML anchors via [buildHref].
+/// Handles both `[[Name]]` and `[[Name|alias]]` forms.
+String rewriteWikilinksToHtml(
+  String text,
+  String Function(String target, String display) buildHref,
+) {
+  return text.replaceAllMapped(
+    RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+    (m) {
+      final target = m.group(1)!.trim();
+      final display = (m.group(2) ?? target).trim();
+      return buildHref(target, display);
     },
   );
 }

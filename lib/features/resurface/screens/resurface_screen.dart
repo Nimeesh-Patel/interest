@@ -232,7 +232,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     }
     // Non-*** note gained a separator → update is_star in log.
     if (!wasProblemNote && updated.isProblemNote) {
-      ReviewLogService.markReviewed(
+      ReviewLogService.recordTraversal(
         p.basenameWithoutExtension(filePath),
         isProblemNote: true,
       );

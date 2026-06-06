@@ -142,7 +142,7 @@ class ReviewLogService {
     }
   }
 
-  static Future<Map<String, DateTime>> loadReviewLog() async {
+  static Future<Map<String, DateTime>> loadTraversalLog() async {
     try {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return {};
@@ -223,7 +223,7 @@ class ReviewLogService {
     } catch (_) {}
   }
 
-  static Future<void> markReviewed(
+  static Future<void> recordTraversal(
     String noteFilename, {
     bool isProblemNote = false,
     double? scheduledInterval,

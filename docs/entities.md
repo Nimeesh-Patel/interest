@@ -130,12 +130,12 @@ All-static service. The sole I/O layer for entities.
 
 **Internal:**
 
-| Method | Role |
-|--------|------|
-| `_parseEntityFile(file)` | Parses frontmatter + body into `Entity`; runs full-body wikilink scan |
-| `_patchEntityContent(file, entity)` | Patches file in-place (CLAUDE.md invariant 3) |
-| `_buildFrontmatter(entity)` | Builds YAML frontmatter string including movie-specific fields |
-| `_semanticSections` | `const Map` — the app/user section boundary (CLAUDE.md invariant 4) |
+| Method | Owner | Role |
+|--------|-------|------|
+| `EntityFileParser.parse(file)` | `entity_file_parser.dart` | Parses frontmatter + body into `Entity`; runs full-body wikilink scan |
+| `EntityFileWriter.patch(file, entity)` | `entity_file_writer.dart` | Patches file in-place (CLAUDE.md invariant 3) |
+| `EntityFileWriter._buildFrontmatter(entity)` | `entity_file_writer.dart` | Builds YAML frontmatter string including movie-specific fields |
+| `EntityFileWriter._semanticSections` | `entity_file_writer.dart` | `const Map` — the app/user section boundary (CLAUDE.md invariant 4) |
 
 **Sort routing rule:** All entity list sort dropdowns must call `sortEntities(entities, sortOrder)`. New sort option: add a `case` to `sortEntities` first, then add a `DropdownMenuItem` in the screen. Entity pickers (not sort dropdowns) may sort A→Z inline.
 

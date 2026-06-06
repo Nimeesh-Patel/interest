@@ -1,8 +1,8 @@
-# Entity Tracker
+# Interest
 
 ## What this system is
 
-A filesystem-native semantic knowledge environment. All data lives as plain Markdown in a user-chosen vault. The application is a **projection layer** over that vault — it reads, patches, and navigates Markdown without owning it. Vault files are readable by any text editor, Obsidian-compatible, and will outlive the app.
+A problem-centric semantic traversal environment. All data lives as plain Markdown in a user-chosen vault. The application is a **projection layer** over that vault — it reads, patches, and navigates Markdown without owning it. Vault files are readable by any text editor, Obsidian-compatible, and will outlive the app.
 
 This is not a CRUD app with Markdown export. Markdown is the **canonical storage medium**. The entire system state can be reconstructed from the vault. Nothing is persisted outside it except the vault path itself.
 
@@ -104,6 +104,7 @@ lib/
   core/                    — vault path (SharedPreferences) + directory bootstrap
                              + IntegrationsConfigService (vault-native integration config)
   shared/markdown/         — pure Markdown parsing + YAML frontmatter builder (md_utils) + filesystem I/O (md_io)
+                             + vault_scanner.dart (stream-based .md file scanner with folder exclusions)
   shared/widgets/          — reusable UI primitives: SectionHeader, EmptyState, WikilinkText,
                              showInputDialog, showConfirmDialog, showBottomSheetMenu, showQuickAddSheet
   shared/constants/        — app_spacing.dart, app_theme.dart (AppColors + ThemeData),
@@ -112,7 +113,10 @@ lib/
     home/                  — HomeDashboardScreen (tab 0): card-peek hero, Worth Revisiting, recent notes,
                              persistent Quick Add FAB; loads from ResurfaceService + MarkdownStorageService
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen (inline note edit,
-                             always-visible + Add note / + Link, Done AppBar button on unsaved changes)
+                             always-visible + Add note / + Link, Done AppBar button on unsaved changes);
+                             services/entity_file_parser.dart (parse entity .md → Entity),
+                             services/entity_file_writer.dart (patch/rebuild entity .md),
+                             controllers/entity_list_controller.dart (filter/sort/search state)
     projects/              — ProjectFile, ProjectStorageService, ProjectsScreen; two detail screens:
                              TaskFileScreen (todo-style) + ProjectListDetailScreen (list-style)
     tasks/                 — TaskBlock tree, TaskStorageService (block mutations only), TaskFileScreen (shared with projects)
@@ -123,13 +127,16 @@ lib/
     readera/               — ReaderaParser (.bak ZIP+JSON), ReaderaIngestionService
     resurface/             — ResurfaceService (vault scan), ResurfaceNote + ProblemNote models,
                              AnkiDroidService (MethodChannel bridge; syncVault()),
+                             services/ankidroid_sync_controller.dart (orchestrates load + sync),
                              ReviewLogService (review_log.md owner), GraphScoringService (BFS + decay),
+                             controllers/card_viewer_controller.dart (queue, position, TraversalSession),
                              ResurfaceScreen (All Notes hero + deck list + Browse Notes + card viewer),
+                             screens/_backlinks_section.dart (backlinks widget for note detail),
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
   screens/home_screen.dart    — BottomNavigationBar shell (four tabs: Home, Notes, Entities, Projects);
-                                AppBar: sensors → Sources, popup → Settings / Templates / Open Obsidian
+                                AppBar: sensors → Sources, popup → Settings / Templates
   screens/sources_screen.dart — Sources Inbox (Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid rows;
                                  Sync all button)
 ```

@@ -39,7 +39,7 @@ Only `anki_note_id` is ever written back to a vault file. No other frontmatter f
 anki_note_id: 1234567890   # Long returned by AnkiDroid addNote
 ```
 
-Write-back uses `patchFrontmatterField()` in `lib/shared/markdown/md_io.dart` — regex in-place replacement, never rebuilds frontmatter.
+Write-back calls `MarkdownStorageService.patchAnkiNoteId(filePath, noteId)` — patches `anki_note_id` in place; never rebuilds frontmatter.
 
 ## Deck mapping
 

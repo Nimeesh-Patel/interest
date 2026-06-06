@@ -4,15 +4,15 @@ import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/review_log_service.dart';
 
-/// Fires markReviewed + updateGraphScores for each note shown.
+/// Fires recordTraversal + updateGraphScores for each note shown.
 /// Instantiated when a deck opens; disposal is implicit (no resources held).
-class ReviewSession {
+class TraversalSession {
   void record(
     String filename, {
     bool isProblemNote = false,
     double? scheduledInterval,
   }) {
-    ReviewLogService.markReviewed(
+    ReviewLogService.recordTraversal(
       filename,
       isProblemNote: isProblemNote,
       scheduledInterval: scheduledInterval,
@@ -25,7 +25,7 @@ class ReviewSession {
 /// tracking, and per-note reload/removal. All mutating methods are designed
 /// to be called from within the parent's setState(), which triggers rebuilds.
 class CardViewerController {
-  final ReviewSession session = ReviewSession();
+  final TraversalSession session = TraversalSession();
 
   List<ResurfaceNote> _notes = [];
   int _index = 0;
@@ -63,7 +63,7 @@ class CardViewerController {
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
-  /// Advances to the next card with no-repeat logic; records the new note.
+  /// Advances to the next card with no-repeat logic; records the traversal.
   /// Call from within parent setState.
   void goNext() {
     if (_index >= _notes.length - 1) return;
@@ -84,7 +84,7 @@ class CardViewerController {
         scheduledInterval: _priorities[filename]);
   }
 
-  /// Steps back one card and records the note. Call from within parent setState.
+  /// Steps back one card and records the traversal. Call from within parent setState.
   void goPrev() {
     if (_index <= 0) return;
     _index--;

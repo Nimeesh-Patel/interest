@@ -53,7 +53,7 @@ No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth c
 `entity.id == alias` for all EntityLinks. Never regenerate on rename. WHY: filenames change; alias is the stable graph identity — regenerating it orphans every wikilink. Enforcement: `_saveEdit()` in `entity_screen.dart`.
 
 **3. Patch-not-rebuild.**
-Existing entity files are always patched via `_patchEntityContent()`, never regenerated from template. WHY: rebuilding destroys user's custom `##` sections on every save. Enforcement: `markdown_storage_service.dart`.
+Existing entity files are always patched via `_patchEntityContent()`, never regenerated from template. WHY: rebuilding destroys user's custom `##` sections on every save. Enforcement: `entity_file_writer.dart`.
 
 **4. Semantic section registry is the app/user boundary.**
 Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are rewritten on save. Do not add hardcoded section names outside this map. WHY: any name outside the registry bypasses the user-territory contract and risks erasing user prose. Enforcement: `_semanticSections` const in `markdown_storage_service.dart`.
@@ -80,7 +80,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 | Storage layer | Directory |
 |---|---|
 | `MarkdownStorageService` | vault root (user entities; vault-wide `category:` scan) |
-| `LetterboxdAdapter` | vault root (RSS movies; bypasses `MarkdownStorageService`) |
+| `LetterboxdAdapter` | `Interesting/Articles/` via `ArticleStorageService` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
 | `BookStorageService` | `Interesting/Books/` ← `ReadwiseService`, `HardcoverSyncService`, `ReaderaIngestionService` write only via this |
@@ -166,7 +166,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then `DropdownMenuItem` entries in screens. Entity pickers are pre-sorted A→Z inline (not via `sortEntities`).
 
-**Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding category-specific fields requires updating both `_parseEntityFile` and `_buildFrontmatter` in `markdown_storage_service.dart`.
+**Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding category-specific fields requires updating both `EntityFileParser` (`_parseEntityFile`) in `entity_file_parser.dart` and `EntityFileWriter` (`_buildFrontmatter`) in `entity_file_writer.dart`.
 
 ## Mobile UX conventions
 
