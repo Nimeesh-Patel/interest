@@ -190,9 +190,10 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       _openSearchResult(note);
       return;
     }
-    // Fallback: vault-wide scan for notes in excluded folders or during loading race.
-    if (_vaultPath == null || !mounted) return;
-    final path = await ResurfaceService.resolveWikilink(_vaultPath!, name);
+    // Fast vault-wide filename scan — no file content parsing.
+    final vaultPath = _vaultPath ?? await VaultService.getVaultPath();
+    if (vaultPath == null || !mounted) return;
+    final path = await ResurfaceService.resolveWikilink(vaultPath, name);
     if (!mounted) return;
     if (path == null) {
       ScaffoldMessenger.of(context).showSnackBar(

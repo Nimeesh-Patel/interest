@@ -45,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isLoading = true;
   bool _isAddingCategory = false;
+  String? _pendingDeeplinkNote;
   // Tabs: 0=Home, 1=Notes, 2=Entities, 3=Projects
   int _currentTab = 0;
 
@@ -85,6 +86,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (vault != null) {
       await IntegrationsConfigService.migrateFromPrefs(vault);
     }
+    if (mounted && _pendingDeeplinkNote != null) {
+      final name = _pendingDeeplinkNote!;
+      _pendingDeeplinkNote = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _resurfaceKey.currentState?.openNoteByName(name);
+      });
+    }
   }
 
   Future<void> _onShareMethod(MethodCall call) async {
@@ -101,12 +109,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _openNoteFromDeeplink(String noteName) {
+  void _openNoteFromDeeplink(String rawName) {
+    final decoded = Uri.decodeComponent(rawName);
     setState(() => _currentTab = 1);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _resurfaceKey.currentState?.openNoteByName(noteName);
-    });
+    final state = _resurfaceKey.currentState;
+    if (state != null) {
+      state.openNoteByName(decoded);
+    } else {
+      _pendingDeeplinkNote = decoded;
+    }
   }
 
   Future<void> _ingestShareUrl(String url) async {
