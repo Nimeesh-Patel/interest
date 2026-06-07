@@ -2,188 +2,125 @@
 
 ## Purpose
 
-The entity subsystem is the core semantic graph of the vault. It models named things the user finds meaningful — people, ideas, products, concepts, films — as nodes in a graph, with edges derived from wikilinks. The primary semantic questions this subsystem answers: what exists, how things relate, and what is interesting about them.
+An **entity is a plain Markdown note that belongs to a collection.** The subsystem answers two questions: *what collections exist and who belongs to them*, and *how do notes relate* (backlinks). It does not own note content — the body is the user's territory, edited as Markdown.
 
-## Architectural role
+This is the evolved model. The original "entity is a structured document with `Why Interesting` / `Related` / `Sources` sections" view was retired in June 2026; enforcing a body shape both corrupted notes and added no value once entities became collection members. **No body structure is imposed at all** — a new note is created with frontmatter only and an empty body (not even an `# Name`).
 
-Entities are the canonical semantic objects of the `Interesting/` namespace. All other subsystems (Lists, Anki cards, Books) are adjacent or enrichment layers; entities are the center of gravity. The entity graph is an **inferred graph** — edges are not stored, they are derived from wikilink scans on every load.
+The user-facing screen is called **Collections** (tab 2). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is the Interest-app analogue of an Anki **Deck** — but an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid.
 
 ## Ontology
 
-- **Entity**: a named epistemic node. Has an `alias` (immutable identity), a `category` (free-form grouping), optional `tags`, an optional `score`, and three app-owned semantic sections (`Why Interesting`, `Related`, `Sources`).
-- **Category**: not a stored object — derived at load time from distinct `category` values across all entity files. There is no category table.
-- **EntityLink**: a directed graph edge inferred from `[[wikilink]]` syntax anywhere in the entity body. Not stored; rebuilt on every load.
-- **Tag**: a flat label, stored as a YAML list in frontmatter. Tags are aggregated into a global tag list at load time.
+- **Entity**: any vault note whose frontmatter has a `collection:` key. Carries `collection` (grouping), optional `tags`, optional `score`, and a `sourcePath`. Its `id` is the `alias:` value if present, else the filename slug. Its `name` is the filename. Nothing else is required — not even timestamps.
+- **Collection**: not a stored object — derived at load time from the distinct `collection:` values across all entity notes. There is no collection table, and none is invented (no default "People").
+- **Backlinks**: connections are not a stored graph. Forward `[[wikilinks]]` render as tappable links in the body; incoming links are listed live by the shared `BacklinksSection` (`ResurfaceService.getBacklinks`). Read-only — links are made by writing `[[wikilinks]]` in the body.
+- **Tag**: a flat label stored as a YAML list in frontmatter.
+
+## Orthogonality (important)
+
+Entity-ness and Problem-Note-ness are independent axes:
+
+| | predicate | what it grants |
+|---|---|---|
+| **Entity** | `collection:` in frontmatter | collection membership + backlinks |
+| **Problem Note** | `***` in body | AnkiDroid sync (deck = `category:`, default `Default`) |
+
+A note can be **both** (a `collection:` note that also has a `***` front/back). Because the app patches only frontmatter and never the body, saving such a note as an entity preserves its `***` content. `alias` and `category` are orthogonal to entity-ness.
 
 ## Non-goals
 
-- Entities are not tasks. They have no completion state, no due dates.
-- Entities are not books. Books have a separate schema and write path.
-- The entity graph is not a general-purpose knowledge base with typed relations. All edges are untyped wikilinks; semantic typing lives in the user's prose.
+- Entities are not tasks, books, or articles — those have separate schemas and write paths.
+- The graph is not typed; all edges are untyped wikilinks. Semantic typing lives in the user's prose.
 
 ---
-
-Core subsystem. Entity `.md` files live at the **vault root** (legacy files in `Interesting/Entities/` are still read in place). `MarkdownStorageService` discovers them with a **vault-wide scan**, not a directory listing. The in-memory model is a parsed projection over those files. `MarkdownStorageService` is the single I/O layer. For architectural invariants (immutable alias, patch-not-rebuild, semantic sections, full-body wikilink scan) see [CLAUDE.md](../CLAUDE.md).
 
 ## Entity discovery (do not loosen)
 
-A vault `.md` file is an entity **iff its frontmatter contains both `category:` and `alias:`** — encoded once in `EntityFileParser.isEntityFrontmatter()` and used by every scan in `MarkdownStorageService` (`loadData`, `saveData`).
+A vault `.md` file is an entity **iff its frontmatter contains `collection:`** — encoded once in `EntityFileParser.isEntityFrontmatter()` and used by every scan in `MarkdownStorageService`.
 
-`category:` **alone is not sufficient.** Problem notes (Resurface `***` cards) carry `category:` for AnkiDroid deck mapping but never an `alias:`. In June 2026 a refactor changed discovery from a `Interesting/Entities/` directory listing to a vault-wide `category:`-only scan; problem notes were then loaded as entities and `saveData` rewrote them in entity format, destroying their body, `***` separator, and idea text (signature: `alias`/`created_at`/`updated_at` added, `up:`/`anki_note_id:` dropped, body reduced to a lone `# Title`). Requiring both keys excludes problem notes; bookmarks, books, and articles have `alias:` but no `category:`, so they are excluded too.
+WHY `collection`, not `category`/`alias`: `category:` is a Problem-Note property (the AnkiDroid deck). In June 2026 entity discovery keyed on `category:` (alone, then briefly `category:`+`alias:`); problem notes carry `category:`, so they were loaded as entities and the bulk save rewrote them in entity format — destroying body, `***`, and idea text (signature: `alias`/`created_at`/`updated_at` added, `up:`/`anki_note_id:` dropped, body reduced to a lone `# Title`). `collection:` is owned solely by the entity layer, so it cannot collide with problem notes, bookmarks, books, or articles.
 
-Defence in depth: even if discovery regressed again, `saveData` skips any target file whose existing frontmatter lacks `alias:`, and `EntityFileWriter.patchEntityContent()` throws a `StateError` rather than overwrite a file that is neither an entity (`alias:`) nor a template (`template:`). `MarkdownStorageService.findCorruptedNotes(vaultPath)` (and a `kDebugMode` log on every `loadData`) reports husks matching the corruption signature for review — detection only; it never restores or rewrites.
+**Diagnostics:** `EntityFileParser.isCorruptedHusk()` and `MarkdownStorageService.findCorruptedNotes(vaultPath)` (plus a `kDebugMode` log on every `loadData`) report notes matching the old corruption signature. Detection only — they never restore or rewrite. A legitimately empty note is indistinguishable from a husk, so treat matches as candidates.
 
 ---
 
-## File formats
+## File format
 
-### Entity file — vault root `<filename>.md`
+### Entity note — vault root `<filename>.md`
 
 ```markdown
 ---
-alias: david-deutsch
-category: People
-score: 10.0
+collection: People
+score: 9.0
 tags:
   - epistemology
-  - physics
-created_at: 2026-05-07T12:00:00.000Z
-updated_at: 2026-05-07T12:00:00.000Z
 ---
 # David Deutsch
 
-## Why Interesting
-
-- Developed constructor theory and extended Popperian epistemology.
-
-## Related
-
-- [[Karl Popper]]
-- [[Alan Turing]]
-
-## Sources
-
-- https://en.wikipedia.org/wiki/David_Deutsch
-
-## Background
-
-Any section the user adds here is preserved verbatim on every save.
+Anything the user wants: prose, [[Karl Popper]] wikilinks, their own
+`##` headings, even a `***` front/back if this is also a problem note.
+The app never rewrites this body.
 ```
 
-**Frontmatter fields:**
+**App-owned frontmatter keys** (`EntityFileWriter._knownOrder`): `collection`, `alias`, `tags`, `score`. Only `collection` is always written (`tags`/`score` when set); **every other key is preserved untouched** (`created_at`/`updated_at` if the user keeps them, `category`/deck, `anki_note_id`, `up`, user-defined keys). The app neither requires nor writes timestamps.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `alias` | Yes | Immutable identity anchor; slugified from name at creation; never regenerated |
-| `category` | Yes | Free-form string; categories derived at load time from distinct values across all entities |
+| `collection` | Yes | The discriminator + grouping; collections derived from distinct values |
+| `alias` | No | Stable `id` if present; legacy/optional. Not regenerated |
 | `score` | No | Float 0.0–10.0 |
 | `tags` | No | YAML list |
-| `created_at` | Yes | ISO 8601 UTC; set once at creation |
-| `updated_at` | Yes | ISO 8601 UTC; stamped on every `_save()` in `entity_screen.dart` |
-| `watched_date` | No | Movie-specific |
-| `letterboxd_url` | No | Movie-specific |
-| `tmdb_id` | No | Movie-specific |
-
-Adding a new category-specific field requires updating both `_parseEntityFile` and `_buildFrontmatter` in `markdown_storage_service.dart`.
-
-### Template file — `Interesting/Templates/<name>.md`
-
-```markdown
----
-category: Default
-template: true
----
-# {{title}}
-
-## Why Interesting
-
-## Related
-
-## Sources
-```
-
-Five templates seeded on first launch: `default`, `person`, `product`, `idea`, `movie`. Template is instantiated once at entity creation (`{{title}}` → name). Never re-applied on subsequent saves — re-templating would destroy user sections.
+| `created_at` / `updated_at` | No | Optional; preserved if present, never written by the app. Used in-memory (defaulted to load time) only for date sorts |
 
 ---
 
 ## In-memory model
 
-Four lists load on startup and stay in memory:
+Three lists load on startup (`MarkdownStorageService.loadData`):
 
 | List | Derived from |
 |------|-------------|
-| `entities` | vault `.md` files with both `category:` and `alias:` (frontmatter + body) |
-| `categories` | distinct `entity.category` values across all entities |
+| `entities` | vault `.md` files with `collection:` (frontmatter only; body read on demand) |
+| `collections` | distinct `entity.collection` values |
 | `tags` | all entity tag values, deduplicated |
-| `entityLinks` | `extractWikilinks(body)` over all entity files (full-body scan) |
 
-`saveData()` snapshots all four lists before the async gap to prevent partial-save races.
+There is no in-memory link/graph list — incoming links are fetched live by `BacklinksSection`.
 
 ---
 
 ## MarkdownStorageService (`lib/features/entities/services/markdown_storage_service.dart`)
 
-All-static service. The sole I/O layer for entities.
-
-**Public methods:**
+The sole I/O layer for entities. Writes are **per-file** — there is no bulk save.
 
 | Method | Description |
 |--------|-------------|
-| `loadData()` | Vault-wide scan (excl. `.obsidian`, `Templates`); entity iff frontmatter has both `category:` and `alias:`; returns all four lists |
-| `saveData(...)` | Writes entity files; snapshots all lists before the async gap |
-| `sortEntities(entities, sortOrder)` | All entity list sorting routes through here — never sort inline |
-| `linkExists(from, to, links)` | Checks for an existing entity link in either direction |
-| `generateLinkId(from, to)` | Deterministic, direction-independent link ID |
-| `getRelatedEntities(id, links, entities)` | Traverses link graph for related nodes |
+| `loadData()` | Vault-wide scan (excl. `.obsidian`, `Templates`); entity iff frontmatter has `collection:`; returns the four lists |
+| `saveEntity(entity)` | Creates the file if `sourcePath` is null (**only `collection:` frontmatter**, empty body — no `# Name`, no timestamps), else patches that file's frontmatter in place; body preserved. Sets `sourcePath` |
+| `deleteEntity(entity)` | Deletes the one backing file |
+| `renameCollection(members, newName)` | Patches each member file's `collection:` value |
+| `sortEntities(entities, sortOrder)` | All entity sorting routes through here |
+| `findCorruptedNotes(vaultPath)` | Diagnostic; lists June-2026 husk candidates |
 
-**Internal:**
-
-| Method | Owner | Role |
-|--------|-------|------|
-| `EntityFileParser.parse(file)` | `entity_file_parser.dart` | Parses frontmatter + body into `Entity`; runs full-body wikilink scan |
-| `EntityFileWriter.patch(file, entity)` | `entity_file_writer.dart` | Patches file in-place (CLAUDE.md invariant 3) |
-| `EntityFileWriter._buildFrontmatter(entity)` | `entity_file_writer.dart` | Builds YAML frontmatter string including movie-specific fields |
-| `EntityFileWriter._semanticSections` | `entity_file_writer.dart` | `const Map` — the app/user section boundary (CLAUDE.md invariant 4) |
-
-**Sort routing rule:** All entity list sort dropdowns must call `sortEntities(entities, sortOrder)`. New sort option: add a `case` to `sortEntities` first, then add a `DropdownMenuItem` in the screen. Entity pickers (not sort dropdowns) may sort A→Z inline.
+`EntityFileParser.parseEntityFile` (frontmatter + full-body wikilink scan → `Entity`) and `EntityFileWriter.patchFrontmatter` / `buildNewEntity` (frontmatter-only, body-preserving) are pure string transforms; the service does the I/O.
 
 ---
 
 ## EntityScreen (`lib/features/entities/screens/entity_screen.dart`)
 
-### Display / edit mode
+A note **viewer** built on the shared note-view primitives. Display mode renders: the title (filename), collection, tags, score, the note **body** via `noteMarkdownBody` (tappable `[[wikilinks]]`), `BacklinksSection` (what links here), and the Grokipedia panel. The AppBar offers **Open in Obsidian** (`obsidianUri` + `launchUrl`), **Edit note body**, and **Edit details**.
 
-`_isEditMode` boolean (default `false`). Display mode is the default — data rendered read-only. Edit mode toggled via AppBar button. Save / Cancel buttons appear in AppBar only during edit mode.
+- **Edit details** (`tune` icon) → frontmatter-only edit mode (collection dropdown, tags, score). `Save` → `storage.saveEntity(_entity)`; `Cancel` restores the in-memory snapshot.
+- **Edit note body** (`notes` icon) → pushes `NoteEditScreen(filePath: sourcePath)`; on return the body is re-read. This is the only way the body changes.
+- **Grokipedia** state lives entirely in `_EntityScreenState` — never written to the vault.
 
-### Snapshot and rollback
-
-`_enterEditMode()` deep-copies `_entity` into `_snapshot`. `_cancelEdit()` restores `_entity` from `_snapshot` atomically — no file I/O on cancel. This makes Save deferred and Cancel lossless (CLAUDE.md § Save semantics).
-
-`_save()` calls `saveData()` and stamps `updated_at`. `_saveEdit()` calls `_save()` and exits edit mode.
-
-### Inline edit auto-save
-
-Notes and links can be edited inline within edit mode. Both save on `onSubmitted` and `onTapOutside`. These inline commits mutate the in-memory `_entity` but do **not** call `_save()` — the full disk write is still deferred to the Save button.
-
-### EntityLink mutations (immediate save)
-
-Entity links (`_createEntityLink`, `_deleteEntityLink`) call `_save()` immediately — they mutate shared link state that the snapshot does not cover.
-
-### Modals
-
-- `_showLinkSearch()` — `showModalBottomSheet` with `isScrollControlled: true` + `MediaQuery.viewInsets.bottom` outer padding; height `screenHeight * 0.55`; searchable entity list
-
-### Grokipedia section
-
-External knowledge panel (display mode only). State (`_grokArticle`, `_grokSearched`, `_grokSummaryExpanded`, `_grokSummaryFetching`, `_grokFetchedSummary`) lives entirely in `_EntityScreenState` — never written to the vault.
+The name (filename) is not edited here; renaming a note is a file-rename concern outside this screen.
 
 ---
 
 ## Boundaries (do not violate)
 
-- `alias` is never regenerated after creation — see CLAUDE.md invariant 2
-- Files are always patched, never rebuilt from scratch — see CLAUDE.md invariant 3
-- Only `_semanticSections` keys are rewritten on save — see CLAUDE.md invariant 4
-- `extractWikilinks(body)` scans the full Markdown body — see CLAUDE.md invariant 5
-- All entity list sorting routes through `MarkdownStorageService.sortEntities()` — never inline-sort a list that has a sort dropdown
-- Adding category-specific fields: update both `_parseEntityFile` and `_buildFrontmatter`
+- Discovery keys on `collection:` only — see CLAUDE.md invariant 2.
+- The app patches frontmatter, never the body — see CLAUDE.md invariant 3. No code path rewrites an entity body.
+- Problem Note (`***`) and Entity (`collection:`) are orthogonal — see CLAUDE.md invariant 4. Never gate one predicate on the other.
+- `extractWikilinks(body)` scans the full body — see CLAUDE.md invariant 5.
+- All entity list sorting routes through `MarkdownStorageService.sortEntities()`.
+- Preserve unknown frontmatter keys on save — only `EntityFileWriter._knownOrder` keys are app-owned.

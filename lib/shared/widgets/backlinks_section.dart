@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../core/vault_service.dart';
-import '../../../shared/constants/app_text_styles.dart';
-import '../../../shared/constants/app_theme.dart';
-import '../../../shared/widgets/section_header.dart';
-import '../models/resurface_note.dart';
-import '../services/resurface_service.dart';
+import '../../core/vault_service.dart';
+import '../../features/resurface/models/resurface_note.dart';
+import '../../features/resurface/services/resurface_service.dart';
+import '../constants/app_text_styles.dart';
+import '../constants/app_theme.dart';
+import 'section_header.dart';
 
-/// Async backlinks panel. Shows after load; renders nothing until ready.
-/// Use [key: ValueKey(noteFilePath)] in list contexts to reset on note change.
+/// Async backlinks panel for any vault note: lists notes that wikilink to
+/// [noteFilePath]. Shared across note viewers. Renders nothing until loaded.
+/// Use `key: ValueKey(noteFilePath)` in list contexts to reset on note change.
 class BacklinksSection extends StatefulWidget {
   final String noteFilePath;
   final Future<void> Function(String targetName) onNavigateToNote;

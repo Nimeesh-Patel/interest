@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
-import '_backlinks_section.dart';
-import '_note_md_helpers.dart';
+import '../../../shared/widgets/backlinks_section.dart';
+import '../../../shared/widgets/note_markdown.dart';
 
 /// Body-only note viewer. No Scaffold — the caller (ResurfaceScreen) owns the
 /// AppBar. Navigation out of this widget goes via [onNavigateToNote].

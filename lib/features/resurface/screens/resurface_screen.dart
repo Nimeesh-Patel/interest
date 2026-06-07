@@ -20,8 +20,8 @@ import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
 import '../services/review_log_service.dart';
 import '../controllers/card_viewer_controller.dart';
-import '_backlinks_section.dart';
-import '_note_md_helpers.dart';
+import '../../../shared/widgets/backlinks_section.dart';
+import '../../../shared/widgets/note_markdown.dart';
 import 'note_detail_screen.dart';
 import 'note_edit_screen.dart';
 

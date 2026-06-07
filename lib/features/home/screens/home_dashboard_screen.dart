@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
-import '../../../features/entities/models/category.dart';
+import '../../../features/entities/models/collection.dart';
 import '../../../features/entities/models/entity.dart';
 import '../../../features/resurface/models/resurface_note.dart';
 import '../../../features/resurface/services/graph_scoring_service.dart';
@@ -18,7 +18,7 @@ import '../../../shared/widgets/section_header.dart';
 
 class HomeDashboardScreen extends StatefulWidget {
   final List<Entity> entities;
-  final List<Category> categories;
+  final List<Collection> collections;
   final VoidCallback onBeginReview;
   final void Function(Entity) onEntityTap;
   final VoidCallback onAddTap;
@@ -26,7 +26,7 @@ class HomeDashboardScreen extends StatefulWidget {
   const HomeDashboardScreen({
     super.key,
     required this.entities,
-    required this.categories,
+    required this.collections,
     required this.onBeginReview,
     required this.onEntityTap,
     required this.onAddTap,
@@ -269,14 +269,14 @@ class HomeDashboardScreenState extends State<HomeDashboardScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(
               horizontal: kScreenHPad, vertical: 12),
-          child: Text('No entities yet.', style: AppTextStyles.bodySmall),
+          child: Text('No notes yet.', style: AppTextStyles.bodySmall),
         ),
       ];
     }
     return items.map((item) {
-      final catName = widget.categories
-          .firstWhere((c) => c.id == item.entity.categoryId,
-              orElse: () => Category(id: '', name: ''))
+      final catName = widget.collections
+          .firstWhere((c) => c.id == item.entity.collectionId,
+              orElse: () => Collection(id: '', name: ''))
           .name;
       return GestureDetector(
         onTap: () => widget.onEntityTap(item.entity),

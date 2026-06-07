@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../features/entities/controllers/entity_list_controller.dart';
-import '../features/entities/models/category.dart';
+import '../features/entities/models/collection.dart';
 import '../features/entities/models/entity.dart';
 import '../shared/constants/app_spacing.dart';
 import '../shared/constants/app_theme.dart';
@@ -44,14 +44,14 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 
   bool _isLoading = true;
-  bool _isAddingCategory = false;
+  bool _isAddingCollection = false;
   String? _pendingDeeplinkNote;
   // Tabs: 0=Home, 1=Notes, 2=Entities, 3=Projects
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addController = TextEditingController();
-  final TextEditingController _newCategoryController = TextEditingController();
+  final TextEditingController _newCollectionController = TextEditingController();
   final FocusNode _addFocus = FocusNode();
 
   @override
@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _searchController.dispose();
     _addController.dispose();
-    _newCategoryController.dispose();
+    _newCollectionController.dispose();
     _addFocus.dispose();
     super.dispose();
   }
@@ -184,9 +184,8 @@ class _HomeScreenState extends State<HomeScreen> {
           entity: entity,
           storage: _controller.storage,
           allEntities: _controller.entities,
-          allCategories: _controller.categories,
+          allCollections: _controller.collections,
           allTags: _controller.tags,
-          allEntityLinks: _controller.entityLinks,
         ),
       ),
     );
@@ -220,41 +219,41 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ── Category operations ───────────────────────────────────────────────────
+  // ── Collection operations ─────────────────────────────────────────────────
 
-  void _addCategory(String name) {
-    setState(() => _isAddingCategory = false);
-    _newCategoryController.clear();
-    _controller.addCategory(name);
+  void _addCollection(String name) {
+    setState(() => _isAddingCollection = false);
+    _newCollectionController.clear();
+    _controller.addCollection(name);
   }
 
-  void _showCategoryOptions(Category category) {
+  void _showCollectionOptions(Collection category) {
     showBottomSheetMenu(context, items: [
       BottomSheetMenuItem(
         icon: Icons.edit,
         label: 'Rename',
-        onTap: () => _showRenameCategory(category),
+        onTap: () => _showRenameCollection(category),
       ),
       BottomSheetMenuItem(
         icon: Icons.delete,
         label: 'Delete',
         isDestructive: true,
-        onTap: () => _deleteCategory(category),
+        onTap: () => _deleteCollection(category),
       ),
     ]);
   }
 
-  void _showRenameCategory(Category category) async {
+  void _showRenameCollection(Collection category) async {
     final name = await showInputDialog(context,
-      title: 'Rename category',
+      title: 'Rename collection',
       initialValue: category.name,
       confirmLabel: 'Rename',
     );
-    if (name != null) _controller.renameCategory(category, name);
+    if (name != null) _controller.renameCollection(category, name);
   }
 
-  void _deleteCategory(Category category) {
-    final error = _controller.deleteCategory(category);
+  void _deleteCollection(Collection category) {
+    final error = _controller.deleteCollection(category);
     if (error != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
@@ -263,45 +262,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Entities tab UI ───────────────────────────────────────────────────────
 
-  Widget _buildCategoryFilter() {
+  Widget _buildCollectionFilter() {
     return SizedBox(
       height: 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         children: [
-          _CategoryChip(
+          _CollectionChip(
             label: 'All',
-            selected: _controller.selectedCategoryId == null,
-            onTap: () => setState(() => _controller.selectedCategoryId = null),
+            selected: _controller.selectedCollectionId == null,
+            onTap: () => setState(() => _controller.selectedCollectionId = null),
           ),
-          for (final cat in _controller.categories)
-            _CategoryChip(
+          for (final cat in _controller.collections)
+            _CollectionChip(
               label: cat.name,
-              selected: _controller.selectedCategoryId == cat.id,
-              onTap: () => setState(() => _controller.selectedCategoryId = cat.id),
-              onLongPress: () => _showCategoryOptions(cat),
+              selected: _controller.selectedCollectionId == cat.id,
+              onTap: () => setState(() => _controller.selectedCollectionId = cat.id),
+              onLongPress: () => _showCollectionOptions(cat),
             ),
-          if (_isAddingCategory)
+          if (_isAddingCollection)
             Container(
               width: 140,
               margin: const EdgeInsets.only(left: 4),
               child: TextField(
-                controller: _newCategoryController,
+                controller: _newCollectionController,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  hintText: 'Category name',
+                  hintText: 'Collection name',
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 ),
                 textInputAction: TextInputAction.done,
-                onSubmitted: _addCategory,
+                onSubmitted: _addCollection,
                 onEditingComplete: () {},
               ),
             )
           else
             GestureDetector(
-              onTap: () => setState(() => _isAddingCategory = true),
+              onTap: () => setState(() => _isAddingCollection = true),
               child: Container(
                 margin: const EdgeInsets.only(left: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
@@ -317,15 +316,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Shown only when a specific collection is selected (see _buildEntitiesTab);
+  // when "All" is active, the FAB's Quick Add sheet (with a collection field) is
+  // the create path. No collection is ever invented.
   Widget _buildAddBar() {
-    final catName = _controller.selectedCategoryId != null
-        ? _controller.categories
-            .firstWhere(
-              (c) => c.id == _controller.selectedCategoryId,
-              orElse: () => Category(id: '', name: 'entity'),
-            )
-            .name
-        : 'Default';
+    final catName = _controller.collections
+        .firstWhere(
+          (c) => c.id == _controller.selectedCollectionId,
+          orElse: () => Collection(id: '', name: 'collection'),
+        )
+        .name;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -349,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.add_circle_outline),
             color: AppColors.textSecondary,
             onPressed: () => _addEntity(_addController.text),
-            tooltip: 'Add entity',
+            tooltip: 'Add note',
           ),
         ],
       ),
@@ -399,7 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           Text(
-            '$count ${count == 1 ? "entity" : "entities"}',
+            '$count ${count == 1 ? "note" : "notes"}',
             style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           const Spacer(),
@@ -446,9 +446,9 @@ class _HomeScreenState extends State<HomeScreen> {
       itemCount: items.length,
       itemBuilder: (ctx, i) {
         final entity = items[i];
-        final catName = _controller.categories
-            .firstWhere((c) => c.id == entity.categoryId,
-                orElse: () => Category(id: '', name: ''))
+        final catName = _controller.collections
+            .firstWhere((c) => c.id == entity.collectionId,
+                orElse: () => Collection(id: '', name: ''))
             .name;
         return GestureDetector(
           onLongPress: () => _showEntityOptions(entity),
@@ -539,18 +539,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildEntitiesTab() {
     return GestureDetector(
       onTap: () {
-        if (_isAddingCategory) {
+        if (_isAddingCollection) {
           setState(() {
-            _isAddingCategory = false;
-            _newCategoryController.clear();
+            _isAddingCollection = false;
+            _newCollectionController.clear();
           });
         }
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildCategoryFilter(),
-          _buildAddBar(),
+          _buildCollectionFilter(),
+          if (_controller.selectedCollectionId != null) _buildAddBar(),
           _buildSearchBar(),
           _buildSortBar(),
           Expanded(child: _buildEntityList()),
@@ -585,7 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final tabTitle = switch (_currentTab) {
       0 => 'Interest',
       1 => notesState?.navTitle ?? 'Notes',
-      2 => 'Entities',
+      2 => 'Collections',
       _ => 'Projects',
     };
 
@@ -664,15 +664,13 @@ class _HomeScreenState extends State<HomeScreen> {
           HomeDashboardScreen(
             key: _homeDashboardKey,
             entities: _controller.entities,
-            categories: _controller.categories,
+            collections: _controller.collections,
             onBeginReview: () => setState(() => _currentTab = 1),
             onEntityTap: _openEntity,
             onAddTap: () => showQuickAddSheet(
               context,
               entities: _controller.entities,
-              categories: _controller.categories,
-              tags: _controller.tags,
-              allEntityLinks: _controller.entityLinks,
+              collections: _controller.collections,
               storage: _controller.storage,
               onCreated: (entity) async {
                 await _controller.reloadData();
@@ -692,9 +690,7 @@ class _HomeScreenState extends State<HomeScreen> {
         2 => _EntitiesFab(onTap: () => showQuickAddSheet(
               context,
               entities: _controller.entities,
-              categories: _controller.categories,
-              tags: _controller.tags,
-              allEntityLinks: _controller.entityLinks,
+              collections: _controller.collections,
               storage: _controller.storage,
               onCreated: (entity) async {
                 await _controller.reloadData();
@@ -734,7 +730,7 @@ class _HomeScreenState extends State<HomeScreen> {
             BottomNavigationBarItem(
               icon: Icon(Icons.hub_outlined),
               activeIcon: Icon(Icons.hub),
-              label: 'ENTITIES',
+              label: 'COLLECTIONS',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.checklist_outlined),
@@ -748,13 +744,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _CategoryChip extends StatelessWidget {
+class _CollectionChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
-  const _CategoryChip({
+  const _CollectionChip({
     required this.label,
     required this.selected,
     required this.onTap,

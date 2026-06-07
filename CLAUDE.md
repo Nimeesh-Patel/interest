@@ -49,17 +49,17 @@ These five rules define the system's identity. Violating any changes what it fun
 **1. Markdown is the database.**
 No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth corrupts silently — when two stores diverge, there is no canonical answer.
 
-**2. `alias` is immutable after creation.**
-`entity.id == alias` for all EntityLinks. Never regenerate on rename. WHY: filenames change; alias is the stable graph identity — regenerating it orphans every wikilink. Enforcement: `_saveEdit()` in `entity_screen.dart`.
+**2. An entity is a note with `collection:`.**
+Discovery keys on the `collection:` frontmatter key alone (`EntityFileParser.isEntityFrontmatter`). `alias`, `category`, and body shape are orthogonal to entity-ness. WHY: `category:` is a Problem-Note property (the Anki deck); keying entity discovery on it conflated the two sets and caused the June 2026 corruption. Enforcement: `isEntityFrontmatter` in `entity_file_parser.dart`, used by every scan in `markdown_storage_service.dart`.
 
-**3. Patch-not-rebuild.**
-Existing entity files are always patched via `_patchEntityContent()`, never regenerated from template. WHY: rebuilding destroys user's custom `##` sections on every save. Enforcement: `entity_file_writer.dart`.
+**3. The app patches frontmatter, never the body.**
+Entity writes go through `EntityFileWriter.patchFrontmatter` (owned keys only: `collection`, `tags`, `score`, `updated_at`) or `buildNewEntity`; the existing body is preserved byte-for-byte. No code path rewrites an entity body. WHY: rebuilding bodies destroyed user content (including a Problem Note's `***` front/back). The body — prose, `***`, `[[wikilinks]]`, user `##` sections — is the user's; it is edited only via `NoteEditScreen`. Enforcement: `entity_file_writer.dart`.
 
-**4. Semantic section registry is the app/user boundary.**
-Only keys in `_semanticSections` (`Why Interesting`, `Related`, `Sources`) are rewritten on save. Do not add hardcoded section names outside this map. WHY: any name outside the registry bypasses the user-territory contract and risks erasing user prose. Enforcement: `_semanticSections` const in `markdown_storage_service.dart`.
+**4. Problem Note and Entity are orthogonal sets.**
+Problem Note ⟺ `***` in body (Anki-syncable; deck = `category:`, default `Default`). Entity ⟺ `collection:` in frontmatter. A note may be both. WHY: conflating them is exactly what corrupted notes in June 2026. Enforcement: `splitFrontBack` (`ResurfaceService`) and `isEntityFrontmatter` (`EntityFileParser`) are independent predicates — never gate one on the other.
 
 **5. Full-body wikilink scan.**
-`extractWikilinks(body)` scans the whole Markdown body, not just `## Related`. WHY: narrowing the scan makes graph edges location-dependent — moving a link between sections silently drops an edge. Enforcement: `_parseEntityFile` in `markdown_storage_service.dart`.
+`extractWikilinks(body)` scans the whole Markdown body. WHY: narrowing the scan makes link relationships location-dependent — moving a `[[link]]` between sections silently drops it. Enforcement: `ResurfaceService.getBacklinks` (the backlinks panel) and `EntityFileParser.parseEntityFile`. There is no stored or in-memory edge list — "what links here" is computed live by `BacklinksSection`.
 
 ## Service standard
 
@@ -67,11 +67,12 @@ All services are **all-static, all-catch-null, never throw**. Errors surface via
 
 ## Save semantics
 
-- **Deferred save for core entity fields** (name, category, tags, score, notes, links) — `_saveEdit()` commits all pending changes. WHY: Cancel/Done must restore or commit the pre-edit snapshot atomically.
-- **Inline note/title editing** (no explicit edit-mode toggle): tapping a note bullet or the entity title marks the screen dirty (`_markDirty()` takes a snapshot on first change, sets `_hasUnsavedChanges = true`). The AppBar shows a `check` icon only when `_hasUnsavedChanges == true`; tapping it calls `_saveEdit()`. When `_hasUnsavedChanges == false`, the AppBar shows the `edit` icon (full edit body for category/score/tags) and `more_vert`.
-- **Immediate save for shared mutations** (`_createEntityLink`, `_deleteEntityLink`). WHY: they mutate shared state the entity snapshot doesn't cover.
-- `saveData()` snapshots all entity lists before the async gap to prevent partial-save races.
-- `updated_at` stamped on every mutation: entities in `_save()`.
+- **Per-file writes only.** Each mutation touches exactly one entity file; there is no bulk "save all" path (that pattern caused the June 2026 corruption).
+- **Frontmatter edit** (collection, tags, score) in `EntityScreen` edit mode → `_saveEdit()` → `MarkdownStorageService.saveEntity(entity)`, which patches that one file's frontmatter and preserves its body. `Cancel` restores the pre-edit snapshot in memory (no I/O).
+- **Body edit** is delegated to `NoteEditScreen` (launched from `EntityScreen`), which writes the file directly. The app never edits an entity body through the entity layer.
+- **New entity**: `saveEntity` creates a file with **only `collection:` frontmatter** and an **empty body** — no imposed `# Name`, no body structure, **no timestamps** — at vault root, then sets `Entity.sourcePath`. An entity needs nothing but a `collection:` key. **Delete**: `deleteEntity` removes that one file. **Collection rename**: `renameCollection` patches each member file, then reloads.
+- The app neither requires nor stamps `created_at`/`updated_at`; if a note already has them they are preserved, never added.
+- **Connections are backlinks, not a stored graph**: `[[wikilinks]]` in a body render as tappable links (forward) and `BacklinksSection` lists notes that link here (incoming). Both are computed live — no UI to create a link, no persisted edge list.
 
 ## Write paths
 
@@ -79,7 +80,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 
 | Storage layer | Directory |
 |---|---|
-| `MarkdownStorageService` | vault root (user entities; vault-wide scan, entity iff frontmatter has both `category:` **and** `alias:` — `category:` alone matches problem notes; see [docs/entities.md](docs/entities.md) § Entity discovery) |
+| `MarkdownStorageService` | vault root (entities = notes with `collection:`; per-file frontmatter patch via `saveEntity`, body never rewritten; see [docs/entities.md](docs/entities.md) § Entity discovery) |
 | `LetterboxdAdapter` | `Interesting/Articles/` via `ArticleStorageService` |
 | `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
 | `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
@@ -96,7 +97,7 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 
 | Type | Anchor | Mutability | Delete |
 |---|---|---|---|
-| Entity | `alias` (frontmatter) | Immutable after creation | Hard |
+| Entity | `collection:` presence = membership; graph identity = note name (filename); `alias:` optional, used as `id` when present else filename slug | filename can change | Hard (delete the file) |
 | Problem note (AnkiDroid) | `anki_note_id` (frontmatter) | Written on first sync; stable | Hard |
 | Book | `alias` (frontmatter) | Stable | Hard |
 | Article | `alias` (frontmatter); GUID as dedup key | Stable | Hard |
@@ -107,7 +108,8 @@ Each canonical storage service owns exactly one directory. Nothing writes outsid
 
 - **Markdown parsing and YAML serialization** — `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, section parsing, wikilink extraction, `slugify`, `sanitizeFilename`, timestamp helpers, `buildFrontmatterBlock(fields, knownOrder)` (canonical YAML frontmatter builder — pass a field map and an ordered key list; handles scalar quoting, YAML lists, and unknown-key overflow). Never reimplement in services or screens.
 - **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `showQuickAddSheet()`, `SectionHeader`, `EmptyState`, `WikilinkText`. Never inline `AlertDialog+TextField` or raw `showModalBottomSheet` patterns.
-- **Quick Add Sheet** — `lib/shared/widgets/quick_add_sheet.dart`: `showQuickAddSheet(context, entities:, categories:, tags:, allEntityLinks:, storage:, onCreated:)`. Persists last-used category in `SharedPreferences` key `last_used_category`. Call this wherever an "add entity" FAB appears.
+- **Shared note view** — `lib/shared/widgets/note_markdown.dart` (`noteMarkdownBody` / `noteMarkdownStyle` / `onNoteLinkTap` — render Markdown with tappable `[[wikilinks]]`) and `backlinks_section.dart` (`BacklinksSection` — async "what links here" panel). Every note viewer (`EntityScreen`, `NoteDetailScreen`, `ResurfaceScreen`) builds on these; never reimplement Markdown/wikilink/backlink rendering. `NoteDetailScreen` is the special case that adds tap-to-reveal of the `***` back side.
+- **Quick Add Sheet** — `lib/shared/widgets/quick_add_sheet.dart`: `showQuickAddSheet(context, entities:, collections:, storage:, onCreated:, initialCollection?)`. Has a **free-text Collection field** (existing collections shown as quick-fill chips) — any value creates/uses a collection, so the first collection is born here; nothing is hardcoded. Requires both a name and a collection. Creates the file via `storage.saveEntity`; persists last-used collection in `SharedPreferences` key `last_used_collection`.
 - **Text styles** — `lib/shared/constants/app_text_styles.dart`: `AppTextStyles` class with static `TextStyle` getters for every named role (IBM Plex Sans body/UI, IBM Plex Serif for card front/back). Never hardcode `GoogleFonts.ibmPlexSans(...)` or `GoogleFonts.ibmPlexSerif(...)` inline — use the getter.
 - **Colors** — `lib/shared/constants/app_theme.dart` `AppColors`: all color constants including `borderMid` (#282828) for card borders. Do not use hex literals inline.
 - **Spacing** — `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0), `kScreenHPad` (16.0). No magic numbers.
@@ -128,7 +130,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 ## Subsystem constraints
 
-**AnkiDroid** — one-way push only (vault → AnkiDroid); only `anki_note_id` written back to frontmatter; deck from `category:` field (default "Problem Notes"); review history never written to Markdown. Full details: [docs/ankidroid.md](docs/ankidroid.md).
+**AnkiDroid** — one-way push only (vault → AnkiDroid); only `anki_note_id` written back to frontmatter; a Problem Note is any note with `***` in its body; deck from `category:` field (default `Default`); review history never written to Markdown. Full details: [docs/ankidroid.md](docs/ankidroid.md).
 
 **Projects** — unified semantic workspaces replacing Lists + Todos. New project files land in `Interesting/Projects/`. On first `ProjectStorageService.loadAll()`, existing files in `Lists/` and `Tasks/` are migrated to `Projects/` (best-effort, idempotent). Detail screen is always `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 
@@ -154,7 +156,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Home dashboard** — `HomeDashboardScreen` is tab 0 in the 4-tab shell. Loads data from `ResurfaceService.getAllNotes()` (for problem note count, first problem note's front, recent notes) and from the entities passed in as constructor parameters. **Card peek hero** shows the top-priority problem note's front text (IBM Plex Serif 17px) from `GraphScoringService.sortByPriority()`. **Worth Revisiting** sorts entities by `(score × 0.4) + (daysSinceUpdated × 0.6)`, capped at 3 rows. **Persistent FAB** opens `showQuickAddSheet`. The screen is stateful; `HomeDashboardScreenState.reload()` is called externally after entity mutations to refresh the Worth Revisiting list. Do NOT add per-user statistics, streaks, or scheduling logic here.
 
-**Navigation shell** — `home_screen.dart` is a 4-tab `BottomNavigationBar` shell (0=Home, 1=Notes, 2=Entities, 3=Projects). Tab titles and AppBar actions are computed per-tab. FAB shows on tab 2 (Entities → Quick Add Sheet) and tab 3 (Projects → new project). Double-tapping tab 1 calls `ResurfaceScreenState.resetStack()`.
+**Navigation shell** — `home_screen.dart` is a 4-tab `BottomNavigationBar` shell (0=Home, 1=Notes, 2=Collections, 3=Projects). Tab 2 (label `COLLECTIONS`) is the renamed Entities tab — same code, user-facing pivot toward Collections; the internal model is still `Entity` (a note that is a member of a collection). Tab titles and AppBar actions are computed per-tab. FAB shows on tab 2 (Collections → Quick Add Sheet) and tab 3 (Projects → new project). Double-tapping tab 1 calls `ResurfaceScreenState.resetStack()`.
 
 **Sources Inbox** — `sources_screen.dart` is the full sources hub, pushed from the `sensors` AppBar icon. Six rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid. "Sync all" button triggers per-source sync where available. Obsidian row fires `obsidian://` URI. No state, no lifecycle hooks.
 
@@ -166,7 +168,7 @@ Migration from SharedPreferences runs once on first `_loadData()` (idempotent: s
 
 **Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then `DropdownMenuItem` entries in screens. Entity pickers are pre-sorted A→Z inline (not via `sortEntities`).
 
-**Entity movie fields** — `Entity` has three optional movie-specific fields: `watchedDate`, `letterboxdUrl`, `tmdbId`. Adding category-specific fields requires updating both `EntityFileParser` (`_parseEntityFile`) in `entity_file_parser.dart` and `EntityFileWriter` (`_buildFrontmatter`) in `entity_file_writer.dart`.
+**Entity model** — `Entity` is a thin projection over a note's frontmatter: `id` (alias or filename slug), `name` (filename), `collection`, `tags`, `score`, `sourcePath` (plus in-memory `createdAt`/`updatedAt` for sort, defaulted to load time when the file omits them — never written back). It carries no body content — the body is read on demand from `sourcePath` and rendered via the shared `noteMarkdownBody`. The app owns only `EntityFileWriter._knownOrder` (`collection`, `alias`, `tags`, `score`); any other frontmatter key (`category`/deck, `anki_note_id`, `up`, user keys) is preserved untouched on save.
 
 ## Mobile UX conventions
 

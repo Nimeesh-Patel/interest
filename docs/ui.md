@@ -81,7 +81,7 @@ AppBar title: 17px w600 IBM Plex Sans.
 |---|---|---|---|
 | 0 | HOME | `home_outlined` / `home` | `HomeDashboardScreen` |
 | 1 | NOTES | `auto_stories_outlined` / `auto_stories` | `ResurfaceScreen` |
-| 2 | ENTITIES | `hub_outlined` / `hub` | Entities tab (inline in `HomeScreen`) |
+| 2 | COLLECTIONS | `hub_outlined` / `hub` | Collections tab (inline in `HomeScreen`) |
 | 3 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
 
 Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `navLabel` (9px w600, uppercase, letterSpacing 0.5).
@@ -160,7 +160,7 @@ On submit: calls `MarkdownStorageService` create path → dismisses sheet → na
 
 ## Entity list rows
 
-Used in Home (Worth Revisiting) and Entities tab. Layout per row:
+Used in Home (Worth Revisiting) and Collections tab. Layout per row:
 - Name: IBM Plex Sans 15px w500 `textPrimary`
 - Metadata `Wrap`: `★N` (score color 12px), category name (13px `textSecondary`), `#tag` (13px accent)
 - Timestamp right-aligned: 11px `textTertiary`

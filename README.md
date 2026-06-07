@@ -34,14 +34,14 @@ All subdirectories are created on first launch (`VaultService.ensureVaultDirecto
 
 ### Canonical ownership vs. projection
 
-The app **co-owns** certain files (entity files, book files) and **reads** others (the rest of the vault for resurfacing). Within co-owned files, ownership is further partitioned: only the keys in `_semanticSections` are rewritten on save; every other `##` section the user writes is preserved verbatim.
+The app **co-owns** certain files (entity files, book files) and **reads** others (the rest of the vault for resurfacing). Within co-owned files the app owns only a fixed set of frontmatter keys; the entire note body — prose, `***` front/back, `[[wikilinks]]`, the user's `##` sections — is preserved verbatim on every save.
 
 Projections are computed at read time and never persisted:
 
 | Projection | Derived from | Written back? |
 |---|---|---|
 | Entity graph (edges) | `extractWikilinks(body)` over all entity files | No |
-| Categories | distinct `category` frontmatter values | No |
+| Collections | distinct `collection:` frontmatter values | No |
 | Tags | all `tags` values, deduplicated | No |
 | List membership | wikilink scan within list files | No |
 | Resurfacing cards | `***` separator in vault notes | No |
@@ -52,15 +52,15 @@ Every semantic object has an identity anchor that survives renames and file move
 
 | Type | Anchor | Mutability |
 |---|---|---|
-| Entity | `alias` (frontmatter) | Immutable after creation |
+| Entity | `collection:` membership; identity = note name (filename); `alias:` optional | filename can change |
 | Problem note (AnkiDroid) | `anki_note_id` (frontmatter) | Written on first sync; stable |
 | Book | `alias` (frontmatter) | Stable |
 | Article | `alias` + GUID dedup key | Stable |
 | Task file | None | — |
 
-### Patch-not-rebuild
+### Frontmatter-not-body
 
-Existing entity files are always patched in-place (`_patchEntityContent()`), never regenerated from template. Rebuilding from scratch would silently destroy user `##` sections on every save. The template is applied once at creation; never again.
+Entity writes patch only the app-owned frontmatter keys; the note body is never rewritten by the entity layer. The body is edited as plain Markdown via `NoteEditScreen`. This is the structural guarantee that an entity save can never destroy note content — including a Problem Note's `***` front/back when a note is both.
 
 ### Books as convergence objects
 

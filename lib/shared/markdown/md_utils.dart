@@ -301,9 +301,17 @@ void _writeFmField(StringBuffer buf, String key, dynamic val) {
   }
 }
 
+/// Leading characters that make a YAML plain scalar ambiguous (flow indicators,
+/// anchors, tags, etc.). A value starting with one of these must be quoted —
+/// e.g. `[[wikilink]]` would otherwise parse as a flow sequence.
+const _yamlLeadingIndicators = {
+  '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', '@', '%', '?', '`'
+};
+
 /// Quotes and escapes [s] for use as a YAML scalar value when needed.
-/// Wraps in double-quotes if the value is empty, or contains `:`, `#`, `"`,
-/// `'`, or leading/trailing whitespace. Backslashes are escaped before quotes.
+/// Wraps in double-quotes if the value is empty, contains `:`, `#`, `"`, `'`,
+/// or leading/trailing whitespace, or begins with a YAML indicator character.
+/// Backslashes are escaped before quotes.
 String yamlScalar(String s) {
   if (s.isEmpty ||
       s.contains(':') ||
@@ -311,7 +319,8 @@ String yamlScalar(String s) {
       s.contains('"') ||
       s.contains("'") ||
       s.startsWith(' ') ||
-      s.endsWith(' ')) {
+      s.endsWith(' ') ||
+      _yamlLeadingIndicators.contains(s[0])) {
     return '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
   }
   return s;

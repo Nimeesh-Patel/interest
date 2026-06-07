@@ -5,69 +5,76 @@ import 'package:people_tracker/features/entities/services/entity_file_parser.dar
 import 'package:people_tracker/features/entities/services/entity_file_writer.dart';
 import 'package:people_tracker/shared/markdown/md_utils.dart';
 
-// Regression suite for the June 2026 corruption: entity discovery keyed on
-// `category:` alone pulled problem notes into the entity list, and the entity
-// save path then rewrote them, destroying their content. See
-// docs/entities.md § Entity discovery.
+// Regression suite for the entity model after the June 2026 redefinition:
+//   - An Entity is any note with a `collection:` frontmatter key.
+//   - A Problem Note is any note with `***` in its body (orthogonal).
+//   - The entity writer only patches frontmatter; it NEVER rewrites the body,
+//     so a note that is both an Entity and a Problem Note keeps its `***`.
 
 void main() {
-  // ── Discovery predicate (Fix 1) ─────────────────────────────────────────────
+  // ── Discovery predicate ─────────────────────────────────────────────────────
 
   group('EntityFileParser.isEntityFrontmatter', () {
     YamlMap? fm(String s) => parseYamlMap(splitFrontmatter(s).frontmatter);
 
-    test('proper entity (alias + category) is an entity', () {
+    test('a note with collection: is an entity', () {
       expect(
         EntityFileParser.isEntityFrontmatter(
-            fm('---\nalias: david-deutsch\ncategory: People\n---\n# David Deutsch')),
+            fm('---\ncollection: People\n---\n# David Deutsch')),
         isTrue,
       );
     });
 
-    test('problem note (category, no alias) is NOT an entity', () {
-      // The exact shape that was corrupted.
+    test('a both-note (collection: + ***) is an entity', () {
+      const both = '---\ncollection: People\ncategory: Deck\n---\nQ?\n***\nA.';
+      expect(EntityFileParser.isEntityFrontmatter(fm(both)), isTrue);
+    });
+
+    test('a problem note (category, no collection) is NOT an entity', () {
       const note =
-          '---\nup: \ncategory: Epistemology / Meme / Evolution\nanki_note_id: 1780572892522\n---\n'
-          'What is a Memeplex?\n***\nGroup of memes that help to cause each other\'s replication.';
+          '---\ncategory: Epistemology\nanki_note_id: 1780572892522\n---\nWhat?\n***\nBecause.';
       expect(EntityFileParser.isEntityFrontmatter(fm(note)), isFalse);
     });
 
-    test('plain note (no frontmatter / neither key) is NOT an entity', () {
-      expect(EntityFileParser.isEntityFrontmatter(fm('# Plain\n\nJust prose.')), isFalse);
-      expect(EntityFileParser.isEntityFrontmatter(fm('---\nup:\n  - "[[x]]"\n---\nBody')),
-          isFalse);
+    test('legacy entity shape (category + alias, no collection) is NOT an entity', () {
+      const legacy = '---\nalias: david-deutsch\ncategory: People\n---\n# David Deutsch';
+      expect(EntityFileParser.isEntityFrontmatter(fm(legacy)), isFalse);
     });
 
-    test('bookmark (alias, no category) is NOT an entity', () {
-      const bookmark =
-          '---\nalias: some-tweet\nauthor: Someone\nsource_url: https://x.com/a/1\ndate: 2026-06-01\n---\n'
-          '***\n\nTweet text.';
-      expect(EntityFileParser.isEntityFrontmatter(fm(bookmark)), isFalse);
+    test('bookmark (alias, no collection) is NOT an entity', () {
+      expect(
+        EntityFileParser.isEntityFrontmatter(
+            fm('---\nalias: a-tweet\nsource_url: https://x.com/a/1\n---\n***\n\nText.')),
+        isFalse,
+      );
     });
   });
 
-  // ── Corruption-husk detector (Fix 5) ────────────────────────────────────────
+  // ── Parse ───────────────────────────────────────────────────────────────────
+
+  group('EntityFileParser.parseEntityFile', () {
+    test('name is the filename, collection + wikilinks are read', () {
+      const content =
+          '---\ncollection: People\nscore: 9.0\n---\n# David Deutsch\n\nSee [[Karl Popper]] and [[Constructor Theory]].';
+      final r = EntityFileParser.parseEntityFile(content, '/vault/David Deutsch.md');
+      expect(r.entity.name, 'David Deutsch');
+      expect(r.entity.collection, 'People');
+      expect(r.entity.collectionId, 'people');
+      expect(r.entity.score, 9.0);
+      expect(r.entity.sourcePath, '/vault/David Deutsch.md');
+      expect(r.relatedNames, containsAll(['Karl Popper', 'Constructor Theory']));
+    });
+  });
+
+  // ── Corruption-husk detector (diagnostic) ───────────────────────────────────
 
   group('EntityFileParser.isCorruptedHusk', () {
-    test('matches the corruption signature (entity fm over an H1-only body)', () {
+    test('matches the corruption signature (entity-ish fm over an H1-only body)', () {
       const husk =
-          '---\nalias: what-is-a-memeplex\ncategory: Epistemology / Meme / Evolution\n'
+          '---\nalias: what-is-a-memeplex\ncategory: Epistemology\n'
           'created_at: 2026-06-04T19:38:28.146Z\nupdated_at: 2026-06-04T19:38:28.146Z\n---\n'
           '# What is a Memeplex\n';
       expect(EntityFileParser.isCorruptedHusk(husk), isTrue);
-    });
-
-    test('a healthy problem note is not flagged (no alias)', () {
-      const note =
-          '---\ncategory: Default\nanki_note_id: 1\n---\nQ?\n***\nA.';
-      expect(EntityFileParser.isCorruptedHusk(note), isFalse);
-    });
-
-    test('a healthy entity with sections is not flagged (body is more than an H1)', () {
-      const entity =
-          '---\nalias: x\ncategory: People\ncreated_at: 2026-01-01T00:00:00.000Z\n'
-          'updated_at: 2026-01-01T00:00:00.000Z\n---\n# X\n\n## Why Interesting\n\n- a note';
-      expect(EntityFileParser.isCorruptedHusk(entity), isFalse);
     });
 
     test('a card with a *** separator is not flagged', () {
@@ -78,44 +85,62 @@ void main() {
     });
   });
 
-  // ── Writer guard (Fix 2, Layer B) ───────────────────────────────────────────
+  // ── Writer: frontmatter-only, body preserved ────────────────────────────────
 
-  group('EntityFileWriter.patchEntityContent guard', () {
-    final entity = Entity(
-      id: 'memeplex',
-      name: 'Memeplex',
-      categoryId: 'epistemology',
-      createdAt: 1,
-      updatedAt: 1,
-    );
-
-    String patch(String existing) => EntityFileWriter.patchEntityContent(
-          existingContent: existing,
-          entity: entity,
-          categoryName: 'Epistemology',
-          relatedEntityNames: const [],
+  group('EntityFileWriter.patchFrontmatter', () {
+    Entity entity({String collection = 'Thinkers', double? score, List<String>? tags}) =>
+        Entity(
+          id: 'x',
+          name: 'X',
+          collection: collection,
+          score: score,
+          tags: tags,
+          createdAt: 1,
+          updatedAt: 2,
         );
 
-    test('patches a real entity file without throwing', () {
-      const existing = '---\nalias: memeplex\ncategory: Epistemology\n---\n# Memeplex\n\n## Why Interesting\n\n- a note';
-      final out = patch(existing);
-      expect(out, contains('alias: memeplex'));
-      expect(out, contains('# Memeplex'));
+    test('updates collection and preserves the entire body verbatim', () {
+      const existing = '---\ncollection: People\n---\n# X\n\nSome prose with [[Y]].';
+      final out = EntityFileWriter.patchFrontmatter(
+          existingContent: existing, entity: entity());
+      expect(out, contains('collection: Thinkers'));
+      expect(out, contains('# X\n\nSome prose with [[Y]].'));
     });
 
-    test('renders an instantiated template without throwing (template:)', () {
-      const template = '---\ncategory: Default\ntemplate: true\n---\n# Memeplex\n\n## Why Interesting\n\n## Related\n\n## Sources';
-      expect(() => patch(template), returnsNormally);
+    test('a both-note keeps its *** front/back and its deck (category)', () {
+      const both = '---\ncollection: People\ncategory: Deck\nanki_note_id: 5\n---\nFront?\n***\nBack.';
+      final out = EntityFileWriter.patchFrontmatter(
+          existingContent: both, entity: entity());
+      expect(out, contains('collection: Thinkers')); // entity grouping updated
+      expect(out, contains('category: Deck'));        // anki deck preserved
+      expect(out, contains('anki_note_id: 5'));       // preserved
+      expect(out, contains('Front?\n***\nBack.'));    // problem-note body intact
     });
 
-    test('THROWS on a problem note (category, no alias, no template)', () {
-      const note = '---\ncategory: Epistemology / Meme / Evolution\nanki_note_id: 1\n---\nWhat is a Memeplex?\n***\nGroup of memes.';
-      expect(() => patch(note), throwsStateError);
+    test('preserves an unknown list key with wikilinks (round-trips as a list)', () {
+      const withUp = '---\ncollection: People\nup:\n  - "[[epistemology]]"\n---\nBody';
+      final out = EntityFileWriter.patchFrontmatter(
+          existingContent: withUp, entity: entity());
+      final reparsed = parseYamlMap(splitFrontmatter(out).frontmatter);
+      expect(reparsed?['up'], isA<YamlList>());
+      expect((reparsed!['up'] as YamlList).first.toString(), '[[epistemology]]');
     });
 
-    test('THROWS on a file with no frontmatter at all', () {
-      expect(() => patch('# Plain note\n\nUser prose that must not be destroyed.'),
-          throwsStateError);
+    test('removes score/tags when unset', () {
+      const existing = '---\ncollection: People\nscore: 8.0\ntags:\n  - a\n---\nBody';
+      final out = EntityFileWriter.patchFrontmatter(
+          existingContent: existing, entity: entity());
+      expect(out, isNot(contains('score:')));
+      expect(out, isNot(contains('tags:')));
+    });
+
+    test('buildNewEntity emits only collection frontmatter — no body, no timestamps', () {
+      final out = EntityFileWriter.buildNewEntity(collection: 'People');
+      expect(out, contains('collection: People'));
+      expect(out, isNot(contains('#'))); // no heading / body structure imposed
+      expect(out, isNot(contains('created_at'))); // no timestamps imposed
+      expect(out, isNot(contains('updated_at')));
+      expect(out.trim().endsWith('---'), isTrue); // body is empty
     });
   });
 }

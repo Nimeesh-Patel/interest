@@ -1,260 +1,53 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
 import '../models/entity.dart';
-import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 
-// ── Section type registry ────────────────────────────────────────────────────
-
-enum SectionType { wikilinks, list, generic }
-
-// Sections the app owns semantically. Everything else is user territory.
-const Map<String, SectionType> _semanticSections = {
-  'Why Interesting': SectionType.list,
-  'Related': SectionType.wikilinks,
-  'Sources': SectionType.list,
-};
-
+/// Writes entity files by patching ONLY the frontmatter keys the app owns —
+/// it never rebuilds, reshapes, or even reads the body for meaning. An entity
+/// is a plain Markdown note with a `collection:` key; its body is the user's
+/// territory and is preserved byte-for-byte on every save.
+///
+/// This is the structural fix for the June 2026 corruption: there is no longer
+/// any code path that rewrites an entity's body, so the entity save can never
+/// destroy note content (including a Problem Note's `***` front/back).
 class EntityFileWriter {
-  // ── Frontmatter ────────────────────────────────────────────────────────────
+  /// App-owned frontmatter keys, in canonical order. Only `collection` is always
+  /// written; `tags`/`score` are written when set. Every other key present in the
+  /// file (`alias`, `created_at`/`updated_at` if the user keeps them, `category`/
+  /// deck, `anki_note_id`, `up`, user-defined keys, …) is preserved untouched.
+  /// The app neither requires nor stamps timestamps — an entity is simply a note
+  /// with `collection:`.
+  static const _knownOrder = ['collection', 'alias', 'tags', 'score'];
 
-  static String buildFrontmatter({
-    required Entity entity,
-    required String categoryName,
-  }) {
-    final buf = StringBuffer();
-    buf.writeln('---');
-    buf.writeln('alias: ${entity.id}');
-    buf.writeln('category: $categoryName');
-    if (entity.score != null) {
-      buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
-    }
-    if (entity.watchedDate != null) buf.writeln('watched_date: ${entity.watchedDate}');
-    if (entity.letterboxdUrl != null) buf.writeln('letterboxd_url: ${entity.letterboxdUrl}');
-    if (entity.tmdbId != null) buf.writeln('tmdb_id: ${entity.tmdbId}');
-    if (entity.tags.isNotEmpty) {
-      buf.writeln('tags:');
-      for (final tag in entity.tags) {
-        buf.writeln('  - $tag');
-      }
-    }
-    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
-    buf.write('---');
-    return buf.toString();
-  }
-
-  // ── Semantic section renderer ──────────────────────────────────────────────
-
-  static String renderSemanticSection(
-    String sectionName,
-    Entity entity,
-    List<String> relatedEntityNames,
-  ) {
-    switch (sectionName) {
-      case 'Why Interesting':
-        return entity.notes.map((n) => '- $n').join('\n');
-      case 'Sources':
-        return entity.links.map((l) => '- $l').join('\n');
-      case 'Related':
-        return relatedEntityNames.map((n) => '- [[$n]]').join('\n');
-      default:
-        return '';
-    }
-  }
-
-  // ── Section-aware patch ────────────────────────────────────────────────────
-
-  static String patchEntityContent({
+  /// Returns [existingContent] with the entity-owned frontmatter keys updated
+  /// from [entity] and the body preserved verbatim. Pure (string→string).
+  static String patchFrontmatter({
     required String existingContent,
     required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
   }) {
     final split = splitFrontmatter(existingContent);
+    final merged = <String, dynamic>{};
+    parseYamlMap(split.frontmatter)
+        ?.forEach((k, v) => merged[k.toString()] = v);
 
-    // Guard (CLAUDE.md error-correction): never rewrite a file that is neither
-    // an existing entity (`alias:`) nor an instantiated template (`template:`).
-    // This is the last line of defence against the June 2026 corruption, where
-    // problem notes were patched as entities and lost their body. It throws —
-    // not skips — so a discovery regression fails loudly instead of silently
-    // destroying content. saveData wraps each entity so this never aborts a
-    // batch, and must NOT fall back to a rebuild when it fires.
-    final existingFm = parseYamlMap(split.frontmatter);
-    final looksLikeEntity = existingFm?.containsKey('alias') ?? false;
-    final looksLikeTemplate = existingFm?['template'] == true;
-    if (!looksLikeEntity && !looksLikeTemplate) {
-      throw StateError(
-        'patchEntityContent refused: target is neither an entity (`alias:`) nor '
-        'a template (`template:`), so it is not an entity file. Refusing to '
-        'overwrite user content with entity markdown.',
-      );
-    }
-
-    final body = split.body;
-    final rawSections = parseSectionsH2(body);
-
-    final newFrontmatter = buildFrontmatter(
-      entity: entity,
-      categoryName: categoryName,
-    );
-
-    final buf = StringBuffer();
-    buf.writeln('# ${entity.name}');
-
-    for (final sectionName in rawSections.keys) {
-      buf.writeln();
-      buf.writeln('## $sectionName');
-
-      if (_semanticSections.containsKey(sectionName)) {
-        final rendered = renderSemanticSection(sectionName, entity, relatedEntityNames);
-        if (rendered.isNotEmpty) {
-          buf.writeln();
-          buf.write(rendered);
-        }
-      } else {
-        final raw = rawSections[sectionName]!;
-        if (raw.isNotEmpty) {
-          buf.writeln();
-          buf.write(raw);
-        }
-      }
-    }
-
-    // Append semantic sections present in app data but absent from the file
-    for (final sectionName in _semanticSections.keys) {
-      if (!rawSections.containsKey(sectionName)) {
-        final rendered = renderSemanticSection(sectionName, entity, relatedEntityNames);
-        if (rendered.isNotEmpty) {
-          buf.writeln();
-          buf.writeln('## $sectionName');
-          buf.writeln();
-          buf.write(rendered);
-        }
-      }
-    }
-
-    return '$newFrontmatter\n${buf.toString().trimRight()}\n';
-  }
-
-  // ── Template system ────────────────────────────────────────────────────────
-
-  static Future<String?> loadTemplate(String vaultPath, String categoryName) async {
-    try {
-      final tdir = VaultService.templatesPath(vaultPath);
-      final slug = slugify(categoryName);
-
-      if (slug.isNotEmpty) {
-        final catFile = File(p.join(tdir, '$slug.md'));
-        if (await catFile.exists()) {
-          final content = await catFile.readAsString();
-          if (_isTemplate(content)) return content;
-        }
-      }
-
-      final defaultFile = File(p.join(tdir, 'default.md'));
-      if (await defaultFile.exists()) {
-        final content = await defaultFile.readAsString();
-        if (_isTemplate(content)) return content;
-      }
-
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static bool _isTemplate(String content) {
-    final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
-    return yaml != null && yaml['template'] == true;
-  }
-
-  static String _instantiateTemplate(String templateContent, String title) =>
-      templateContent.replaceAll('{{title}}', title);
-
-  // ── New entity content builder ─────────────────────────────────────────────
-
-  static Future<String> buildNewEntityContent({
-    required String vaultPath,
-    required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
-  }) async {
-    final templateContent = await loadTemplate(vaultPath, categoryName);
-    if (templateContent != null) {
-      final instantiated = _instantiateTemplate(templateContent, entity.name);
-      return patchEntityContent(
-        existingContent: instantiated,
-        entity: entity,
-        categoryName: categoryName,
-        relatedEntityNames: relatedEntityNames,
-      );
-    }
-    return buildEntityMarkdown(
-      entity: entity,
-      categoryName: categoryName,
-      relatedEntityNames: relatedEntityNames,
-    );
-  }
-
-  // ── Legacy fallback markdown builder ──────────────────────────────────────
-
-  // Ultimate fallback when no template is available and no existing file can
-  // be patched. Intentionally does NOT include movie-specific fields — those
-  // are only written by buildFrontmatter.
-  static String buildEntityMarkdown({
-    required Entity entity,
-    required String categoryName,
-    required List<String> relatedEntityNames,
-  }) {
-    final buf = StringBuffer();
-
-    buf.writeln('---');
-    buf.writeln('alias: ${entity.id}');
-    buf.writeln('category: $categoryName');
+    merged['collection'] = entity.collection;
     if (entity.score != null) {
-      buf.writeln('score: ${entity.score!.toStringAsFixed(1)}');
+      merged['score'] = entity.score!.toStringAsFixed(1);
+    } else {
+      merged.remove('score');
     }
     if (entity.tags.isNotEmpty) {
-      buf.writeln('tags:');
-      for (final tag in entity.tags) {
-        buf.writeln('  - $tag');
-      }
-    }
-    buf.writeln('created_at: ${msToIso(entity.createdAt)}');
-    buf.writeln('updated_at: ${msToIso(entity.updatedAt)}');
-    buf.writeln('---');
-    buf.writeln('# ${entity.name}');
-
-    if (entity.notes.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Why Interesting');
-      buf.writeln();
-      for (final note in entity.notes) {
-        buf.writeln('- $note');
-      }
+      merged['tags'] = entity.tags;
+    } else {
+      merged.remove('tags');
     }
 
-    if (relatedEntityNames.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Related');
-      buf.writeln();
-      for (final name in relatedEntityNames) {
-        buf.writeln('- [[$name]]');
-      }
-    }
-
-    if (entity.links.isNotEmpty) {
-      buf.writeln();
-      buf.writeln('## Sources');
-      buf.writeln();
-      for (final link in entity.links) {
-        buf.writeln('- $link');
-      }
-    }
-
-    return buf.toString();
+    return '${buildFrontmatterBlock(merged, _knownOrder)}\n${split.body}';
   }
+
+  /// Content for a brand-new entity: just `collection:` frontmatter. No body
+  /// structure is imposed — not even an H1 — and no timestamps. The note starts
+  /// empty; the user writes whatever they want via the note editor, and the
+  /// filename carries the name.
+  static String buildNewEntity({required String collection}) =>
+      '${buildFrontmatterBlock({'collection': collection}, _knownOrder)}\n';
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../features/entities/models/category.dart';
+import '../../features/entities/models/collection.dart';
 import '../../features/entities/models/entity.dart';
 import '../../features/entities/services/markdown_storage_service.dart';
 import '../constants/app_spacing.dart';
@@ -11,11 +11,10 @@ import '../constants/app_theme.dart';
 Future<void> showQuickAddSheet(
   BuildContext context, {
   required List<Entity> entities,
-  required List<Category> categories,
-  required List<String> tags,
-  required List allEntityLinks,
+  required List<Collection> collections,
   required MarkdownStorageService storage,
   required void Function(Entity) onCreated,
+  String? initialCollection,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
@@ -27,30 +26,27 @@ Future<void> showQuickAddSheet(
     ),
     builder: (ctx) => _QuickAddSheetContent(
       entities: entities,
-      categories: categories,
-      tags: tags,
-      allEntityLinks: allEntityLinks,
+      collections: collections,
       storage: storage,
       onCreated: onCreated,
+      initialCollection: initialCollection,
     ),
   );
 }
 
 class _QuickAddSheetContent extends StatefulWidget {
   final List<Entity> entities;
-  final List<Category> categories;
-  final List<String> tags;
-  final List allEntityLinks;
+  final List<Collection> collections;
   final MarkdownStorageService storage;
   final void Function(Entity) onCreated;
+  final String? initialCollection;
 
   const _QuickAddSheetContent({
     required this.entities,
-    required this.categories,
-    required this.tags,
-    required this.allEntityLinks,
+    required this.collections,
     required this.storage,
     required this.onCreated,
+    this.initialCollection,
   });
 
   @override
@@ -59,71 +55,64 @@ class _QuickAddSheetContent extends StatefulWidget {
 
 class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
   final _nameController = TextEditingController();
-  String? _selectedCategoryId;
+  final _collectionController = TextEditingController();
   bool _adding = false;
 
-  static const _prefsKey = 'last_used_category';
+  static const _prefsKey = 'last_used_collection';
 
   @override
   void initState() {
     super.initState();
-    _loadLastCategory();
+    _prefillCollection();
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _collectionController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadLastCategory() async {
+  Future<void> _prefillCollection() async {
+    if (widget.initialCollection != null && widget.initialCollection!.isNotEmpty) {
+      _collectionController.text = widget.initialCollection!;
+      return;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(_prefsKey);
       if (!mounted) return;
-      if (saved != null &&
-          widget.categories.any((c) => c.id == saved)) {
-        setState(() => _selectedCategoryId = saved);
-      } else if (widget.categories.isNotEmpty) {
-        setState(() => _selectedCategoryId = widget.categories.first.id);
+      if (saved != null && saved.isNotEmpty) {
+        setState(() => _collectionController.text = saved);
+      } else if (widget.collections.isNotEmpty) {
+        setState(() => _collectionController.text = widget.collections.first.name);
       }
-    } catch (_) {}
-  }
-
-  Future<void> _saveLastCategory(String id) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, id);
     } catch (_) {}
   }
 
   Future<void> _submit() async {
     final name = _nameController.text.trim();
-    if (name.isEmpty || _adding) return;
+    final collection = _collectionController.text.trim();
+    if (name.isEmpty || collection.isEmpty || _adding) return;
     setState(() => _adding = true);
 
-    final catId = _selectedCategoryId ??
-        (widget.categories.isNotEmpty ? widget.categories.first.id : 'default');
-
     final now = DateTime.now().millisecondsSinceEpoch;
-    final id = MarkdownStorageService.generateEntityId(name, widget.entities);
     final entity = Entity(
-      id: id,
+      id: MarkdownStorageService.generateEntityId(name, widget.entities),
       name: name,
-      categoryId: catId,
+      collection: collection,
       createdAt: now,
       updatedAt: now,
     );
 
     widget.entities.add(entity);
-    widget.storage.saveData(
-      entities: widget.entities,
-      categories: widget.categories,
-      tags: widget.tags,
-      entityLinks: widget.allEntityLinks.cast(),
-    );
+    await widget.storage.saveEntity(entity);
 
-    if (catId != 'default') await _saveLastCategory(catId);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, collection);
+    } catch (_) {}
+
     if (!mounted) return;
     Navigator.pop(context);
     widget.onCreated(entity);
@@ -131,13 +120,13 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
 
   @override
   Widget build(BuildContext context) {
+    final current = _collectionController.text.trim();
     return Padding(
       padding:
           EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle bar
           Container(
             margin: const EdgeInsets.only(top: 10),
             width: 36,
@@ -147,12 +136,11 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // Header row
           Padding(
             padding: const EdgeInsets.fromLTRB(kScreenHPad, 16, kScreenHPad, 12),
             child: Row(
               children: [
-                Text('Add entity',
+                Text('Add to collection',
                     style: AppTextStyles.entityName.copyWith(
                         fontWeight: FontWeight.w600, fontSize: 16)),
                 const Spacer(),
@@ -175,64 +163,60 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
               ],
             ),
           ),
-          // Name field
+          // Note name
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
             child: TextField(
               controller: _nameController,
               autofocus: true,
               textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submit(),
+              textInputAction: TextInputAction.next,
               style: AppTextStyles.bodyLarge,
-              decoration: InputDecoration(
-                hintText: 'Entity name…',
-                filled: true,
-                fillColor: AppColors.surface,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: AppColors.accent),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 11),
-              ),
+              decoration: _fieldDecoration('Name…'),
             ),
           ),
-          // Category chips
-          if (widget.categories.isNotEmpty)
+          const SizedBox(height: 8),
+          // Collection (free text — any value creates/uses a collection)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
+            child: TextField(
+              controller: _collectionController,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _submit(),
+              style: AppTextStyles.bodyMedium,
+              decoration: _fieldDecoration('Collection…'),
+            ),
+          ),
+          // Existing collections as quick-fill chips
+          if (widget.collections.isNotEmpty)
             SizedBox(
               height: 52,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(
                     horizontal: kScreenHPad, vertical: 8),
-                children: widget.categories.map((cat) {
-                  final selected = _selectedCategoryId == cat.id;
+                children: widget.collections.map((coll) {
+                  final selected = current == coll.name;
                   return GestureDetector(
-                    onTap: () =>
-                        setState(() => _selectedCategoryId = cat.id),
+                    onTap: () => setState(
+                        () => _collectionController.text = coll.name),
                     child: Container(
                       margin: const EdgeInsets.only(right: 6),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 5),
                       decoration: BoxDecoration(
-                        color: selected
-                            ? AppColors.accentDim
-                            : Colors.transparent,
+                        color:
+                            selected ? AppColors.accentDim : Colors.transparent,
                         border: Border.all(
-                          color: selected
-                              ? AppColors.accent
-                              : AppColors.border,
+                          color:
+                              selected ? AppColors.accent : AppColors.border,
                         ),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        cat.name,
+                        coll.name,
                         style: AppTextStyles.bodySmall.copyWith(
                           color: selected
                               ? AppColors.accent
@@ -243,10 +227,27 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
                   );
                 }).toList(),
               ),
-            ),
-          const SizedBox(height: 8),
+            )
+          else
+            const SizedBox(height: 12),
         ],
       ),
     );
   }
+
+  InputDecoration _fieldDecoration(String hint) => InputDecoration(
+        hintText: hint,
+        filled: true,
+        fillColor: AppColors.surface,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.accent),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      );
 }

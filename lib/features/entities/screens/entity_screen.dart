@@ -1,31 +1,41 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/category.dart';
+
+import '../models/collection.dart';
 import '../models/entity.dart';
-import '../models/entity_link.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
+import '../../resurface/screens/note_edit_screen.dart';
+import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/widgets/backlinks_section.dart';
+import '../../../shared/widgets/note_markdown.dart';
 import '../../../shared/widgets/section_header.dart';
 
+/// An entity is a plain note that belongs to a collection. This screen is a
+/// note VIEWER built on the shared note-view primitives ([noteMarkdownBody],
+/// [BacklinksSection], Open-in-Obsidian) plus entity-specific bits (collection/
+/// tags/score frontmatter editing, Grokipedia). The body is edited as plain
+/// Markdown via [NoteEditScreen]; the app never rewrites an entity's body.
 class EntityScreen extends StatefulWidget {
   final Entity entity;
   final MarkdownStorageService storage;
   final List<Entity> allEntities;
-  final List<Category> allCategories;
+  final List<Collection> allCollections;
   final List<String> allTags;
-  final List<EntityLink> allEntityLinks;
 
   const EntityScreen({
     super.key,
     required this.entity,
     required this.storage,
     required this.allEntities,
-    required this.allCategories,
+    required this.allCollections,
     required this.allTags,
-    required this.allEntityLinks,
   });
 
   @override
@@ -38,8 +48,10 @@ class _EntityScreenState extends State<EntityScreen> {
 
   bool _isEditMode = false;
   late Entity _editSnapshot;
-  bool _hasUnsavedChanges = false;
-  bool _editingTitle = false;
+  bool _isAddingTag = false;
+
+  String? _bodyText;
+  bool _loadingBody = true;
 
   // Grokipedia external knowledge state
   GrokipediaArticle? _grokArticle;
@@ -48,16 +60,6 @@ class _EntityScreenState extends State<EntityScreen> {
   bool _grokSummaryFetching = false;
   String? _grokFetchedSummary;
 
-  // edit-mode inline state
-  bool _isAddingNote = false;
-  bool _isAddingLink = false;
-  bool _isAddingTag = false;
-  int? _editingNoteIndex;
-  int? _editingLinkIndex;
-
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _noteController = TextEditingController();
-  final TextEditingController _linkController = TextEditingController();
   final TextEditingController _tagController = TextEditingController();
 
   @override
@@ -65,87 +67,89 @@ class _EntityScreenState extends State<EntityScreen> {
     super.initState();
     _entity = widget.entity.copyWith();
     _allTags = List<String>.from(widget.allTags);
+    _loadBody();
     _fetchGrokipedia();
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _noteController.dispose();
-    _linkController.dispose();
     _tagController.dispose();
     super.dispose();
   }
 
-  // ── Edit mode lifecycle ───────────────────────────────────────────────────
+  // ── Body load (read-only) ──────────────────────────────────────────────────
 
-  void _markDirty() {
-    if (!_hasUnsavedChanges) {
-      _editSnapshot = _entity.copyWith();
-      _nameController.text = _entity.name;
+  Future<void> _loadBody() async {
+    final path = _entity.sourcePath;
+    if (path == null) {
+      setState(() {
+        _bodyText = '';
+        _loadingBody = false;
+      });
+      return;
     }
-    setState(() => _hasUnsavedChanges = true);
+    try {
+      final raw = await File(path).readAsString();
+      if (!mounted) return;
+      setState(() {
+        _bodyText = splitFrontmatter(raw).body;
+        _loadingBody = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _bodyText = '';
+        _loadingBody = false;
+      });
+    }
   }
+
+  Future<void> _editNote() async {
+    final path = _entity.sourcePath;
+    if (path == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => NoteEditScreen(filePath: path)),
+    );
+    await _loadBody();
+  }
+
+  // ── Frontmatter edit lifecycle ──────────────────────────────────────────────
 
   void _enterEditMode() {
     setState(() {
       _isEditMode = true;
       _editSnapshot = _entity.copyWith();
-      _nameController.text = _entity.name;
-      _isAddingNote = false;
-      _isAddingLink = false;
       _isAddingTag = false;
-      _editingNoteIndex = null;
-      _editingLinkIndex = null;
     });
   }
 
-  void _saveEdit() {
-    final trimmed = _nameController.text.trim();
-    if (trimmed.isNotEmpty) _entity.name = trimmed;
-    _save();
+  Future<void> _saveEdit() async {
+    await widget.storage.saveEntity(_entity);
+    final idx = widget.allEntities.indexWhere((e) => e.id == _entity.id);
+    if (idx != -1) widget.allEntities[idx] = _entity;
+    if (!mounted) return;
     setState(() {
       _isEditMode = false;
-      _hasUnsavedChanges = false;
-      _editingTitle = false;
-      _editingNoteIndex = null;
-      _isAddingNote = false;
+      _isAddingTag = false;
     });
   }
 
   void _cancelEdit() {
-    final restored = _editSnapshot.copyWith();
-    final idx = widget.allEntities.indexWhere((e) => e.id == restored.id);
-    if (idx != -1) widget.allEntities[idx] = restored;
     setState(() {
-      _entity = restored;
+      _entity = _editSnapshot.copyWith();
       _isEditMode = false;
-      _hasUnsavedChanges = false;
-      _editingTitle = false;
-      _editingNoteIndex = null;
-      _isAddingNote = false;
+      _isAddingTag = false;
     });
   }
 
-  // ── Persistence ───────────────────────────────────────────────────────────
+  // ── Frontmatter field mutations (committed on Save) ─────────────────────────
 
-  void _save() {
-    _entity.updatedAt = DateTime.now().millisecondsSinceEpoch;
-    final idx = widget.allEntities.indexWhere((e) => e.id == _entity.id);
-    if (idx != -1) widget.allEntities[idx] = _entity;
-    widget.storage.saveData(
-      entities: widget.allEntities,
-      categories: widget.allCategories,
-      tags: _allTags,
-      entityLinks: widget.allEntityLinks,
-    );
-  }
-
-  // ── Core field mutations (no auto-save; committed on Save) ────────────────
-
-  void _changeCategory(String? id) {
+  void _changeCollection(String? id) {
     if (id == null) return;
-    setState(() => _entity.categoryId = id);
+    final match = widget.allCollections.where((c) => c.id == id);
+    if (match.isEmpty) return;
+    setState(() => _entity.collection = match.first.name);
   }
 
   void _addTag(String raw) {
@@ -163,173 +167,48 @@ class _EntityScreenState extends State<EntityScreen> {
     _tagController.clear();
   }
 
-  void _removeTag(String tag) {
-    setState(() => _entity.tags.remove(tag));
+  void _removeTag(String tag) => setState(() => _entity.tags.remove(tag));
+
+  void _setScore(double value) =>
+      setState(() => _entity.score = (value * 10).round() / 10);
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
+  void _openEntity(Entity other) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EntityScreen(
+          entity: other,
+          storage: widget.storage,
+          allEntities: widget.allEntities,
+          allCollections: widget.allCollections,
+          allTags: _allTags,
+        ),
+      ),
+    ).then((_) => setState(() {}));
   }
 
-  void _addNote(String text) {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      setState(() => _isAddingNote = false);
-      _noteController.clear();
-      return;
-    }
-    _markDirty();
-    setState(() {
-      _entity.notes.add(trimmed);
-      _isAddingNote = false;
-    });
-    _noteController.clear();
+  /// Navigate to an entity by note name (used by wikilink + backlink taps).
+  /// Non-entity targets are ignored — this screen views entities.
+  Future<void> _navigateToNoteName(String name) async {
+    final match = widget.allEntities
+        .where((e) => e.name.toLowerCase() == name.toLowerCase());
+    if (match.isNotEmpty) _openEntity(match.first);
   }
 
-  void _commitNoteEdit(int index, String text) {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      setState(() => _editingNoteIndex = null);
-      return;
-    }
-    _markDirty();
-    setState(() {
-      _entity.notes[index] = trimmed;
-      _editingNoteIndex = null;
-    });
-  }
-
-  void _deleteNote(int index) {
-    setState(() {
-      _entity.notes.removeAt(index);
-      if (_editingNoteIndex == index) _editingNoteIndex = null;
-    });
-  }
-
-  void _addLink(String text) {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
-    setState(() {
-      _entity.links.add(trimmed);
-      _isAddingLink = false;
-    });
-    _linkController.clear();
-  }
-
-  void _commitLinkEdit(int index, String text) {
-    final trimmed = text.trim();
-    if (trimmed.isEmpty) {
-      setState(() => _editingLinkIndex = null);
-      return;
-    }
-    setState(() {
-      _entity.links[index] = trimmed;
-      _editingLinkIndex = null;
-    });
-  }
-
-  void _deleteLink(int index) {
-    setState(() {
-      _entity.links.removeAt(index);
-      if (_editingLinkIndex == index) _editingLinkIndex = null;
-    });
-  }
-
-  void _setScore(double value) {
-    setState(() => _entity.score = (value * 10).round() / 10);
-  }
-
-  // ── Entity link mutations (immediate save) ────────────────────────────────
-
-  void _createEntityLink(String targetId) {
-    if (targetId == _entity.id) return;
-    if (MarkdownStorageService.linkExists(_entity.id, targetId, widget.allEntityLinks)) return;
-    final link = EntityLink(
-      id: MarkdownStorageService.generateLinkId(_entity.id, targetId),
-      from: _entity.id,
-      to: targetId,
-    );
-    setState(() => widget.allEntityLinks.add(link));
-    _save();
-  }
-
-  void _deleteEntityLink(String linkId) {
-    setState(() => widget.allEntityLinks.removeWhere((l) => l.id == linkId));
-    _save();
-  }
-
-  EntityLink? _findLink(String otherId) {
-    try {
-      return widget.allEntityLinks.firstWhere(
-        (l) => (l.from == _entity.id && l.to == otherId) ||
-               (l.from == otherId && l.to == _entity.id),
+  Future<void> _openInObsidian() async {
+    final path = _entity.sourcePath;
+    if (path == null) return;
+    final vaultPath = await VaultService.getVaultPath();
+    if (vaultPath == null) return;
+    final ok = await launchUrl(Uri.parse(obsidianUri(vaultPath, path)),
+        mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Obsidian is not installed')),
       );
-    } catch (_) {
-      return null;
     }
-  }
-
-  void _showLinkSearch() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        String query = '';
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final candidates = widget.allEntities.where((e) {
-              if (e.id == _entity.id) return false;
-              if (MarkdownStorageService.linkExists(_entity.id, e.id, widget.allEntityLinks)) return false;
-              if (query.isEmpty) return true;
-              return e.name.toLowerCase().contains(query.toLowerCase());
-            }).toList()
-              ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: SizedBox(
-                height: MediaQuery.of(ctx).size.height * 0.55,
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      child: TextField(
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                          hintText: 'Search entities…',
-                          prefixIcon: Icon(Icons.search),
-                          isDense: true,
-                        ),
-                        textInputAction: TextInputAction.search,
-                        onChanged: (v) => setSheetState(() => query = v),
-                      ),
-                    ),
-                    Expanded(
-                      child: candidates.isEmpty
-                          ? const Center(
-                              child: Text('No entities found.',
-                                  style: TextStyle(color: AppColors.textSecondary)),
-                            )
-                          : ListView.builder(
-                              itemCount: candidates.length,
-                              itemBuilder: (_, i) {
-                                final e = candidates[i];
-                                return ListTile(
-                                  title: Text(e.name),
-                                  onTap: () {
-                                    Navigator.pop(ctx);
-                                    _createEntityLink(e.id);
-                                  },
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   // ── Grokipedia external knowledge ─────────────────────────────────────────
@@ -445,15 +324,6 @@ class _EntityScreenState extends State<EntityScreen> {
   // ── Display body ──────────────────────────────────────────────────────────
 
   Widget _buildDisplayBody() {
-    final currentCategory = widget.allCategories.firstWhere(
-      (c) => c.id == _entity.categoryId,
-      orElse: () => widget.allCategories.isNotEmpty
-          ? widget.allCategories.first
-          : Category(id: '', name: ''),
-    );
-    final related = MarkdownStorageService.getRelatedEntities(
-        _entity.id, widget.allEntityLinks, widget.allEntities);
-
     return SafeArea(
       top: false,
       child: ListView(
@@ -465,60 +335,21 @@ class _EntityScreenState extends State<EntityScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_editingTitle)
-                  TextField(
-                    controller: _nameController,
-                    autofocus: true,
-                    textCapitalization: TextCapitalization.words,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) =>
-                        setState(() => _editingTitle = false),
-                    style: AppTextStyles.bodyLarge.copyWith(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.3,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: AppColors.surface,
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(7),
-                        borderSide:
-                            const BorderSide(color: AppColors.accent),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(7),
-                        borderSide:
-                            const BorderSide(color: AppColors.accent),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                    ),
-                  )
-                else
-                  GestureDetector(
-                    onTap: () {
-                      _markDirty();
-                      setState(() => _editingTitle = true);
-                    },
-                    child: Text(
-                      _entity.name,
-                      style: AppTextStyles.bodyLarge.copyWith(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.3,
-                        height: 1.2,
-                      ),
-                    ),
+                Text(
+                  _entity.name,
+                  style: AppTextStyles.bodyLarge.copyWith(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    height: 1.2,
                   ),
+                ),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
                   children: [
-                    if (currentCategory.name.isNotEmpty)
-                      Text(currentCategory.name,
-                          style: AppTextStyles.bodySmall),
+                    if (_entity.collection.isNotEmpty)
+                      Text(_entity.collection, style: AppTextStyles.bodySmall),
                     for (final tag in _entity.tags)
                       Text('#$tag',
                           style: AppTextStyles.bodySmall
@@ -536,193 +367,37 @@ class _EntityScreenState extends State<EntityScreen> {
           ),
           const Divider(height: 32),
 
-          // ── Why Interesting ────────────────────────────────────────────────
+          // ── Note body ──────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-            child: SectionHeader(title: 'Why Interesting'),
-          ),
-          if (_entity.notes.isEmpty && !_isAddingNote)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 4),
-              child: Text('No notes yet.',
-                  style: AppTextStyles.bodySmall),
-            ),
-          for (int i = 0; i < _entity.notes.length; i++)
-            _editingNoteIndex == i
-                ? _buildInlineNoteField(i)
-                : GestureDetector(
-                    onTap: () {
-                      _markDirty();
-                      setState(() => _editingNoteIndex = i);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: kScreenHPad, vertical: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('· ',
-                              style: AppTextStyles.bodyLarge.copyWith(
-                                  color: AppColors.textTertiary,
-                                  height: 1.55)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(_entity.notes[i],
-                                style: AppTextStyles.bodyLarge
-                                    .copyWith(height: 1.55)),
-                          ),
-                        ],
+            child: _loadingBody
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : (_bodyText == null || _bodyText!.trim().isEmpty)
+                    ? Text('Empty note. Tap edit to write.',
+                        style: AppTextStyles.bodySmall)
+                    : noteMarkdownBody(
+                        context,
+                        _bodyText!,
+                        onTapLink: (text, href, title) =>
+                            onNoteLinkTap(href, _navigateToNoteName),
                       ),
-                    ),
-                  ),
-          if (_isAddingNote) _buildNoteAddField(),
-          // Always-visible + Add note row
-          GestureDetector(
-            onTap: () {
-              _markDirty();
-              setState(() {
-                _isAddingNote = true;
-                _noteController.clear();
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 8),
-              child: Text('+ Add note',
-                  style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.textTertiary)),
-            ),
           ),
-          const Divider(height: 32),
 
-          // ── Sources ────────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-            child: SectionHeader(title: 'Sources'),
-          ),
-          if (_entity.links.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 4),
-              child: Text('No sources yet.',
-                  style: AppTextStyles.bodySmall),
-            )
-          else
-            for (final link in _entity.links)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: kScreenHPad, vertical: 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.link,
-                        size: 14, color: AppColors.accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(link,
-                          style: AppTextStyles.bodyMedium
-                              .copyWith(color: AppColors.accent),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
-              ),
-          const Divider(height: 32),
-
-          // ── Related ────────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-            child: SectionHeader(title: 'Related'),
-          ),
-          if (related.isEmpty)
+          // ── Backlinks (shared note-view primitive) ─────────────────────────
+          if (_entity.sourcePath != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  GestureDetector(
-                    onTap: _showLinkSearch,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.border),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.add,
-                              size: 13, color: AppColors.textTertiary),
-                          const SizedBox(width: 4),
-                          Text('Link',
-                              style: AppTextStyles.bodySmall
-                                  .copyWith(color: AppColors.textTertiary)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  ...related.map((other) => GestureDetector(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => EntityScreen(
-                              entity: other,
-                              storage: widget.storage,
-                              allEntities: widget.allEntities,
-                              allCategories: widget.allCategories,
-                              allTags: _allTags,
-                              allEntityLinks: widget.allEntityLinks,
-                            ),
-                          ),
-                        ).then((_) => setState(() {})),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.accentDim),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text('[[${other.name}]]',
-                              style: AppTextStyles.bodySmall
-                                  .copyWith(color: AppColors.accent)),
-                        ),
-                      )),
-                  // Always-visible + Link chip
-                  GestureDetector(
-                    onTap: _showLinkSearch,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.border),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.add,
-                              size: 13, color: AppColors.textTertiary),
-                          const SizedBox(width: 4),
-                          Text('Link',
-                              style: AppTextStyles.bodySmall
-                                  .copyWith(color: AppColors.textTertiary)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+              child: BacklinksSection(
+                key: ValueKey(_entity.sourcePath),
+                noteFilePath: _entity.sourcePath!,
+                onNavigateToNote: _navigateToNoteName,
               ),
             ),
           const Divider(height: 32),
@@ -742,68 +417,56 @@ class _EntityScreenState extends State<EntityScreen> {
     );
   }
 
-  // ── Edit body ─────────────────────────────────────────────────────────────
+  // ── Edit body (frontmatter only) ────────────────────────────────────────────
 
   Widget _buildEditBody() {
-    final currentCategory = widget.allCategories.firstWhere(
-      (c) => c.id == _entity.categoryId,
-      orElse: () => widget.allCategories.isNotEmpty
-          ? widget.allCategories.first
-          : Category(id: '', name: ''),
+    final currentCollection = widget.allCollections.firstWhere(
+      (c) => c.id == _entity.collectionId,
+      orElse: () => widget.allCollections.isNotEmpty
+          ? widget.allCollections.first
+          : Collection(id: '', name: ''),
     );
 
-    return SafeArea(top: false, child: ListView(
-      children: [
-        // Name field
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              isDense: true,
-            ),
-            textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.done,
+    return SafeArea(
+      top: false,
+      child: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text(_entity.name,
+                style: AppTextStyles.bodyLarge.copyWith(
+                    fontSize: 20, fontWeight: FontWeight.w600)),
           ),
-        ),
-        // Category
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: InputDecorator(
-            decoration: const InputDecoration(
-              labelText: 'Category',
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            ),
-            child: DropdownButton<String>(
-              value: currentCategory.id.isNotEmpty ? currentCategory.id : null,
-              isExpanded: true,
-              underline: const SizedBox.shrink(),
-              isDense: true,
-              dropdownColor: AppColors.surfaceElevated,
-              items: widget.allCategories
-                  .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
-                  .toList(),
-              onChanged: _changeCategory,
+          // Collection
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Collection',
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              ),
+              child: DropdownButton<String>(
+                value: currentCollection.id.isNotEmpty ? currentCollection.id : null,
+                isExpanded: true,
+                underline: const SizedBox.shrink(),
+                isDense: true,
+                dropdownColor: AppColors.surfaceElevated,
+                items: widget.allCollections
+                    .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                    .toList(),
+                onChanged: _changeCollection,
+              ),
             ),
           ),
-        ),
-        _buildTagsSection(),
-        const Divider(height: 24),
-        _buildScoreSection(),
-        const Divider(height: 24),
-        _buildNotesSection(),
-        const Divider(height: 24),
-        _buildLinksSection(),
-        const Divider(height: 24),
-        _buildRelatedSection(),
-        const SizedBox(height: 32),
-      ],
-    ));
+          _buildTagsSection(),
+          const Divider(height: 24),
+          _buildScoreSection(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
   }
-
-  // ── Edit section builders ─────────────────────────────────────────────────
 
   Widget _buildTagsSection() {
     final suggestions = _allTags.where((t) => !_entity.tags.contains(t)).toList();
@@ -921,9 +584,7 @@ class _EntityScreenState extends State<EntityScreen> {
               const Spacer(),
               if (_entity.score == null)
                 TextButton.icon(
-                  onPressed: () {
-                    setState(() => _entity.score = 5.0);
-                  },
+                  onPressed: () => setState(() => _entity.score = 5.0),
                   icon: const Icon(Icons.add, size: 16),
                   label: const Text('Set', style: TextStyle(fontSize: 13)),
                   style: TextButton.styleFrom(
@@ -934,9 +595,7 @@ class _EntityScreenState extends State<EntityScreen> {
               else
                 IconButton(
                   icon: const Icon(Icons.close, size: 18, color: AppColors.textTertiary),
-                  onPressed: () {
-                    setState(() => _entity.score = null);
-                  },
+                  onPressed: () => setState(() => _entity.score = null),
                   tooltip: 'Remove score',
                 ),
             ],
@@ -954,347 +613,6 @@ class _EntityScreenState extends State<EntityScreen> {
               onChanged: _setScore,
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildNotesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Row(
-            children: [
-              const Text('Why it matters',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () => setState(() {
-                  _isAddingNote = true;
-                  _noteController.clear();
-                }),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add', style: TextStyle(fontSize: 13)),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-              ),
-            ],
-          ),
-        ),
-        for (int i = 0; i < _entity.notes.length; i++) _buildNoteItem(i),
-        if (_isAddingNote) _buildNoteAddField(),
-        if (_entity.notes.isEmpty && !_isAddingNote)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text('No notes yet.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildNoteItem(int i) {
-    if (_editingNoteIndex == i) {
-      final ctrl = TextEditingController(text: _entity.notes[i]);
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: ctrl,
-                autofocus: true,
-                maxLines: null,
-                decoration: const InputDecoration(isDense: true),
-                textInputAction: TextInputAction.done,
-                onSubmitted: (v) => _commitNoteEdit(i, v),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.check, size: 18),
-              onPressed: () => _commitNoteEdit(i, ctrl.text),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () => setState(() => _editingNoteIndex = null),
-            ),
-          ],
-        ),
-      );
-    }
-    return ListTile(
-      dense: true,
-      title: Text(_entity.notes[i], style: const TextStyle(fontSize: 14)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.edit, size: 16, color: AppColors.textTertiary),
-            onPressed: () => setState(() => _editingNoteIndex = i),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.textTertiary),
-            onPressed: () => _deleteNote(i),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInlineNoteField(int i) {
-    final ctrl = TextEditingController(text: _entity.notes[i]);
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: kScreenHPad, vertical: 4),
-      child: TextField(
-        controller: ctrl,
-        autofocus: true,
-        maxLines: null,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (v) => _commitNoteEdit(i, v),
-        style: AppTextStyles.bodyLarge.copyWith(height: 1.55),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: AppColors.surface,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(7),
-            borderSide: const BorderSide(color: AppColors.accent),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(7),
-            borderSide: const BorderSide(color: AppColors.accent),
-          ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.check, size: 18, color: AppColors.accent),
-            onPressed: () => _commitNoteEdit(i, ctrl.text),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNoteAddField() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _noteController,
-              autofocus: true,
-              maxLines: null,
-              decoration: const InputDecoration(
-                hintText: 'Add a note…',
-                isDense: true,
-              ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: _addNote,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check, size: 18),
-            onPressed: () => _addNote(_noteController.text),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: () => setState(() {
-              _isAddingNote = false;
-              _noteController.clear();
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLinksSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Row(
-            children: [
-              const Text('Sources',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () => setState(() {
-                  _isAddingLink = true;
-                  _linkController.clear();
-                }),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add', style: TextStyle(fontSize: 13)),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-              ),
-            ],
-          ),
-        ),
-        for (int i = 0; i < _entity.links.length; i++) _buildLinkItem(i),
-        if (_isAddingLink) _buildLinkAddField(),
-        if (_entity.links.isEmpty && !_isAddingLink)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text('No links yet.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildLinkItem(int i) {
-    if (_editingLinkIndex == i) {
-      final ctrl = TextEditingController(text: _entity.links[i]);
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: ctrl,
-                autofocus: true,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(isDense: true),
-                textInputAction: TextInputAction.done,
-                onSubmitted: (v) => _commitLinkEdit(i, v),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.check, size: 18),
-              onPressed: () => _commitLinkEdit(i, ctrl.text),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () => setState(() => _editingLinkIndex = null),
-            ),
-          ],
-        ),
-      );
-    }
-    return ListTile(
-      dense: true,
-      title: Text(
-        _entity.links[i],
-        style: const TextStyle(fontSize: 13, color: AppColors.accent),
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.edit, size: 16, color: AppColors.textTertiary),
-            onPressed: () => setState(() => _editingLinkIndex = i),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.textTertiary),
-            onPressed: () => _deleteLink(i),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLinkAddField() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _linkController,
-              autofocus: true,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                hintText: 'Add a link…',
-                isDense: true,
-              ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: _addLink,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check, size: 18),
-            onPressed: () => _addLink(_linkController.text),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: () => setState(() {
-              _isAddingLink = false;
-              _linkController.clear();
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRelatedSection() {
-    final related = MarkdownStorageService.getRelatedEntities(
-        _entity.id, widget.allEntityLinks, widget.allEntities);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Row(
-            children: [
-              const Text('Related',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _showLinkSearch,
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Link entity', style: TextStyle(fontSize: 13)),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (related.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text('No related entities.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          )
-        else
-          for (final other in related)
-            ListTile(
-              dense: true,
-              title: Text(other.name, style: const TextStyle(fontSize: 14)),
-              trailing: IconButton(
-                icon: const Icon(Icons.link_off, size: 16, color: AppColors.textTertiary),
-                onPressed: () {
-                  final link = _findLink(other.id);
-                  if (link != null) _deleteEntityLink(link.id);
-                },
-              ),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EntityScreen(
-                    entity: other,
-                    storage: widget.storage,
-                    allEntities: widget.allEntities,
-                    allCategories: widget.allCategories,
-                    allTags: _allTags,
-                    allEntityLinks: widget.allEntityLinks,
-                  ),
-                ),
-              ).then((_) => setState(() {})),
-            ),
       ],
     );
   }
@@ -1319,22 +637,23 @@ class _EntityScreenState extends State<EntityScreen> {
                       style: TextStyle(color: AppColors.accent)),
                 ),
               ]
-            : _hasUnsavedChanges
-                ? [
-                    IconButton(
-                      icon: const Icon(Icons.check,
-                          color: AppColors.accent),
-                      tooltip: 'Done',
-                      onPressed: _saveEdit,
-                    ),
-                  ]
-                : [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: _enterEditMode,
-                      tooltip: 'Edit',
-                    ),
-                  ],
+            : [
+                IconButton(
+                  icon: const Icon(Icons.open_in_new),
+                  onPressed: _openInObsidian,
+                  tooltip: 'Open in Obsidian',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.notes_outlined),
+                  onPressed: _editNote,
+                  tooltip: 'Edit note body',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  onPressed: _enterEditMode,
+                  tooltip: 'Edit details',
+                ),
+              ],
       ),
       body: _isEditMode ? _buildEditBody() : _buildDisplayBody(),
     );

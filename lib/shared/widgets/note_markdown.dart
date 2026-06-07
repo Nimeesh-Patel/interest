@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../shared/constants/app_theme.dart';
-import '../../../shared/markdown/md_utils.dart';
+import '../constants/app_theme.dart';
+import '../markdown/md_utils.dart';
+
+/// Shared note-rendering primitives: render a Markdown body with `[[wikilinks]]`
+/// substituted to tappable links, and route taps (wikilink → navigate, http(s)
+/// → external browser). Used by every note viewer (entities, resurface, …).
 
 MarkdownStyleSheet noteMarkdownStyle(BuildContext context, {Color? textColor}) {
   final color = textColor ?? AppColors.textPrimary;

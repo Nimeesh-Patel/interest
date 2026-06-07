@@ -5,25 +5,23 @@ import '../models/entity.dart';
 import '../../../shared/markdown/md_utils.dart';
 
 class EntityFileParser {
-  /// An entity file is identified by BOTH a `category:` and an `alias:` key.
+  /// An entity file is identified by a `collection:` frontmatter key — nothing
+  /// else. `alias`, `category`, and the body shape are all orthogonal to
+  /// entity-ness.
   ///
-  /// `category:` alone is NOT sufficient: problem notes (Resurface `***` cards)
-  /// carry `category:` for AnkiDroid deck mapping but never an `alias:`. The
-  /// June 2026 corruption arose precisely because discovery keyed on `category:`
-  /// alone, pulling problem notes into the entity list where `saveData` then
-  /// rewrote them in entity format. Requiring both keys excludes them.
-  /// Bookmarks, books, and articles have `alias:` but no `category:`, so they
-  /// are also correctly excluded.
+  /// WHY collection (not category/alias): `category:` is a Problem-Note property
+  /// (the AnkiDroid deck); keying entity discovery on it conflated the two and
+  /// caused the June 2026 corruption. `collection:` is owned solely by the
+  /// entity layer, so it is an unambiguous discriminator. A note may be both a
+  /// Problem Note (`***` in body) and an Entity (`collection:` in frontmatter).
   static bool isEntityFrontmatter(YamlMap? yaml) =>
-      yaml != null && yaml.containsKey('category') && yaml.containsKey('alias');
+      yaml != null && yaml.containsKey('collection');
 
   /// True if [content] matches the June 2026 entity-save corruption signature:
-  /// entity frontmatter (`alias` + `created_at` + `updated_at`) over a body that
-  /// is only an H1 title — no `***` separator, no `##` sections, no other prose.
-  ///
-  /// Diagnostic only, never authoritative: a legitimately empty, template-less
-  /// entity is structurally identical to a corrupted problem-note husk. Treat
-  /// matches as candidates for human review, not certainties.
+  /// entity-ish frontmatter (`alias` + `created_at` + `updated_at`) over a body
+  /// that is only an H1 title — no `***` separator, no `##` sections, no other
+  /// prose. Diagnostic only; a legitimately empty note is indistinguishable, so
+  /// treat matches as candidates for review.
   static bool isCorruptedHusk(String content) {
     final split = splitFrontmatter(content);
     final yaml = parseYamlMap(split.frontmatter);
@@ -34,41 +32,35 @@ class EntityFileParser {
       return false;
     }
     final body = split.body;
-    if (body.contains('***')) return false; // a card separator → not a husk
+    if (body.contains('***')) return false;
     final lines =
         body.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     return lines.length == 1 && lines.first.startsWith('# ');
   }
 
-  /// Parses a single entity file's [content] (read from [filePath]).
-  /// Returns the parsed Entity, the names of related entities found in the
-  /// body, and the raw category name string from the frontmatter.
-  /// Never throws.
-  static ({Entity entity, List<String> relatedNames, String categoryName})
+  /// Parses a single entity file's [content] (read from [filePath]) into an
+  /// [Entity] plus the names of entities wikilinked anywhere in the body.
+  /// The app reads only frontmatter + the wikilink graph; the body is otherwise
+  /// the user's territory. Never throws.
+  static ({Entity entity, List<String> relatedNames, String collectionName})
       parseEntityFile(String content, String filePath) {
     final split = splitFrontmatter(content);
     final body = split.body;
     final basename = p.basenameWithoutExtension(filePath);
 
-    String alias = slugify(basename).isEmpty ? 'entity' : slugify(basename);
-    String categoryName = '';
+    String collectionName = '';
     double? score;
     List<String> tags = [];
-    String? watchedDate;
-    String? letterboxdUrl;
-    String? tmdbId;
     final now = DateTime.now().millisecondsSinceEpoch;
     int createdAt = now;
     int updatedAt = now;
+    String aliasSlug = '';
 
     final yaml = parseYamlMap(split.frontmatter);
     if (yaml != null) {
+      collectionName = yaml['collection']?.toString() ?? '';
       final rawAlias = yaml['alias'];
-      if (rawAlias != null) {
-        final a = slugify(rawAlias.toString());
-        if (a.isNotEmpty) alias = a;
-      }
-      categoryName = yaml['category']?.toString() ?? '';
+      if (rawAlias != null) aliasSlug = slugify(rawAlias.toString());
       final rawScore = yaml['score'];
       if (rawScore is num) score = rawScore.toDouble();
       final rawTags = yaml['tags'];
@@ -77,41 +69,26 @@ class EntityFileParser {
       }
       createdAt = parseIsoToMs(yaml['created_at']?.toString()) ?? now;
       updatedAt = parseIsoToMs(yaml['updated_at']?.toString()) ?? createdAt;
-      watchedDate = yaml['watched_date']?.toString();
-      letterboxdUrl = yaml['letterboxd_url']?.toString();
-      tmdbId = yaml['tmdb_id']?.toString();
     }
 
-    final name = extractH1(body) ?? basename;
+    final baseSlug = slugify(basename);
+    final id = aliasSlug.isNotEmpty
+        ? aliasSlug
+        : (baseSlug.isNotEmpty ? baseSlug : 'entity');
 
-    final rawSections = parseSectionsH2(body);
-    final notes = parseSectionAsList(rawSections['Why Interesting'] ?? '');
-    final links = parseSectionAsList(rawSections['Sources'] ?? '');
-    final relatedNames = {
-      ...parseSectionAsWikilinks(rawSections['Related'] ?? ''),
-      ...extractWikilinks(body),
-    }.toList();
-
-    final catId = categoryName.isEmpty
-        ? 'uncategorized'
-        : (slugify(categoryName).isEmpty ? 'uncategorized' : slugify(categoryName));
+    final relatedNames = extractWikilinks(body).toSet().toList();
 
     final entity = Entity(
-      id: alias,
-      name: name,
-      categoryId: catId,
-      notes: notes,
-      links: links,
+      id: id,
+      name: basename,
+      collection: collectionName,
       tags: tags,
       score: score,
       createdAt: createdAt,
       updatedAt: updatedAt,
-      rawSections: rawSections,
-      watchedDate: watchedDate,
-      letterboxdUrl: letterboxdUrl,
-      tmdbId: tmdbId,
+      sourcePath: filePath,
     );
 
-    return (entity: entity, relatedNames: relatedNames, categoryName: categoryName);
+    return (entity: entity, relatedNames: relatedNames, collectionName: collectionName);
   }
 }

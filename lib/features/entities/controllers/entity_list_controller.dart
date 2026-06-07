@@ -1,22 +1,23 @@
-import '../models/category.dart';
+import '../models/collection.dart';
 import '../models/entity.dart';
-import '../models/entity_link.dart';
 import '../services/markdown_storage_service.dart';
 
-/// Plain-class controller owning entity/category data, filter state, and all
+/// Plain-class controller owning entity/collection data, filter state, and all
 /// persistence operations. [onDataChanged] is called after every mutation and
 /// after reloadData(); the parent should call setState + refresh child screens.
+///
+/// Persistence is per-file: each mutation touches exactly one entity file (or,
+/// for a collection rename, only its members). There is no bulk save.
 class EntityListController {
   final void Function() onDataChanged;
 
   final MarkdownStorageService storage = MarkdownStorageService();
 
   List<Entity> entities = [];
-  List<Category> categories = [];
+  List<Collection> collections = [];
   List<String> tags = [];
-  List<EntityLink> entityLinks = [];
 
-  String? selectedCategoryId;
+  String? selectedCollectionId;
   String searchQuery = '';
   String sortOrder = 'latest';
 
@@ -24,12 +25,20 @@ class EntityListController {
 
   // ── Data access ────────────────────────────────────────────────────────────
 
-  String get effectiveCategoryId => selectedCategoryId ?? 'default';
+  /// Raw collection name new entities land in (selected collection, else first,
+  /// else empty — no collection is invented).
+  String get effectiveCollectionName {
+    if (selectedCollectionId != null) {
+      final match = collections.where((c) => c.id == selectedCollectionId);
+      if (match.isNotEmpty) return match.first.name;
+    }
+    return collections.isNotEmpty ? collections.first.name : '';
+  }
 
   List<Entity> get filtered {
     var list = entities;
-    if (selectedCategoryId != null) {
-      list = list.where((e) => e.categoryId == selectedCategoryId).toList();
+    if (selectedCollectionId != null) {
+      list = list.where((e) => e.collectionId == selectedCollectionId).toList();
     }
     if (searchQuery.isNotEmpty) {
       final q = searchQuery.toLowerCase();
@@ -40,86 +49,79 @@ class EntityListController {
 
   // ── Load / reload ──────────────────────────────────────────────────────────
 
-  /// Initial load; caller is responsible for triggering setState after this.
-  Future<void> loadData() async {
-    final data = await storage.loadData();
+  void _apply(AppData data) {
     entities = data.entities;
-    categories = data.categories;
+    collections = data.collections;
     tags = data.tags;
-    entityLinks = data.entityLinks;
   }
+
+  /// Initial load; caller is responsible for triggering setState after this.
+  Future<void> loadData() async => _apply(await storage.loadData());
 
   /// Reload after external mutations; calls [onDataChanged] on completion.
   Future<void> reloadData() async {
-    final data = await storage.loadData();
-    entities = data.entities;
-    categories = data.categories;
-    tags = data.tags;
-    entityLinks = data.entityLinks;
+    _apply(await storage.loadData());
     onDataChanged();
-  }
-
-  void save() {
-    storage.saveData(
-      entities: entities,
-      categories: categories,
-      tags: tags,
-      entityLinks: entityLinks,
-    );
   }
 
   // ── Entity CRUD ────────────────────────────────────────────────────────────
 
-  void addEntity(String name) {
+  /// Adds a note to [collectionName] (defaults to the active collection). A
+  /// collection name is required — an entity is defined by its `collection:`.
+  Future<void> addEntity(String name, {String? collectionName}) async {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return;
+    final collection = (collectionName ?? effectiveCollectionName).trim();
+    if (trimmed.isEmpty || collection.isEmpty) return;
     final now = DateTime.now().millisecondsSinceEpoch;
-    final id = MarkdownStorageService.generateEntityId(trimmed, entities);
-    entities.add(Entity(
-      id: id,
+    final entity = Entity(
+      id: MarkdownStorageService.generateEntityId(trimmed, entities),
       name: trimmed,
-      categoryId: effectiveCategoryId,
+      collection: collection,
       createdAt: now,
       updatedAt: now,
-    ));
-    save();
+    );
+    entities.add(entity);
+    await storage.saveEntity(entity);
     onDataChanged();
   }
 
-  void deleteEntity(Entity entity) {
+  Future<void> deleteEntity(Entity entity) async {
+    await storage.deleteEntity(entity);
     entities.removeWhere((e) => e.id == entity.id);
-    entityLinks.removeWhere((l) => l.from == entity.id || l.to == entity.id);
-    save();
     onDataChanged();
   }
 
-  // ── Category CRUD ──────────────────────────────────────────────────────────
+  // ── Collection CRUD ──────────────────────────────────────────────────────────
 
-  void addCategory(String name) {
+  /// Adds an in-memory collection so new entities can be filed under it.
+  /// Collections are derived from `collection:` values, so an empty one is
+  /// session-only until an entity adopts it.
+  void addCollection(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final id = MarkdownStorageService.generateCategoryId(trimmed, categories);
-    categories.add(Category(id: id, name: trimmed));
-    save();
+    final id = MarkdownStorageService.generateCollectionId(trimmed, collections);
+    collections.add(Collection(id: id, name: trimmed));
     onDataChanged();
   }
 
-  void renameCategory(Category category, String newName) {
-    category.name = newName;
-    save();
-    onDataChanged();
+  /// Renames a collection by patching every member file, then reloads so the
+  /// derived collection list reflects the new value.
+  Future<void> renameCollection(Collection collection, String newName) async {
+    final members =
+        entities.where((e) => e.collectionId == collection.id).toList();
+    await storage.renameCollection(members, newName);
+    await reloadData();
   }
 
-  /// Returns an error string if the category cannot be deleted (has entities),
+  /// Returns an error string if the collection cannot be deleted (has entities),
   /// or null on success.
-  String? deleteCategory(Category category) {
-    final inUse = entities.any((e) => e.categoryId == category.id);
+  String? deleteCollection(Collection collection) {
+    final inUse = entities.any((e) => e.collectionId == collection.id);
     if (inUse) {
-      return 'Cannot delete "${category.name}" — it has entities. Reassign them first.';
+      return 'Cannot delete "${collection.name}" — it has notes. Reassign them first.';
     }
-    categories.removeWhere((c) => c.id == category.id);
-    if (selectedCategoryId == category.id) selectedCategoryId = null;
-    save();
+    collections.removeWhere((c) => c.id == collection.id);
+    if (selectedCollectionId == collection.id) selectedCollectionId = null;
     onDataChanged();
     return null;
   }
