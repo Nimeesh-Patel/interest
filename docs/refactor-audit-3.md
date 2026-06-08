@@ -203,30 +203,33 @@ AnkiDroid review sessions do not update `review_log.md`. From Interest's travers
 
 Ordered by traversal impact.
 
-**RC-1: Unified `openNote(filePath)` in ResurfaceScreen**
-- Change: implement `ResurfaceScreenState.openNoteByPath(String filePath)` that decides viewer (entity → EntityScreen via callback; problem note → card viewer; plain → NoteDetailScreen). Update `EntityScreen._navigateToNoteName` to call it for non-entity targets.
-- Fixes: traversal break — backlink taps on non-entity notes are currently no-ops in EntityScreen.
-- Falsified if: EntityScreen is intentionally entity-scoped and non-entity navigation should be blocked there.
+**RC-1: Unified `openNote(filePath)` in ResurfaceScreen** ✓ COMPLETE
+- Implemented `ResurfaceScreenState.openNoteByPath(String filePath)`: problem note → card viewer; `collection:` → `onOpenEntity` callback → HomeScreen pushes EntityScreen; plain note → NoteDetailScreen.
+- Updated `EntityScreen._navigateToNoteName`: fast path checks `allEntities`; vault scan fallback calls `onOpenNonEntityNote` callback.
+- `onOpenNonEntityNote` in HomeScreen pops EntityScreen, switches to Notes tab, calls `openNoteByPath`.
+- Both-note decision: `***` takes priority — opens in card viewer.
+- Deviation: EntityScreen falls back silently (no snackbar) when `onOpenNonEntityNote` is null (acceptable for direct EntityScreen pushes without HomeScreen).
 
-**RC-2: Extract `CollectionsScreen` from `_HomeScreenState`**
-- Change: move `_buildEntitiesTab()`, `_buildCollectionFilter()`, `_buildAddBar()`, `_buildSearchBar()`, `_buildSortBar()`, `_buildEntityList()`, and all collection/entity operations into a dedicated `CollectionsScreen` widget that receives `EntityListController`. `home_screen.dart` becomes a true navigation shell.
-- Fixes: `_HomeScreenState` multi-problem artifact (concerns 1–3 separated).
-- Falsified if: the tab needs to share mutable state with the navigation shell in a way that a callback/controller interface cannot express.
+**RC-2: Extract `CollectionsScreen` from `_HomeScreenState`** ✓ COMPLETE
+- Created `lib/features/entities/screens/collections_screen.dart` with all collection/entity UI and CRUD.
+- `_HomeScreenState` now owns only: navigation shell, deep link handling, share sheet handling, entity navigation (`_openEntity`, `_openEntityByPath`), and settings/templates navigation.
+- No behaviour changes — `EntityListController.onDataChanged` drives HomeScreen setState which propagates to CollectionsScreen via build.
 
-**RC-3: Remove `VaultService.entitiesPath()` and `Interesting/Entities/` directory creation**
-- Change: remove `entitiesPath()` from `VaultService`, remove the `edir` creation from `ensureVaultDirectories`, update `vault_setup_screen.dart` user-facing text.
-- Fixes: stale directory creation and misleading setup text.
-- Falsified if: some external actor (Android widget, Obsidian plugin, or existing user data) writes entity files to `Interesting/Entities/` and expects `MarkdownStorageService` to find them. (They would still be found — `VaultScanner.scan` scans the whole vault; the issue is only the directory creation, not discovery.)
+**RC-3: Remove `VaultService.entitiesPath()` and `Interesting/Entities/` directory creation** ✓ COMPLETE
+- Removed `entitiesPath()` from `VaultService`.
+- Removed `edir` creation from `ensureVaultDirectories()`.
+- Updated `vault_setup_screen.dart` user-facing text.
 
-**RC-4: Deduplicate `_openObsidian()` in `home_screen.dart` and `sources_screen.dart`**
-- Change: extract `launchObsidianApp(BuildContext context)` as a shared top-level function (in `md_utils.dart` or a new `obsidian_launcher.dart`).
-- Fixes: duplicate solution. Very low urgency.
-- Falsified if: the two callers need divergent behaviour (they currently do not).
+**RC-4: Deduplicate `_openObsidian()` in `home_screen.dart` and `sources_screen.dart`** ✓ COMPLETE
+- Created `lib/shared/utils/obsidian_launcher.dart` with top-level `launchObsidianApp(BuildContext context)`.
+- Removed `_openObsidian()` from both callers; both now call `launchObsidianApp(context)`.
 
-**RC-5: Rename `ReviewLogService` → `TraversalLogService`**
-- Change: rename class, file, and internal field `lastReviewed` → `lastTraversed`. Keep YAML key `last_reviewed` unchanged for file backward compatibility (already done for `is_star`).
-- Fixes: conceptual confusion between Interest's traversal tracking and AnkiDroid's FSRS review concept.
-- Falsified if: the two scheduling systems are intended to converge and share terminology.
+**RC-5: Rename `ReviewLogService` → `TraversalLogService`** ✓ COMPLETE
+- Renamed class and file (`traversal_log_service.dart`); deleted `review_log_service.dart`.
+- Renamed `_RawEntry.lastReviewed` → `lastTraversed` (internal Dart field).
+- Renamed `GraphScoringService.updateGraphScores(reviewedNoteFilename)` → `traversedNoteFilename`.
+- Updated all four import sites (resurface_screen, graph_scoring_service, card_viewer_controller, settings_screen).
+- YAML keys `last_reviewed` and `is_star` preserved unchanged for vault file backward compatibility.
 
 ---
 

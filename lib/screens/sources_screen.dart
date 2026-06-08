@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import '../shared/utils/obsidian_launcher.dart';
 
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
@@ -74,7 +75,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
               name: 'Obsidian',
               description: 'Open to sync vault',
               meta: 'external app',
-              onTap: () => _openObsidian(context),
+              onTap: () => launchObsidianApp(context),
             ),
             _AnkiDroidRow(
               syncing: _syncingAnki,
@@ -146,18 +147,6 @@ class _SourcesScreenState extends State<SourcesScreen> {
           : '${result.failed} notes failed';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
-      );
-    }
-  }
-
-  static Future<void> _openObsidian(BuildContext context) async {
-    final launched = await launchUrl(
-      Uri.parse('obsidian://'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!launched && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Obsidian is not installed')),
       );
     }
   }

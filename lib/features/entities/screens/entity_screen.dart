@@ -16,6 +16,7 @@ import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/backlinks_section.dart';
 import '../../../shared/widgets/note_markdown.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../resurface/services/resurface_service.dart';
 
 /// An entity is a plain note that belongs to a collection. This screen is a
 /// note VIEWER built on the shared note-view primitives ([noteMarkdownBody],
@@ -29,6 +30,10 @@ class EntityScreen extends StatefulWidget {
   final List<Collection> allCollections;
   final List<String> allTags;
 
+  /// Called when a wikilink or backlink resolves to a non-entity note. The
+  /// receiver should route the file path to the appropriate viewer.
+  final Future<void> Function(String filePath)? onOpenNonEntityNote;
+
   const EntityScreen({
     super.key,
     required this.entity,
@@ -36,6 +41,7 @@ class EntityScreen extends StatefulWidget {
     required this.allEntities,
     required this.allCollections,
     required this.allTags,
+    this.onOpenNonEntityNote,
   });
 
   @override
@@ -184,17 +190,39 @@ class _EntityScreenState extends State<EntityScreen> {
           allEntities: widget.allEntities,
           allCollections: widget.allCollections,
           allTags: _allTags,
+          onOpenNonEntityNote: widget.onOpenNonEntityNote,
         ),
       ),
     ).then((_) => setState(() {}));
   }
 
-  /// Navigate to an entity by note name (used by wikilink + backlink taps).
-  /// Non-entity targets are ignored — this screen views entities.
+  /// Navigate to a note by name (wikilink + backlink taps).
+  /// Entity targets open EntityScreen; non-entity targets route via
+  /// [onOpenNonEntityNote] if provided, otherwise show a snackbar.
   Future<void> _navigateToNoteName(String name) async {
+    // Fast path: check in-memory entity list first.
     final match = widget.allEntities
         .where((e) => e.name.toLowerCase() == name.toLowerCase());
-    if (match.isNotEmpty) _openEntity(match.first);
+    if (match.isNotEmpty) {
+      _openEntity(match.first);
+      return;
+    }
+    // Resolve via vault-wide filename scan.
+    final vaultPath = await VaultService.getVaultPath();
+    if (!mounted) return;
+    if (vaultPath == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Note not found: $name')));
+      return;
+    }
+    final path = await ResurfaceService.resolveWikilink(vaultPath, name);
+    if (!mounted) return;
+    if (path == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Note not found: $name')));
+      return;
+    }
+    widget.onOpenNonEntityNote?.call(path);
   }
 
   Future<void> _openInObsidian() async {

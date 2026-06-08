@@ -8,7 +8,7 @@ import '../../../shared/markdown/md_utils.dart';
 
 typedef _RawEntry = ({
   String note,
-  String? lastReviewed,
+  String? lastTraversed,
   double graphScore,
   String? lastBoosted,
   List<String> activatedBy,
@@ -33,7 +33,7 @@ class GraphStateUpdate {
   const GraphStateUpdate({required this.scores, required this.activations});
 }
 
-class ReviewLogService {
+class TraversalLogService {
   static String _logPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'System', 'review_log.md');
 
@@ -66,7 +66,7 @@ class ReviewLogService {
           if (item is! YamlMap) continue;
           final note = item['note'];
           if (note is! String) continue;
-          final date = item['last_reviewed'];
+          final date = item['last_reviewed']; // YAML key preserved for backward compat
           final score = item['graph_score'];
           final boosted = item['last_boosted'];
           final activated = item['activated_by'];
@@ -74,7 +74,7 @@ class ReviewLogService {
           final scheduledInterval = item['scheduled_interval'];
           entries.add((
             note: note,
-            lastReviewed: (date is String) ? date : null,
+            lastTraversed: (date is String) ? date : null,
             graphScore: (score is num) ? score.toDouble() : 0.0,
             lastBoosted: (boosted is String) ? boosted : null,
             activatedBy: (activated is YamlList)
@@ -102,8 +102,8 @@ class ReviewLogService {
     buf.writeln('reviews:');
     for (final e in data.entries) {
       buf.writeln('  - note: "${e.note}"');
-      if (e.lastReviewed != null) {
-        buf.writeln('    last_reviewed: "${e.lastReviewed}"');
+      if (e.lastTraversed != null) {
+        buf.writeln('    last_reviewed: "${e.lastTraversed}"'); // YAML key preserved
       } else {
         buf.writeln('    last_reviewed: null');
       }
@@ -149,9 +149,9 @@ class ReviewLogService {
       final data = await _readAll(vaultPath);
       final map = <String, DateTime>{};
       for (final e in data.entries) {
-        if (e.lastReviewed == null) continue;
+        if (e.lastTraversed == null) continue;
         try {
-          map[noteKey(e.note)] = DateTime.parse(e.lastReviewed!);
+          map[noteKey(e.note)] = DateTime.parse(e.lastTraversed!);
         } catch (_) {}
       }
       return map;
@@ -166,7 +166,7 @@ class ReviewLogService {
           ({
             double graphScore,
             String? lastBoosted,
-            DateTime? lastReviewed,
+            DateTime? lastTraversed,
             List<String> activatedBy,
             bool isProblemNote,
             double? scheduledInterval,
@@ -179,7 +179,7 @@ class ReviewLogService {
           ({
             double graphScore,
             String? lastBoosted,
-            DateTime? lastReviewed,
+            DateTime? lastTraversed,
             List<String> activatedBy,
             bool isProblemNote,
             double? scheduledInterval,
@@ -189,8 +189,8 @@ class ReviewLogService {
           map[noteKey(e.note)] = (
             graphScore: e.graphScore,
             lastBoosted: e.lastBoosted,
-            lastReviewed:
-                e.lastReviewed != null ? DateTime.tryParse(e.lastReviewed!) : null,
+            lastTraversed:
+                e.lastTraversed != null ? DateTime.tryParse(e.lastTraversed!) : null,
             activatedBy: e.activatedBy,
             isProblemNote: e.isProblemNote,
             scheduledInterval: e.scheduledInterval,
@@ -242,7 +242,7 @@ class ReviewLogService {
           ...entries,
           (
             note: name,
-            lastReviewed: today,
+            lastTraversed: today,
             graphScore: 0.0,
             lastBoosted: null,
             activatedBy: <String>[],
@@ -260,7 +260,7 @@ class ReviewLogService {
             i == idx
                 ? (
                     note: name,
-                    lastReviewed: today,
+                    lastTraversed: today,
                     graphScore: existing.graphScore,
                     lastBoosted: existing.lastBoosted,
                     activatedBy: newActivatedBy,
@@ -298,7 +298,7 @@ class ReviewLogService {
             ...entries,
             (
               note: name,
-              lastReviewed: null,
+              lastTraversed: null,
               graphScore: update.rawScore,
               lastBoosted: update.lastBoosted,
               activatedBy: <String>[],
@@ -312,7 +312,7 @@ class ReviewLogService {
               i == idx
                   ? (
                       note: name,
-                      lastReviewed: entries[idx].lastReviewed,
+                      lastTraversed: entries[idx].lastTraversed,
                       graphScore: update.rawScore,
                       lastBoosted: update.lastBoosted,
                       activatedBy: entries[idx].activatedBy,
@@ -371,7 +371,7 @@ class ReviewLogService {
             ...entries,
             (
               note: name,
-              lastReviewed: null,
+              lastTraversed: null,
               graphScore: u.rawScore,
               lastBoosted: u.lastBoosted,
               activatedBy: <String>[],
@@ -385,7 +385,7 @@ class ReviewLogService {
               i == idx
                   ? (
                       note: name,
-                      lastReviewed: entries[idx].lastReviewed,
+                      lastTraversed: entries[idx].lastTraversed,
                       graphScore: u.rawScore,
                       lastBoosted: u.lastBoosted,
                       activatedBy: entries[idx].activatedBy,
@@ -408,7 +408,7 @@ class ReviewLogService {
             ...entries,
             (
               note: name,
-              lastReviewed: null,
+              lastTraversed: null,
               graphScore: 0.0,
               lastBoosted: null,
               activatedBy: reviewers.toList(),
@@ -430,7 +430,7 @@ class ReviewLogService {
               i == idx
                   ? (
                       note: name,
-                      lastReviewed: existing.lastReviewed,
+                      lastTraversed: existing.lastTraversed,
                       graphScore: existing.graphScore,
                       lastBoosted: existing.lastBoosted,
                       activatedBy: newActivatedBy,
@@ -452,17 +452,17 @@ class ReviewLogService {
     } catch (_) {}
   }
 
-  /// Appends [reviewedStarNote] to the `activated_by` list of each note in
+  /// Appends [traversedStarNote] to the `activated_by` list of each note in
   /// [targets] (filename → isProblemNote). Creates entries for notes not yet in the log.
   static Future<void> activateNotes(
-    String reviewedStarNote,
+    String traversedStarNote,
     Map<String, bool> targets,
   ) async {
     try {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return;
       final data = await _readAll(vaultPath);
-      final reviewer = noteKey(reviewedStarNote);
+      final traverser = noteKey(traversedStarNote);
       var entries = data.entries;
       for (final kv in targets.entries) {
         final name = noteKey(kv.key);
@@ -473,26 +473,26 @@ class ReviewLogService {
             ...entries,
             (
               note: name,
-              lastReviewed: null,
+              lastTraversed: null,
               graphScore: 0.0,
               lastBoosted: null,
-              activatedBy: [reviewer],
+              activatedBy: [traverser],
               isProblemNote: isProblemNoteFlag,
               scheduledInterval: null,
             ),
           ];
         } else {
           final existing = entries[idx];
-          if (existing.activatedBy.contains(reviewer)) continue;
+          if (existing.activatedBy.contains(traverser)) continue;
           entries = [
             for (var i = 0; i < entries.length; i++)
               i == idx
                   ? (
                       note: name,
-                      lastReviewed: existing.lastReviewed,
+                      lastTraversed: existing.lastTraversed,
                       graphScore: existing.graphScore,
                       lastBoosted: existing.lastBoosted,
-                      activatedBy: [...existing.activatedBy, reviewer],
+                      activatedBy: [...existing.activatedBy, traverser],
                       isProblemNote: isProblemNoteFlag,
                       scheduledInterval: existing.scheduledInterval,
                     )

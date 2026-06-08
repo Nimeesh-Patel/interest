@@ -4,7 +4,7 @@ import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_note.dart';
 import 'resurface_service.dart';
-import 'review_log_service.dart';
+import 'traversal_log_service.dart';
 
 const double kBaseBoost = 1.0;
 const double kDecayLambda = 0.1;
@@ -26,7 +26,7 @@ class GraphScoringService {
             ({
               double graphScore,
               String? lastBoosted,
-              DateTime? lastReviewed,
+              DateTime? lastTraversed,
               List<String> activatedBy,
               bool isProblemNote,
               double? scheduledInterval,
@@ -47,12 +47,12 @@ class GraphScoringService {
     return best;
   }
 
-  static Future<void> updateGraphScores(String reviewedNoteFilename) async {
+  static Future<void> updateGraphScores(String traversedNoteFilename) async {
     try {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return;
 
-      final settings = await ReviewLogService.loadSettings();
+      final settings = await TraversalLogService.loadSettings();
       final minDeg = settings.minDegree;
       final maxDeg = settings.maxDegree;
 
@@ -66,7 +66,7 @@ class GraphScoringService {
         isProblemNoteMap[key] = note.isProblemNote;
       }
 
-      final reviewed = noteKey(reviewedNoteFilename);
+      final reviewed = noteKey(traversedNoteFilename);
 
       // BFS up to maxDeg; collect nodes keyed by exact hop distance.
       final hopNodes = <int, Set<String>>{};
@@ -89,7 +89,7 @@ class GraphScoringService {
 
       if (hopNodes.isEmpty) return;
 
-      final log = await ReviewLogService.loadFullLog();
+      final log = await TraversalLogService.loadFullLog();
       final today = DateTime.now().toIso8601String().substring(0, 10);
 
       final scoreUpdates =
@@ -116,7 +116,7 @@ class GraphScoringService {
         final activations = <String, List<String>>{
           for (final key in activationTargets.keys) key: [reviewed],
         };
-        await ReviewLogService.updateGraphState(
+        await TraversalLogService.updateGraphState(
           vaultPath,
           GraphStateUpdate(scores: scoreUpdates, activations: activations),
         );
@@ -129,7 +129,7 @@ class GraphScoringService {
     List<ResurfaceNote> notes,
   ) async {
     try {
-      final log = await ReviewLogService.loadFullLog();
+      final log = await TraversalLogService.loadFullLog();
       final today = DateTime.now();
       const neverReviewedDays = 365.0;
       final rng = math.Random();
@@ -141,15 +141,15 @@ class GraphScoringService {
         final key = noteKey(note.sourceFile);
         final e = log[key];
 
-        final rawDays = e?.lastReviewed != null
-            ? today.difference(e!.lastReviewed!).inDays.toDouble()
+        final rawDays = e?.lastTraversed != null
+            ? today.difference(e!.lastTraversed!).inDays.toDouble()
             : neverReviewedDays;
 
         // Late-penalty cap: if note is reviewed much later than its scheduled
         // interval, cap effective days to avoid permanent queue dominance.
         final scheduledInterval = e?.scheduledInterval;
         final effectiveDays = (scheduledInterval != null &&
-                e?.lastReviewed != null &&
+                e?.lastTraversed != null &&
                 rawDays > scheduledInterval * 1.5)
             ? scheduledInterval * 1.5
             : rawDays;

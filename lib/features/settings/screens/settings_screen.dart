@@ -9,7 +9,7 @@ import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
 import '../../rss/screens/rss_screen.dart';
 import '../../../shared/constants/app_theme.dart';
-import '../../resurface/services/review_log_service.dart';
+import '../../resurface/services/traversal_log_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -74,7 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _resurfaceExcludedController.text =
           config.resurfaceExcludedFolders.join(', '));
     }
-    final degreeSettings = await ReviewLogService.loadSettings();
+    final degreeSettings = await TraversalLogService.loadSettings();
     if (mounted) {
       setState(() {
         _minDegree = degreeSettings.minDegree;
@@ -100,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveDegreeSettings() async {
     setState(() { _degreeSaving = true; _degreeSaveStatus = null; });
-    await ReviewLogService.saveSettings(
+    await TraversalLogService.saveSettings(
       minDegree: _minDegree,
       maxDegree: _maxDegree,
     );

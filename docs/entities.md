@@ -45,6 +45,8 @@ WHY `collection`, not `category`/`alias`: `category:` is a Problem-Note property
 
 ## File format
 
+Entity files live in the vault root alongside other notes. The `Interesting/Entities/` directory is no longer created.
+
 ### Entity note — vault root `<filename>.md`
 
 ```markdown

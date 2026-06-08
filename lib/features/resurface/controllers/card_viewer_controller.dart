@@ -2,7 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
-import '../services/review_log_service.dart';
+import '../services/traversal_log_service.dart';
 
 /// Fires recordTraversal + updateGraphScores for each note shown.
 /// Instantiated when a deck opens; disposal is implicit (no resources held).
@@ -12,7 +12,7 @@ class TraversalSession {
     bool isProblemNote = false,
     double? scheduledInterval,
   }) {
-    ReviewLogService.recordTraversal(
+    TraversalLogService.recordTraversal(
       filename,
       isProblemNote: isProblemNote,
       scheduledInterval: scheduledInterval,

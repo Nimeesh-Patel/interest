@@ -22,8 +22,6 @@ class VaultService {
   }
 
   static Future<void> ensureVaultDirectories(String vaultPath) async {
-    final edir = Directory(entitiesPath(vaultPath));
-    if (!await edir.exists()) await edir.create(recursive: true);
     final tdir = Directory(templatesPath(vaultPath));
     if (!await tdir.exists()) await tdir.create(recursive: true);
     final tsdir = Directory(tasksPath(vaultPath));
@@ -50,9 +48,6 @@ class VaultService {
       }
     } catch (_) {}
   }
-
-  static String entitiesPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Entities');
 
   static String boardsPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Boards');

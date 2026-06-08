@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../features/entities/controllers/entity_list_controller.dart';
-import '../features/entities/models/collection.dart';
 import '../features/entities/models/entity.dart';
-import '../shared/constants/app_spacing.dart';
-import '../shared/constants/app_theme.dart';
-import '../shared/widgets/bottom_sheet_menu.dart';
-import '../shared/widgets/input_dialog.dart';
+import '../features/entities/screens/collections_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
@@ -18,6 +13,9 @@ import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 import 'sources_screen.dart';
+import '../shared/constants/app_theme.dart';
+import '../shared/utils/obsidian_launcher.dart';
+import '../shared/widgets/input_dialog.dart';
 import '../shared/widgets/quick_add_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -41,15 +39,9 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 
   bool _isLoading = true;
-  bool _isAddingCollection = false;
   String? _pendingDeeplinkNote;
   // Tabs: 0=Notes, 1=Collections, 2=Projects
   int _currentTab = 0;
-
-  final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _addController = TextEditingController();
-  final TextEditingController _newCollectionController = TextEditingController();
-  final FocusNode _addFocus = FocusNode();
 
   @override
   void initState() {
@@ -65,15 +57,6 @@ class _HomeScreenState extends State<HomeScreen> {
           await _deeplinkChannel.invokeMethod<String?>('getInitialDeeplinkNote');
       if (noteName != null && mounted) _openNoteFromDeeplink(noteName);
     });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _addController.dispose();
-    _newCollectionController.dispose();
-    _addFocus.dispose();
-    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -164,14 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .showSnackBar(SnackBar(content: Text(saveError ?? 'Saved to Bookmarks')));
   }
 
-  // ── Entity operations ─────────────────────────────────────────────────────
-
-  void _addEntity(String name) {
-    _controller.addEntity(name);
-    _addController.clear();
-  }
-
-  void _deleteEntity(Entity entity) => _controller.deleteEntity(entity);
+  // ── Entity navigation ─────────────────────────────────────────────────────
 
   Future<void> _openEntity(Entity entity) async {
     await Navigator.push(
@@ -183,10 +159,24 @@ class _HomeScreenState extends State<HomeScreen> {
           allEntities: _controller.entities,
           allCollections: _controller.collections,
           allTags: _controller.tags,
+          onOpenNonEntityNote: (path) async {
+            Navigator.of(context).pop();
+            setState(() => _currentTab = 0);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _resurfaceKey.currentState?.openNoteByPath(path);
+            });
+          },
         ),
       ),
     );
     await _controller.reloadData();
+  }
+
+  /// Called by ResurfaceScreen when openNoteByPath finds a note with collection:.
+  Future<void> _openEntityByPath(String filePath) async {
+    final matches = _controller.entities.where((e) => e.sourcePath == filePath);
+    if (matches.isEmpty) return;
+    await _openEntity(matches.first);
   }
 
   Future<void> _openTemplates() async {
@@ -202,358 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
     _controller.reloadData();
-  }
-
-  Future<void> _openObsidian() async {
-    final launched = await launchUrl(
-      Uri.parse('obsidian://'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Obsidian is not installed')),
-      );
-    }
-  }
-
-  // ── Collection operations ─────────────────────────────────────────────────
-
-  void _addCollection(String name) {
-    setState(() => _isAddingCollection = false);
-    _newCollectionController.clear();
-    _controller.addCollection(name);
-  }
-
-  void _showCollectionOptions(Collection category) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.edit,
-        label: 'Rename',
-        onTap: () => _showRenameCollection(category),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _deleteCollection(category),
-      ),
-    ]);
-  }
-
-  void _showRenameCollection(Collection category) async {
-    final name = await showInputDialog(context,
-      title: 'Rename collection',
-      initialValue: category.name,
-      confirmLabel: 'Rename',
-    );
-    if (name != null) _controller.renameCollection(category, name);
-  }
-
-  void _deleteCollection(Collection category) {
-    final error = _controller.deleteCollection(category);
-    if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
-    }
-  }
-
-  // ── Entities tab UI ───────────────────────────────────────────────────────
-
-  Widget _buildCollectionFilter() {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        children: [
-          _CollectionChip(
-            label: 'All',
-            selected: _controller.selectedCollectionId == null,
-            onTap: () => setState(() => _controller.selectedCollectionId = null),
-          ),
-          for (final cat in _controller.collections)
-            _CollectionChip(
-              label: cat.name,
-              selected: _controller.selectedCollectionId == cat.id,
-              onTap: () => setState(() => _controller.selectedCollectionId = cat.id),
-              onLongPress: () => _showCollectionOptions(cat),
-            ),
-          if (_isAddingCollection)
-            Container(
-              width: 140,
-              margin: const EdgeInsets.only(left: 4),
-              child: TextField(
-                controller: _newCollectionController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Collection name',
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                ),
-                textInputAction: TextInputAction.done,
-                onSubmitted: _addCollection,
-                onEditingComplete: () {},
-              ),
-            )
-          else
-            GestureDetector(
-              onTap: () => setState(() => _isAddingCollection = true),
-              child: Container(
-                margin: const EdgeInsets.only(left: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.add, size: 16, color: AppColors.textTertiary),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // Shown only when a specific collection is selected (see _buildEntitiesTab);
-  // when "All" is active, the FAB's Quick Add sheet (with a collection field) is
-  // the create path. No collection is ever invented.
-  Widget _buildAddBar() {
-    final catName = _controller.collections
-        .firstWhere(
-          (c) => c.id == _controller.selectedCollectionId,
-          orElse: () => Collection(id: '', name: 'collection'),
-        )
-        .name;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _addController,
-              focusNode: _addFocus,
-              decoration: InputDecoration(
-                hintText: 'Add to $catName…',
-                isDense: true,
-              ),
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.done,
-              onSubmitted: _addEntity,
-            ),
-          ),
-          const SizedBox(width: 6),
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            color: AppColors.textSecondary,
-            onPressed: () => _addEntity(_addController.text),
-            tooltip: 'Add note',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: TextField(
-        controller: _searchController,
-        decoration: InputDecoration(
-          hintText: 'Search…',
-          prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary),
-          suffixIcon: _controller.searchQuery.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _controller.searchQuery = '');
-                  },
-                )
-              : null,
-          isDense: true,
-        ),
-        textInputAction: TextInputAction.search,
-        onChanged: (v) => setState(() => _controller.searchQuery = v),
-      ),
-    );
-  }
-
-  static const _sortLabels = {
-    'latest': 'Latest',
-    'oldest': 'Oldest',
-    'high_score': 'Highest Score',
-    'low_score': 'Lowest Score',
-    'alpha': 'A–Z',
-    'alpha_rev': 'Z–A',
-  };
-
-  Widget _buildSortBar() {
-    final items = _controller.filtered;
-    final count = items.length;
-    final sortLabel = _sortLabels[_controller.sortOrder] ?? 'Latest';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 8),
-      child: Row(
-        children: [
-          Text(
-            '$count ${count == 1 ? "note" : "notes"}',
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: _showSortSheet,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(sortLabel,
-                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                const SizedBox(width: 2),
-                const Icon(Icons.unfold_more, size: 16, color: AppColors.textSecondary),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSortSheet() {
-    showBottomSheetMenu(context, items: [
-      for (final entry in _sortLabels.entries)
-        BottomSheetMenuItem(
-          icon: _controller.sortOrder == entry.key ? Icons.check : Icons.sort,
-          label: entry.value,
-          onTap: () => setState(() => _controller.sortOrder = entry.key),
-        ),
-    ]);
-  }
-
-  Widget _buildEntityList() {
-    final items = _controller.filtered;
-    if (items.isEmpty) {
-      return Center(
-        child: Text(
-          _controller.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: kFabListBottomPad),
-      itemCount: items.length,
-      itemBuilder: (ctx, i) {
-        final entity = items[i];
-        final catName = _controller.collections
-            .firstWhere((c) => c.id == entity.collectionId,
-                orElse: () => Collection(id: '', name: ''))
-            .name;
-        return GestureDetector(
-          onLongPress: () => _showEntityOptions(entity),
-          child: InkWell(
-            onTap: () => _openEntity(entity),
-            child: Container(
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 13),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(entity.name,
-                            style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.textPrimary)),
-                        const SizedBox(height: 3),
-                        Wrap(
-                          spacing: 6,
-                          children: [
-                            if (entity.score != null)
-                              Text(
-                                '★${entity.score!.toStringAsFixed(entity.score! % 1 == 0 ? 0 : 1)}',
-                                style: const TextStyle(
-                                    fontSize: 12, color: AppColors.score),
-                              ),
-                            if (catName.isNotEmpty)
-                              Text(catName,
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textSecondary)),
-                            for (final tag in entity.tags.take(2))
-                              Text('#$tag',
-                                  style: const TextStyle(
-                                      fontSize: 13, color: AppColors.accent)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _formatTimestamp(entity.updatedAt),
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textTertiary),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showEntityOptions(Entity entity) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _deleteEntity(entity),
-      ),
-    ]);
-  }
-
-  static String _formatTimestamp(int msEpoch) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(msEpoch);
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${months[dt.month - 1]} ${dt.day}';
-  }
-
-  Widget _buildEntitiesTab() {
-    return GestureDetector(
-      onTap: () {
-        if (_isAddingCollection) {
-          setState(() {
-            _isAddingCollection = false;
-            _newCollectionController.clear();
-          });
-        }
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildCollectionFilter(),
-          if (_controller.selectedCollectionId != null) _buildAddBar(),
-          _buildSearchBar(),
-          _buildSortBar(),
-          Expanded(child: _buildEntityList()),
-        ],
-      ),
-    );
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -622,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelected: (v) {
               if (v == 'settings') { _openSettings(); }
               else if (v == 'templates') { _openTemplates(); }
-              else if (v == 'obsidian') { _openObsidian(); }
+              else if (v == 'obsidian') { launchObsidianApp(context); }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'settings', child: Text('Settings')),
@@ -638,8 +276,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ResurfaceScreen(
             key: _resurfaceKey,
             onNavigationChanged: () => setState(() {}),
+            onOpenEntity: _openEntityByPath,
           ),
-          _buildEntitiesTab(),
+          CollectionsScreen(
+            controller: _controller,
+            onOpenEntity: _openEntity,
+          ),
           ProjectsScreen(key: _projectsKey),
         ],
       ),
@@ -690,46 +332,6 @@ class _HomeScreenState extends State<HomeScreen> {
               label: 'PROJECTS',
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CollectionChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-
-  const _CollectionChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.accentDim : Colors.transparent,
-          border: Border.all(
-            color: selected ? AppColors.accent : AppColors.border,
-          ),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? AppColors.accent : AppColors.textSecondary,
-            fontSize: 13,
-          ),
         ),
       ),
     );

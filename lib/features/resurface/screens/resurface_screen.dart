@@ -18,7 +18,7 @@ import '../models/problem_note.dart';
 import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/resurface_service.dart';
-import '../services/review_log_service.dart';
+import '../services/traversal_log_service.dart';
 import '../controllers/card_viewer_controller.dart';
 import '../../../shared/widgets/backlinks_section.dart';
 import '../../../shared/widgets/note_markdown.dart';
@@ -51,7 +51,15 @@ class ResurfaceScreen extends StatefulWidget {
   /// Called whenever the nav stack changes so HomeScreen can rebuild its AppBar.
   final VoidCallback? onNavigationChanged;
 
-  const ResurfaceScreen({super.key, this.onNavigationChanged});
+  /// Called when [openNoteByPath] determines a file has `collection:` frontmatter.
+  /// The receiver (HomeScreen) should push an EntityScreen for that path.
+  final Future<void> Function(String filePath)? onOpenEntity;
+
+  const ResurfaceScreen({
+    super.key,
+    this.onNavigationChanged,
+    this.onOpenEntity,
+  });
 
   @override
   State<ResurfaceScreen> createState() => ResurfaceScreenState();
@@ -228,6 +236,43 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     }
   }
 
+  /// Routes a vault file path to the correct viewer.
+  /// *** takes priority (card viewer); then collection: (EntityScreen via callback);
+  /// then plain note (NoteDetailScreen). Called by EntityScreen for non-entity links.
+  Future<void> openNoteByPath(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Note not found')),
+        );
+      }
+      return;
+    }
+
+    final note = await ResurfaceService.loadSingleNote(filePath);
+    if (note == null) return;
+
+    if (note.isProblemNote) {
+      await _pushDeck(p.basenameWithoutExtension(note.sourceFile), [note]);
+      return;
+    }
+
+    // Check collection: membership to decide whether EntityScreen should open.
+    try {
+      final content = await file.readAsString();
+      final fm = parseYamlMap(splitFrontmatter(content).frontmatter);
+      if (fm != null && fm.containsKey('collection')) {
+        widget.onOpenEntity?.call(filePath);
+        return;
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+    setState(() => _stack.add(_NoteDetailRoute(filePath)));
+    widget.onNavigationChanged?.call();
+  }
+
   void _reloadAfterEdit(String filePath) {
     if (_stack.last is _NoteDetailRoute) {
       setState(() => _detailVersion++);
@@ -250,7 +295,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     }
     // Non-*** note gained a separator → update is_star in log.
     if (!wasProblemNote && updated.isProblemNote) {
-      ReviewLogService.recordTraversal(
+      TraversalLogService.recordTraversal(
         p.basenameWithoutExtension(filePath),
         isProblemNote: true,
       );
@@ -302,7 +347,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
 
   Future<void> _pushDeck(String deckName, List<ResurfaceNote> starNotes) async {
     // Include activated non-*** notes that belong to this deck.
-    final log = await ReviewLogService.loadFullLog();
+    final log = await TraversalLogService.loadFullLog();
     final activatedPlain = _allNotes
         .where((n) => !n.isProblemNote)
         .where((n) {
@@ -428,7 +473,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (!confirmed || !mounted) return;
 
     try { await File(note.sourcePath).delete(); } catch (_) {}
-    await ReviewLogService.removeNote(p.basenameWithoutExtension(note.sourceFile));
+    await TraversalLogService.removeNote(p.basenameWithoutExtension(note.sourceFile));
 
     if (!mounted) return;
     setState(() {
