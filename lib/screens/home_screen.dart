@@ -18,7 +18,6 @@ import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 import 'sources_screen.dart';
-import '../features/home/screens/home_dashboard_screen.dart';
 import '../shared/widgets/quick_add_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -34,19 +33,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final _projectsKey = GlobalKey<ProjectsScreenState>();
   final _resurfaceKey = GlobalKey<ResurfaceScreenState>();
-  final _homeDashboardKey = GlobalKey<HomeDashboardScreenState>();
 
   late final _controller = EntityListController(
     onDataChanged: () {
       if (mounted) setState(() {});
-      _homeDashboardKey.currentState?.reload();
     },
   );
 
   bool _isLoading = true;
   bool _isAddingCollection = false;
   String? _pendingDeeplinkNote;
-  // Tabs: 0=Home, 1=Notes, 2=Entities, 3=Projects
+  // Tabs: 0=Notes, 1=Collections, 2=Projects
   int _currentTab = 0;
 
   final TextEditingController _searchController = TextEditingController();
@@ -111,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openNoteFromDeeplink(String rawName) {
     final decoded = Uri.decodeComponent(rawName);
-    setState(() => _currentTab = 1);
+    setState(() => _currentTab = 0);
     final state = _resurfaceKey.currentState;
     if (state != null) {
       state.openNoteByName(decoded);
@@ -561,15 +558,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
-  String _todayLabel() {
-    final now = DateTime.now();
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${months[now.month - 1]} ${now.day}';
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -577,15 +565,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final notesState = _resurfaceKey.currentState;
-    final notesCanGoBack = _currentTab == 1 && (notesState?.canGoBack ?? false);
-    final notesEditPath = _currentTab == 1 ? notesState?.currentEditFilePath : null;
-    final notesIsSearchable = _currentTab == 1 && (notesState?.isSearchable ?? false);
+    final notesCanGoBack = _currentTab == 0 && (notesState?.canGoBack ?? false);
+    final notesEditPath = _currentTab == 0 ? notesState?.currentEditFilePath : null;
+    final notesIsSearchable = _currentTab == 0 && (notesState?.isSearchable ?? false);
     final notesSearchActive = notesState?.isSearchActive ?? false;
 
     final tabTitle = switch (_currentTab) {
-      0 => 'Interest',
-      1 => notesState?.navTitle ?? 'Notes',
-      2 => 'Collections',
+      0 => notesState?.navTitle ?? 'Notes',
+      1 => 'Collections',
       _ => 'Projects',
     };
 
@@ -599,19 +586,6 @@ class _HomeScreenState extends State<HomeScreen> {
             : null,
         title: Text(tabTitle),
         actions: [
-          if (_currentTab == 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Center(
-                child: Text(
-                  _todayLabel(),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
           if (notesIsSearchable)
             IconButton(
               icon: Icon(notesSearchActive ? Icons.close : Icons.search),
@@ -661,23 +635,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _currentTab,
         children: [
-          HomeDashboardScreen(
-            key: _homeDashboardKey,
-            entities: _controller.entities,
-            collections: _controller.collections,
-            onBeginReview: () => setState(() => _currentTab = 1),
-            onEntityTap: _openEntity,
-            onAddTap: () => showQuickAddSheet(
-              context,
-              entities: _controller.entities,
-              collections: _controller.collections,
-              storage: _controller.storage,
-              onCreated: (entity) async {
-                await _controller.reloadData();
-                if (mounted) await _openEntity(entity);
-              },
-            ),
-          ),
           ResurfaceScreen(
             key: _resurfaceKey,
             onNavigationChanged: () => setState(() {}),
@@ -687,7 +644,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: switch (_currentTab) {
-        2 => _EntitiesFab(onTap: () => showQuickAddSheet(
+        1 => _EntitiesFab(onTap: () => showQuickAddSheet(
               context,
               entities: _controller.entities,
               collections: _controller.collections,
@@ -697,7 +654,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (mounted) await _openEntity(entity);
               },
             )),
-        3 => FloatingActionButton(
+        2 => FloatingActionButton(
             onPressed: () => _projectsKey.currentState?.showCreateDialog(context),
             tooltip: 'New project',
             child: const Icon(Icons.add),
@@ -711,17 +668,12 @@ class _HomeScreenState extends State<HomeScreen> {
         child: BottomNavigationBar(
           currentIndex: _currentTab,
           onTap: (i) {
-            if (i == 1 && _currentTab == 1) {
+            if (i == 0 && _currentTab == 0) {
               _resurfaceKey.currentState?.resetStack();
             }
             setState(() => _currentTab = i);
           },
           items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'HOME',
-            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.auto_stories_outlined),
               activeIcon: Icon(Icons.auto_stories),

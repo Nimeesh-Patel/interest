@@ -60,6 +60,8 @@ class ResurfaceScreen extends StatefulWidget {
 class ResurfaceScreenState extends State<ResurfaceScreen> {
   // problem note counts for deck list (only isProblemNote notes)
   List<ProblemNote> _problemNotes = [];
+  // Top-2 most recently modified notes for the Recent Notes section.
+  List<ResurfaceNote> _recentNotes = [];
   bool _loading = true;
   String? _error;
   String? _vaultPath;
@@ -109,6 +111,20 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       excludedFolders: config.resurfaceExcludedFolders,
     );
     if (!mounted) return;
+
+    // Sort by file modification time (newest first) to get Recent Notes.
+    final withStats = <({ResurfaceNote note, DateTime modified})>[];
+    for (final note in allNotes) {
+      try {
+        final stat = await File(note.sourcePath).stat();
+        withStats.add((note: note, modified: stat.modified));
+      } catch (_) {
+        withStats.add((note: note, modified: DateTime.fromMillisecondsSinceEpoch(0)));
+      }
+    }
+    withStats.sort((a, b) => b.modified.compareTo(a.modified));
+    final recentNotes = withStats.take(2).map((e) => e.note).toList();
+
     final problemNotes = allNotes
         .where((n) => n.isProblemNote)
         .map((n) => ProblemNote(
@@ -121,6 +137,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         .toList();
     setState(() {
       _allNotes = allNotes;
+      _recentNotes = recentNotes;
       _problemNotes = problemNotes;
       _loading = false;
     });
@@ -608,39 +625,56 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
             ),
         ],
 
-        // ── Browse Notes ──────────────────────────────────────────────────
+        // ── Recent Notes ──────────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-          child: SectionHeader(title: 'Browse Notes'),
+          child: SectionHeader(title: 'Recent Notes'),
         ),
         const Divider(height: 1),
-        for (final note in _allNotes)
-          Container(
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-            ),
-            child: InkWell(
-              onTap: () => _openSearchResult(note),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: kScreenHPad, vertical: 13),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        p.basenameWithoutExtension(note.sourceFile),
-                        style: AppTextStyles.entityName,
+        if (_recentNotes.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: kScreenHPad, vertical: 12),
+            child: Text('No notes found.', style: AppTextStyles.bodySmall),
+          )
+        else
+          for (final note in _recentNotes)
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: InkWell(
+                onTap: () => _openSearchResult(note),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: kScreenHPad, vertical: 13),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p.basenameWithoutExtension(note.sourceFile),
+                              style: AppTextStyles.entityName,
+                            ),
+                            if (note.decks.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(note.decks.first,
+                                  style: AppTextStyles.bodySmall),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
-                    if (note.isProblemNote)
-                      Text('✦',
-                          style: AppTextStyles.meta.copyWith(
-                              color: AppColors.accent, fontSize: 11)),
-                  ],
+                      if (note.isProblemNote)
+                        Text('✦',
+                            style: AppTextStyles.meta.copyWith(
+                                color: AppColors.accent, fontSize: 12)),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
       ],
     );
   }

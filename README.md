@@ -68,7 +68,7 @@ Books are the most complex ownership case. Multiple independent systems (Readwis
 
 ### Epistemic artifacts and resurfacing
 
-Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer (tab 1 — Notes) projects these pairs into a front/back card viewer with IBM Plex Serif typography. An **All Notes hero** card at the top of the deck list surfaces the total card count; a **Browse Notes** section below lists all vault notes regardless of card status. The **Home dashboard** (tab 0) surfaces the first prioritised card's question as a peek, and a "Worth Revisiting" section of entities weighted by score and recency. Notes are searchable by filename and body text. The inline note editor writes changes directly back to vault files, preserving frontmatter verbatim.
+Notes outside `Interesting/` are understood as **problem-oriented epistemic artifacts** — evolving documents that encode problem-situations, conjectures, and partial resolutions. The `***` horizontal rule in a note body is treated as a semantic separator between these two sides. The resurfacing viewer (tab 0 — Notes) projects these pairs into a front/back card viewer with IBM Plex Serif typography. An **All Notes hero** card at the top of the deck list surfaces the total card count; a **Recent Notes** section below shows the two most recently modified vault notes (sorted by filesystem modification time). Notes are searchable by filename and body text. The inline note editor writes changes directly back to vault files, preserving frontmatter verbatim.
 
 ---
 
@@ -76,10 +76,9 @@ Notes outside `Interesting/` are understood as **problem-oriented epistemic arti
 
 | Subsystem | Directory | Role |
 |---|---|---|
-| Home dashboard | `lib/features/home/` | Daily entry point (tab 0); card-peek hero, Worth Revisiting entities, recent notes, persistent Quick Add FAB |
 | Entities + graph | `Interesting/Entities/` | Core semantic graph; canonical node objects |
 | Projects | `Interesting/Projects/` | Flexible semantic workspaces; unified from Lists + Tasks |
-| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes (tab 1); activation model; graph-score + time-decay sort; full-text search; inline note editor; IBM Plex Serif card rendering; All Notes hero + Browse Notes list |
+| Notes / Resurface | vault-wide | Deck viewer for `***`-separated notes (tab 0); activation model; graph-score + time-decay sort; full-text search; inline note editor; IBM Plex Serif card rendering; All Notes hero + Recent Notes list |
 | AnkiDroid | Sources screen | Push problem notes to AnkiDroid via ContentProvider; `anki_note_id` written back to frontmatter |
 | Books | `Interesting/Books/` | Convergence objects enriched by Readwise, Hardcover, ReadEra |
 | Readwise | → Books | Highlight ingestion; patches Readwise-owned fields only |
@@ -110,8 +109,6 @@ lib/
   shared/constants/        — app_spacing.dart, app_theme.dart (AppColors + ThemeData),
                              app_text_styles.dart (AppTextStyles — IBM Plex Sans/Serif named getters)
   features/
-    home/                  — HomeDashboardScreen (tab 0): card-peek hero, Worth Revisiting, recent notes,
-                             persistent Quick Add FAB; loads from ResurfaceService + MarkdownStorageService
     entities/              — core storage (MarkdownStorageService), Entity, EntityScreen (inline note edit,
                              always-visible + Add note / + Link, Done AppBar button on unsaved changes);
                              services/entity_file_parser.dart (parse entity .md → Entity),
@@ -130,12 +127,12 @@ lib/
                              services/ankidroid_sync_controller.dart (orchestrates load + sync),
                              ReviewLogService (review_log.md owner), GraphScoringService (BFS + decay),
                              controllers/card_viewer_controller.dart (queue, position, TraversalSession),
-                             ResurfaceScreen (All Notes hero + deck list + Browse Notes + card viewer),
+                             ResurfaceScreen (All Notes hero + deck list + Recent Notes + card viewer),
                              screens/_backlinks_section.dart (backlinks widget for note detail),
                              NoteDetailScreen (note body viewer),
                              NoteEditScreen (note editor; writes vault files)
     templates/, settings/  — self-contained, no MarkdownStorageService dependency
-  screens/home_screen.dart    — BottomNavigationBar shell (four tabs: Home, Notes, Entities, Projects);
+  screens/home_screen.dart    — BottomNavigationBar shell (three tabs: Notes, Collections, Projects);
                                 AppBar: sensors → Sources, popup → Settings / Templates
   screens/sources_screen.dart — Sources Inbox (Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid rows;
                                  Sync all button)
