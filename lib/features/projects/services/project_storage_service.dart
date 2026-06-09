@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../models/project_file.dart';
 
 class ProjectMeta {
@@ -24,17 +25,12 @@ class ProjectStorageService {
       VaultService.listsPath(vaultPath),
       VaultService.tasksPath(vaultPath),
     ]) {
-      try {
-        final dir = Directory(dirPath);
-        if (!await dir.exists()) continue;
-        await for (final entry in dir.list()) {
-          if (entry is! File || !entry.path.endsWith('.md')) continue;
-          try {
-            final content = await entry.readAsString();
-            results.add(_parse(entry.path, content));
-          } catch (_) {}
-        }
-      } catch (_) {}
+      await for (final entry in VaultScanner.scan(dirPath, recursive: false)) {
+        try {
+          final content = await entry.readAsString();
+          results.add(_parse(entry.path, content));
+        } catch (_) {}
+      }
     }
     results.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return results;
@@ -50,12 +46,7 @@ class ProjectStorageService {
       VaultService.tasksPath(vaultPath),
     ]) {
       try {
-        final dir = Directory(srcPath);
-        if (!await dir.exists()) continue;
-        final files = <File>[];
-        await for (final entry in dir.list()) {
-          if (entry is File && entry.path.endsWith('.md')) files.add(entry);
-        }
+        final files = await VaultScanner.scan(srcPath, recursive: false).toList();
         for (final file in files) {
           try {
             final dest = _uniqueDestPath(projectsDir, p.basename(file.path));

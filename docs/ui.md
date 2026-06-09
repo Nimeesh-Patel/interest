@@ -191,9 +191,9 @@ Used in Home (Worth Revisiting) and Collections tab. Layout per row:
 ## Notes / Decks screen layout
 
 **Deck list (DeckListRoute):**
-1. **All Notes hero** — surface card with `borderMid` border, radius 10: `✦` (16px accent) + "All Notes" (w600 16px) + "N cards to review" (13px `textSecondary`) + `arrow_forward_ios` right
+1. **All Notes hero** — surface card with `borderMid` border, radius 10: `✦` (16px accent) + "All Notes" (w600 16px) + "N problem notes to review" (13px `textSecondary`) + `arrow_forward_ios` right
 2. **DECKS section** (named decks only, if any): `✦` glyph (11px `textTertiary`) + deck name (500 15px) + count + `arrow_forward_ios`
-3. **BROWSE NOTES section**: all vault notes, filename (15px) + `✦` right (11px accent) if `hasCard`
+3. **RECENT NOTES section**: top-2 most recently modified vault notes, filename (15px) + first deck below (13px) + `✦` right (12px accent) if `isProblemNote`
 
 ---
 

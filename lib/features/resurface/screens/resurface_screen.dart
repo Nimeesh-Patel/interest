@@ -157,7 +157,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   String get navTitle => switch (_stack.last) {
         _DeckListRoute() => 'Notes',
         _CardViewerRoute(deckName: final n) => n,
-        _NoteDetailRoute(filePath: final fp) => _basenameWithoutExt(fp),
+        _NoteDetailRoute(filePath: final fp) => p.basenameWithoutExtension(fp),
       };
 
   bool get canGoBack => _stack.length > 1;
@@ -205,17 +205,16 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   }
 
   /// Called by HomeScreen when an interest://note deep link arrives.
-  /// Routes problem notes to the card viewer, plain notes to the detail screen.
+  /// In-memory hit routes immediately; otherwise falls back to a vault-wide
+  /// filename scan and [openNoteByPath].
   Future<void> openNoteByName(String name) async {
     final lower = name.toLowerCase();
-    final note = _allNotes
-        .where((n) => p.basenameWithoutExtension(n.sourceFile).toLowerCase() == lower)
-        .firstOrNull;
+    final note =
+        _allNotes.where((n) => noteKey(n.sourceFile) == lower).firstOrNull;
     if (note != null) {
-      _openSearchResult(note);
+      await _routeNote(note);
       return;
     }
-    // Fast vault-wide filename scan — no file content parsing.
     final vaultPath = _vaultPath ?? await VaultService.getVaultPath();
     if (vaultPath == null || !mounted) return;
     final path = await ResurfaceService.resolveWikilink(vaultPath, name);
@@ -226,22 +225,13 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       );
       return;
     }
-    final loaded = await ResurfaceService.loadSingleNote(path);
-    if (!mounted) return;
-    if (loaded != null) {
-      _openSearchResult(loaded);
-    } else {
-      setState(() => _stack.add(_NoteDetailRoute(path)));
-      widget.onNavigationChanged?.call();
-    }
+    await openNoteByPath(path);
   }
 
-  /// Routes a vault file path to the correct viewer.
-  /// *** takes priority (card viewer); then collection: (EntityScreen via callback);
-  /// then plain note (NoteDetailScreen). Called by EntityScreen for non-entity links.
+  /// Canonical router for opening any vault note by file path.
+  /// Loads the note, then delegates to [_routeNote].
   Future<void> openNoteByPath(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) {
+    if (!await File(filePath).exists()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Note not found')),
@@ -249,27 +239,27 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       }
       return;
     }
-
     final note = await ResurfaceService.loadSingleNote(filePath);
-    if (note == null) return;
+    if (note == null || !mounted) return;
+    await _routeNote(note);
+  }
 
+  /// The single routing decision for an already-loaded note:
+  /// `***` takes priority (card viewer); then `collection:` (EntityScreen via
+  /// [ResurfaceScreen.onOpenEntity]); then plain note (NoteDetailScreen).
+  /// Every open-note path — deep link, search result, Recent Notes row,
+  /// wikilink tap, EntityScreen callback — converges here.
+  Future<void> _routeNote(ResurfaceNote note) async {
     if (note.isProblemNote) {
       await _pushDeck(p.basenameWithoutExtension(note.sourceFile), [note]);
       return;
     }
-
-    // Check collection: membership to decide whether EntityScreen should open.
-    try {
-      final content = await file.readAsString();
-      final fm = parseYamlMap(splitFrontmatter(content).frontmatter);
-      if (fm != null && fm.containsKey('collection')) {
-        widget.onOpenEntity?.call(filePath);
-        return;
-      }
-    } catch (_) {}
-
+    if (note.hasCollection && widget.onOpenEntity != null) {
+      await widget.onOpenEntity!(note.sourcePath);
+      return;
+    }
     if (!mounted) return;
-    setState(() => _stack.add(_NoteDetailRoute(filePath)));
+    setState(() => _stack.add(_NoteDetailRoute(note.sourcePath)));
     widget.onNavigationChanged?.call();
   }
 
@@ -351,7 +341,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     final activatedPlain = _allNotes
         .where((n) => !n.isProblemNote)
         .where((n) {
-          final e = log[p.basenameWithoutExtension(n.sourceFile)];
+          final e = log[noteKey(n.sourceFile)];
           return e != null && e.activatedBy.isNotEmpty;
         })
         .where((n) => _noteBelongsToDeck(n, deckName))
@@ -390,8 +380,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
       );
       return;
     }
-    setState(() => _stack.add(_NoteDetailRoute(path)));
-    widget.onNavigationChanged?.call();
+    await openNoteByPath(path);
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -420,25 +409,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     return '';
   }
 
-  void _openSearchResult(ResurfaceNote note) {
-    if (note.isProblemNote) {
-      _pushDeck(
-        p.basenameWithoutExtension(note.sourceFile),
-        [note],
-      );
-    } else {
-      setState(() => _stack.add(_NoteDetailRoute(note.sourcePath)));
-      widget.onNavigationChanged?.call();
-    }
-  }
-
   // ── Deck list helpers ─────────────────────────────────────────────────────
-
-  String _basenameWithoutExt(String filePath) {
-    final base = p.basename(filePath);
-    final dot = base.lastIndexOf('.');
-    return dot > 0 ? base.substring(0, dot) : base;
-  }
 
   List<_DeckInfo> get _deckItems {
     final named = <String, int>{};
@@ -569,7 +540,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
             trailing: note.isProblemNote
                 ? const Text('✦', style: TextStyle(color: AppColors.accent, fontSize: 12))
                 : null,
-            onTap: () => _openSearchResult(note),
+            onTap: () => _routeNote(note),
           ),
         );
       },
@@ -689,7 +660,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
                 border: Border(bottom: BorderSide(color: AppColors.border)),
               ),
               child: InkWell(
-                onTap: () => _openSearchResult(note),
+                onTap: () => _routeNote(note),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: kScreenHPad, vertical: 13),
@@ -771,11 +742,6 @@ class _NoteViewerBody extends StatelessWidget {
     this.onDeleteNote,
   });
 
-  String _stripExtension(String filename) {
-    final dot = filename.lastIndexOf('.');
-    return dot > 0 ? filename.substring(0, dot) : filename;
-  }
-
   Widget _mdBody(BuildContext context, String data, {Color? textColor}) =>
       noteMarkdownBody(
         context,
@@ -829,7 +795,7 @@ class _NoteViewerBody extends StatelessWidget {
                     ],
                   ] else ...[
                     MarkdownBody(
-                      data: '# ${_stripExtension(note.sourceFile)}',
+                      data: '# ${p.basenameWithoutExtension(note.sourceFile)}',
                       styleSheet: noteMarkdownStyle(context),
                     ),
                     const SizedBox(height: 16),

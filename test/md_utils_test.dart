@@ -83,11 +83,11 @@ void main() {
       expect(extractWikilinks('See [[Alpha]] and [[Beta]].'), ['Alpha', 'Beta']);
     });
 
-    test('extracts piped wikilinks — returns full [[target|display]] group 1', () {
-      // extractWikilinks uses _wikilinkRegex which captures everything inside [[ ]]
-      // including the pipe and display: "Target|Display"
+    test('extracts piped wikilinks — strips |alias, returns the target', () {
+      // Backlink matching compares targets to noteKeys, so the alias must
+      // not leak into the extracted name.
       final links = extractWikilinks('[[Note|Alias]]');
-      expect(links, ['Note|Alias']);
+      expect(links, ['Note']);
     });
 
     test('returns empty list when no wikilinks', () {
@@ -182,6 +182,20 @@ void main() {
   });
 
   // ── slugify ─────────────────────────────────────────────────────────────────
+
+  group('noteKey', () {
+    test('lowercases the basename and strips the extension', () {
+      expect(noteKey('vault/Sub/My Note.md'), 'my note');
+    });
+
+    test('handles a bare filename', () {
+      expect(noteKey('My Note.md'), 'my note');
+    });
+
+    test('keeps interior dots in the name', () {
+      expect(noteKey('vault/Ch. 5 Notes.md'), 'ch. 5 notes');
+    });
+  });
 
   group('slugify', () {
     test('lowercases and replaces spaces with hyphens', () {

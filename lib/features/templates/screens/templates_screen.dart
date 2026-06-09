@@ -6,6 +6,7 @@ import '../../../shared/constants/app_spacing.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/input_dialog.dart';
 import 'template_editor_screen.dart';
@@ -43,28 +44,25 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         if (mounted) setState(() => _loading = false);
         return;
       }
-      final tdir = Directory(VaultService.templatesPath(vaultPath));
       final templates = <_TemplateInfo>[];
-
-      if (await tdir.exists()) {
-        final all = await tdir.list().toList();
-        for (final f in all.whereType<File>().where((f) => f.path.endsWith('.md'))) {
-          try {
-            final content = await f.readAsString();
-            final category = parseYamlMap(splitFrontmatter(content).frontmatter)
-                    ?['category']
-                    ?.toString() ??
-                '';
-            final filename = p.basename(f.path);
-            final displayName = _toDisplayName(p.basenameWithoutExtension(f.path));
-            templates.add((
-              filename: filename,
-              displayName: displayName,
-              category: category,
-              filePath: f.path,
-            ));
-          } catch (_) {}
-        }
+      await for (final f in VaultScanner.scan(
+          VaultService.templatesPath(vaultPath),
+          recursive: false)) {
+        try {
+          final content = await f.readAsString();
+          final category = parseYamlMap(splitFrontmatter(content).frontmatter)
+                  ?['category']
+                  ?.toString() ??
+              '';
+          final filename = p.basename(f.path);
+          final displayName = _toDisplayName(p.basenameWithoutExtension(f.path));
+          templates.add((
+            filename: filename,
+            displayName: displayName,
+            category: category,
+            filePath: f.path,
+          ));
+        } catch (_) {}
       }
 
       templates.sort((a, b) => a.displayName.compareTo(b.displayName));

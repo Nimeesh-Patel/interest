@@ -3,6 +3,10 @@ class ResurfaceNote {
   final String sourceFile;
   final String body;
   final bool isProblemNote;
+
+  /// True when the note has `collection:` frontmatter (i.e. it is also an
+  /// Entity). Used only for viewer routing — orthogonal to [isProblemNote].
+  final bool hasCollection;
   final String? front;
   final String? back;
   final List<String> decks;
@@ -15,6 +19,7 @@ class ResurfaceNote {
     required this.sourceFile,
     required this.body,
     required this.isProblemNote,
+    this.hasCollection = false,
     this.front,
     this.back,
     this.decks = const [],

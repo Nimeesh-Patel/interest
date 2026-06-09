@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/markdown/vault_scanner.dart';
+import '../../entities/services/entity_file_parser.dart';
 import '../models/resurface_note.dart';
 
 class ResurfaceService {
@@ -26,7 +27,7 @@ class ResurfaceService {
         vaultPath,
         excludedFolders: const <String>{},
       )) {
-        if (p.basenameWithoutExtension(entry.path).toLowerCase() == target) {
+        if (noteKey(entry.path) == target) {
           return entry.path;
         }
       }
@@ -108,6 +109,7 @@ class ResurfaceService {
         sourceFile: p.basename(file.path),
         body: split.body,
         isProblemNote: fb != null,
+        hasCollection: EntityFileParser.isEntityFrontmatter(yaml),
         front: fb?.front,
         back: fb?.back,
         decks: parseDeckMetadata(split.frontmatter),

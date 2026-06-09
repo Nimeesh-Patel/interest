@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/vault_scanner.dart';
 import '../../readera/models/readera_highlight.dart';
 import '../models/book.dart';
 
@@ -11,13 +12,9 @@ class BookStorageService {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   static Future<List<Book>> loadBooks(String vaultPath) async {
-    final dir = Directory(VaultService.booksPath(vaultPath));
-    if (!await dir.exists()) return [];
-
     final books = <Book>[];
-    await for (final entity in dir.list()) {
-      if (entity is! File) continue;
-      if (!entity.path.endsWith('.md')) continue;
+    await for (final entity
+        in VaultScanner.scan(VaultService.booksPath(vaultPath), recursive: false)) {
       try {
         final content = await entity.readAsString();
         final split = splitFrontmatter(content);

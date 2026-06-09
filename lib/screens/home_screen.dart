@@ -172,10 +172,15 @@ class _HomeScreenState extends State<HomeScreen> {
     await _controller.reloadData();
   }
 
-  /// Called by ResurfaceScreen when openNoteByPath finds a note with collection:.
+  /// Called by ResurfaceScreen when its note router finds `collection:`.
+  /// Reloads once on a miss so entities created outside the app still resolve.
   Future<void> _openEntityByPath(String filePath) async {
-    final matches = _controller.entities.where((e) => e.sourcePath == filePath);
-    if (matches.isEmpty) return;
+    var matches = _controller.entities.where((e) => e.sourcePath == filePath);
+    if (matches.isEmpty) {
+      await _controller.reloadData();
+      matches = _controller.entities.where((e) => e.sourcePath == filePath);
+      if (matches.isEmpty) return;
+    }
     await _openEntity(matches.first);
   }
 

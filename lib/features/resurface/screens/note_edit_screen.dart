@@ -8,6 +8,7 @@ import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/note_markdown.dart';
 
 enum _EditMode { structured, plain, fullEdit }
 
@@ -239,19 +240,6 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     ]);
   }
 
-  // ── Markdown style (mirrors NoteDetailScreen) ─────────────────────────────
-
-  MarkdownStyleSheet _mdStyle(BuildContext context) {
-    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-      h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, height: 1.3, letterSpacing: -0.3, color: AppColors.textPrimary),
-      h2: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.35, color: AppColors.textPrimary),
-      h3: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.4, color: AppColors.textPrimary),
-      p: const TextStyle(fontSize: 16, height: 1.6, color: AppColors.textPrimary),
-      listBullet: const TextStyle(fontSize: 16, height: 1.6, color: AppColors.textPrimary),
-      a: const TextStyle(color: AppColors.accent, decoration: TextDecoration.none),
-    );
-  }
-
   // ── UI builders ───────────────────────────────────────────────────────────
 
   Widget _buildSection(
@@ -305,7 +293,8 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           : _bodyController.text;
       return SingleChildScrollView(
         padding: const EdgeInsets.all(kScreenHPad),
-        child: MarkdownBody(data: previewText, styleSheet: _mdStyle(context)),
+        child: MarkdownBody(
+            data: previewText, styleSheet: noteMarkdownStyle(context)),
       );
     }
 
@@ -377,7 +366,6 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                 onTap: () => _wrapOrInsert('<u>', '</u>')),
             _ToolbarBtn(label: '—', onTap: () => _insertAtCursor('\n---\n')),
             _ToolbarBtn(label: 'T', onTap: _showHeadingSheet),
-            _ToolbarBtn(label: 'Tт', onTap: null),
             _ToolbarBtn(label: '+', onTap: _showInsertSheet),
           ],
         ),

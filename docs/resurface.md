@@ -26,17 +26,17 @@ Vault-wide semantic notes layer. `ResurfaceService` scans every `.md` file in th
 
 ## Note classification
 
-Every note that passes folder exclusions becomes a `ResurfaceNote` with `hasCard` computed at scan time.
+Every note that passes folder exclusions becomes a `ResurfaceNote` with `isProblemNote` and `hasCollection` computed at scan time. `hasCollection` mirrors `EntityFileParser.isEntityFrontmatter` and exists only for viewer routing — it is orthogonal to `isProblemNote`.
 
-### `***` notes (`hasCard: true`)
+### `***` notes (`isProblemNote: true`)
 
-A note has `hasCard: true` when its body (after frontmatter strip) contains a line matching `^\*{3,}\s*$` outside a code fence, with non-empty content on both sides. These notes are called **star notes** (`is_star: true` in the review log). They surface directly in the deck list and card viewer.
+A note has `isProblemNote: true` when its body (after frontmatter strip) contains a line matching `^\*{3,}\s*$` outside a code fence, with non-empty content on both sides. These are **problem notes** (persisted as `is_star: true` in the review log — the YAML key survives for backward compatibility). They surface directly in the deck list and card viewer.
 
-### Non-`***` notes (`hasCard: false`)
+### Non-`***` notes (`isProblemNote: false`)
 
-A non-`***` note is ineligible for the review queue by default. It becomes **activated** — eligible for the queue — when at least one star note within the configured degree range has been reviewed. Activation is tracked in `review_log.md` via the `activated_by` field.
+A non-`***` note is ineligible for the review queue by default. It becomes **activated** — eligible for the queue — when at least one problem note within the configured degree range has been traversed. Activation is tracked in `review_log.md` via the `activated_by` field.
 
-**`is_star` in the log:** set to `true` when a note is reviewed from the card viewer (`markReviewed(..., isStar: true)`). Set to `false` when a non-star note is created as an activation entry. If a non-star note gains a `***` separator (user edits), `is_star` is updated to `true` and `activated_by` is cleared — the note becomes independently scheduled from that point.
+**`is_star` in the log:** set to `true` when a note is traversed from the card viewer (`recordTraversal(..., isProblemNote: true)`). Set to `false` when a plain note is created as an activation entry. If a plain note gains a `***` separator (user edits), `is_star` is updated to `true` and `activated_by` is cleared — the note becomes independently scheduled from that point.
 
 ---
 
@@ -61,11 +61,11 @@ Parsed via `parseDeckMetadata()` in `md_utils.dart`; absent → `[]`.
 **Decks are projection labels, not ownership containers.** A note belongs to its file; decks only filter the viewer display.
 
 The deck list always contains:
-1. **All Notes** — all star notes regardless of `deck:` metadata
-2. **Default** — star notes with `decks: []`; shown only if any exist
+1. **All Notes** — all problem notes regardless of `deck:` metadata
+2. **Default** — problem notes with `decks: []`; shown only if any exist
 3. Named decks, A→Z, with counts
 
-When a deck is opened, **activated non-star notes** that match the deck filter are merged into the queue alongside star notes, then sorted by priority.
+When a deck is opened, **activated plain notes** that match the deck filter are merged into the queue alongside problem notes, then sorted by priority.
 
 ---
 
@@ -77,12 +77,15 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 **Resolution:** `ResurfaceService.resolveWikilink(vaultPath, targetName)` searches the whole vault recursively (no folder exclusions) for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first match's absolute path, or `null`.
 
-**In-app navigation** (`_handleWikilinkTap`): a successful tap always pushes a `_NoteDetailRoute` onto `ResurfaceScreenState`'s internal stack — the plain note viewer — regardless of whether the target note has a `***` separator. Rationale: wikilink traversal is a reading/context path, not a review session. No match shows a `SnackBar`. Multiple wikilink hops accumulate as stacked routes; back pops one level at a time. Tapping the Notes tab icon calls `resetStack()`, collapsing to the deck list in one tap.
-
-**Deep links from AnkiDroid** (`openNoteByName`, called from `HomeScreen._openNoteFromDeeplink`): when an `interest://note/<name>` URI arrives, the note name is already decoded by Android's `Uri.lastPathSegment` — no additional decoding in Flutter. Resolution is two-step: (1) case-insensitive scan of `_allNotes` already in memory; (2) fallback to `ResurfaceService.resolveWikilink()` for a full vault scan. Routing after resolution differs from in-app taps:
-- problem note (`***`) → `_CardViewerRoute` (card viewer, in review session)
+**Unified routing** (`ResurfaceScreenState._routeNote`): every open-note path — wikilink tap (`_handleWikilinkTap`), search result tap, Recent Notes row tap, deep link (`openNoteByName`), and `EntityScreen`'s non-entity-link callback (`openNoteByPath`) — converges on one routing decision for the loaded note:
+- problem note (`***`) → `_CardViewerRoute` (single-note deck; `***` takes priority over `collection:`)
+- `collection:` present → `onOpenEntity` callback → HomeScreen pushes `EntityScreen` (falls back to `_NoteDetailRoute` if no callback is wired)
 - plain note → `_NoteDetailRoute` (plain viewer)
 - not found → `SnackBar` "Note not found: \<name\>"
+
+Multiple hops accumulate as stacked routes; back pops one level at a time. Tapping the Notes tab icon calls `resetStack()`, collapsing to the deck list in one tap.
+
+**Deep links from AnkiDroid** (`openNoteByName`, called from `HomeScreen._openNoteFromDeeplink`): when an `interest://note/<name>` URI arrives, the note name is already decoded by Android's `Uri.lastPathSegment` — no additional decoding in Flutter. Resolution is two-step: (1) `noteKey` scan of `_allNotes` already in memory; (2) fallback to `ResurfaceService.resolveWikilink()` for a full vault scan, then `openNoteByPath`.
 
 ---
 
@@ -114,21 +117,19 @@ A formatting toolbar (44px, pinned above keyboard) in structured and plain modes
 
 A search icon appears in HomeScreen's AppBar when the deck list is showing and the vault is loaded. Tapping toggles `_searchActive`.
 
-**Scope:** all `_allNotes` — every vault note that passed folder exclusions, regardless of `hasCard`.
+**Scope:** all `_allNotes` — every vault note that passed folder exclusions, regardless of `isProblemNote`.
 
 **Match criteria:** case-insensitive; matches the filename (without extension) or any line of the note body.
 
-**Result rendering:** filename as title, first matching body snippet as subtitle, `✦` icon for star notes.
+**Result rendering:** filename as title, first matching body snippet as subtitle, `✦` icon for problem notes.
 
-**Tapping a result:**
-- Star note → `_pushDeck` with the single matched note
-- Plain note → `_NoteDetailRoute` to `NoteDetailScreen`
+**Tapping a result:** routes through `_routeNote` (see Unified routing above).
 
 ---
 
 ## Review logging
 
-`ReviewLogService` is the sole owner of `Interesting/System/review_log.md`. No other file reads or writes this file.
+`TraversalLogService` is the sole writer of `Interesting/System/review_log.md`. (`GraphScoringService` and `ResurfaceScreenState` read through its API; nothing else touches the file.) The internal Dart vocabulary is "traversal" (`lastTraversed`, `recordTraversal`); the YAML keys `last_reviewed` and `is_star` are preserved for backward compatibility with existing vault files.
 
 ### File format
 
@@ -158,8 +159,8 @@ reviews:
 
 | Field | Type | Default | Owner |
 |---|---|---|---|
-| `min_degree` | int | 2 | `ReviewLogService.saveSettings()` |
-| `max_degree` | int | 3 | `ReviewLogService.saveSettings()` |
+| `min_degree` | int | 2 | `TraversalLogService.saveSettings()` |
+| `max_degree` | int | 3 | `TraversalLogService.saveSettings()` |
 
 Read by `GraphScoringService` before each BFS traversal. Configurable in Settings → Resurface → "Graph neighbour range".
 
@@ -176,9 +177,9 @@ Read by `GraphScoringService` before each BFS traversal. Configurable in Setting
 | `scheduled_interval` | float or omitted | Pre-noise priority score at time of last review; used by `GraphScoringService` as a late-penalty cap — if actual days since review exceed `scheduled_interval × 1.5`, effective days are capped to prevent permanent queue dominance |
 
 **Who writes what:**
-- `recordTraversal(filename, isStar:, scheduledInterval:)` — updates `last_reviewed`, `is_star`, and `scheduled_interval`; clears `activated_by` if promoting from non-star to star
+- `recordTraversal(filename, isProblemNote:, scheduledInterval:)` — updates `last_reviewed`, `is_star`, and `scheduled_interval`; clears `activated_by` if promoting from plain note to problem note
 - `patchGraphScores(updates)` — updates `graph_score`, `last_boosted`, `is_star`
-- `activateNotes(reviewedStarNote, targets)` — appends to `activated_by`; creates entries for notes not yet in the log
+- `activateNotes(traversedStarNote, targets)` — appends to `activated_by`; creates entries for notes not yet in the log
 - `saveSettings(minDegree:, maxDegree:)` — updates the `settings:` section; preserves all entries
 
 **Failure semantics:** if the file is missing or malformed, all methods return empty state and the app continues unaffected. No method throws.
@@ -201,14 +202,14 @@ After an AnkiDroid session, Interest's queue will treat drilled notes as unvisit
 
 ### Graph construction
 
-Called once per `updateGraphScores(reviewedNoteFilename)` invocation. No caching.
+Called once per `updateGraphScores(traversedNoteFilename)` invocation. No caching.
 
 ```dart
 for each note in ResurfaceService.getAllNotes(vaultPath):
-  graph[normalise(note.sourceFile)] = extractWikilinks(note.body).map(normalise)
+  graph[noteKey(note.sourceFile)] = extractWikilinks(note.body).map(lowercase)
 ```
 
-Normalisation: lowercase, strip `.md` extension. A parallel `normalToOrig` map preserves original casing for writing back to the log.
+All graph nodes, log entries, and priority-map keys use `noteKey()` (lowercase basename without extension) — the canonical note identity function in `md_utils.dart`.
 
 ### BFS traversal
 
@@ -224,7 +225,7 @@ for d in 1..maxDegree:
 
 All nodes in `hopNodes[d]` receive a score boost of `kBaseBoost / d`.
 
-Nodes in `hopNodes[d]` where `d >= minDegree` are **activation-eligible**: if they are non-star notes, `reviewedNoteFilename` is appended to their `activated_by`.
+Nodes in `hopNodes[d]` where `d >= minDegree` are **activation-eligible**: if they are plain notes, the traversed note's key is appended to their `activated_by`.
 
 ### Constants
 
@@ -243,9 +244,9 @@ decayedScore = rawScore × e^(−λ × daysSinceLastBoosted)
 
 where `daysSinceLastBoosted = today − last_boosted` in integer days. Returns `0.0` if `last_boosted` is null.
 
-### Activation model for non-star notes
+### Activation model for plain notes
 
-A non-star note N is activation-eligible when it falls in the hop range `[minDegree, maxDegree]` from a reviewed star note P. When activated, P is appended to N's `activated_by` list. N enters the review queue on the next deck open, alongside star notes.
+A plain note N is activation-eligible when it falls in the hop range `[minDegree, maxDegree]` from a traversed problem note P. When activated, P is appended to N's `activated_by` list. N enters the review queue on the next deck open, alongside problem notes.
 
 If N has multiple activating parents in `activated_by`, its priority uses the **maximum** decayed score across all parents:
 
@@ -257,14 +258,14 @@ parent_score = max(decayedScore(P) for P in activated_by)
 
 ## Sort priority
 
-Both star notes and activated non-star notes share the same descending-priority queue.
+Both problem notes and activated plain notes share the same descending-priority queue.
 
-**Star note priority:**
+**Problem note priority:**
 ```
 priority = daysSinceReview + decayedScore(graph_score, last_boosted)
 ```
 
-**Non-star note priority:**
+**Plain note priority:**
 ```
 priority = daysSinceReview + max_parent_score
 ```
@@ -344,8 +345,8 @@ An `open_in_new` icon button appears in HomeScreen's AppBar whenever a note is b
 
 - `ResurfaceService` never writes any file.
 - `NoteEditScreen` writes only to the file path it receives.
-- `ReviewLogService` is the only service that reads or writes `review_log.md`.
-- `GraphScoringService` never writes vault notes; it only calls `ReviewLogService` write methods.
+- `TraversalLogService` is the only service that reads or writes `review_log.md`.
+- `GraphScoringService` never writes vault notes; it only calls `TraversalLogService` write methods.
 - Folder exclusion is segment-exact: `Interesting` does not match `interesting-notes`.
 - The `***` separator pattern `^\*{3,}\s*$` is not expanded to match `---` or `___`.
 - Do not add scheduling, FSRS, deck databases, or any persistent card-state machinery.

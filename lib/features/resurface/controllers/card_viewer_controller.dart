@@ -1,5 +1,4 @@
-import 'package:path/path.dart' as p;
-
+import '../../../shared/markdown/md_utils.dart';
 import '../models/resurface_note.dart';
 import '../services/graph_scoring_service.dart';
 import '../services/traversal_log_service.dart';
@@ -30,7 +29,8 @@ class CardViewerController {
   List<ResurfaceNote> _notes = [];
   int _index = 0;
   bool _backRevealed = false;
-  String? _lastShownFilename;
+  String? _lastShownKey;
+  // Keyed by noteKey() — same keying as GraphScoringService priorities.
   Map<String, double> _priorities = {};
 
   // ── Getters ────────────────────────────────────────────────────────────────
@@ -50,15 +50,7 @@ class CardViewerController {
     _priorities = Map<String, double>.from(priorities);
     _index = 0;
     _backRevealed = false;
-    if (_notes.isNotEmpty) {
-      final firstName = p.basenameWithoutExtension(_notes.first.sourceFile);
-      _lastShownFilename = firstName;
-      session.record(
-        firstName,
-        isProblemNote: _notes.first.isProblemNote,
-        scheduledInterval: _priorities[firstName],
-      );
-    }
+    if (_notes.isNotEmpty) _recordCurrent();
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -68,20 +60,15 @@ class CardViewerController {
   void goNext() {
     if (_index >= _notes.length - 1) return;
     final nextIdx = _index + 1;
-    final nextName = p.basenameWithoutExtension(_notes[nextIdx].sourceFile);
     // No-repeat: defer the next note by one position when it was just shown.
-    if (nextName == _lastShownFilename && nextIdx + 1 < _notes.length) {
+    if (noteKey(_notes[nextIdx].sourceFile) == _lastShownKey &&
+        nextIdx + 1 < _notes.length) {
       final skipped = _notes.removeAt(nextIdx);
       _notes.insert(nextIdx + 1, skipped);
     }
     _index = nextIdx;
     _backRevealed = false;
-    final note = _notes[_index];
-    final filename = p.basenameWithoutExtension(note.sourceFile);
-    _lastShownFilename = filename;
-    session.record(filename,
-        isProblemNote: note.isProblemNote,
-        scheduledInterval: _priorities[filename]);
+    _recordCurrent();
   }
 
   /// Steps back one card and records the traversal. Call from within parent setState.
@@ -89,12 +76,17 @@ class CardViewerController {
     if (_index <= 0) return;
     _index--;
     _backRevealed = false;
+    _recordCurrent();
+  }
+
+  /// Records the traversal of the note at [_index] and remembers it for
+  /// no-repeat logic. All log/priority lookups use [noteKey].
+  void _recordCurrent() {
     final note = _notes[_index];
-    final filename = p.basenameWithoutExtension(note.sourceFile);
-    _lastShownFilename = filename;
-    session.record(filename,
-        isProblemNote: note.isProblemNote,
-        scheduledInterval: _priorities[filename]);
+    final key = noteKey(note.sourceFile);
+    _lastShownKey = key;
+    session.record(key,
+        isProblemNote: note.isProblemNote, scheduledInterval: _priorities[key]);
   }
 
   /// Toggles back-side visibility. Call from within parent setState.
@@ -121,7 +113,7 @@ class CardViewerController {
     _notes = [];
     _index = 0;
     _backRevealed = false;
-    _lastShownFilename = null;
+    _lastShownKey = null;
     _priorities = {};
   }
 }
