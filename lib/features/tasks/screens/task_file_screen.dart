@@ -6,6 +6,8 @@ import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 import '../../../shared/widgets/wikilink_text.dart';
 import '../../../shared/constants/app_theme.dart';
 
@@ -188,9 +190,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final newPath = await TaskStorageService.renameTaskFile(_currentPath, trimmed);
     if (!mounted) return;
     if (newPath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rename failed — name already in use.')),
-      );
+      showSnack(context, 'Rename failed — name already in use.');
       return;
     }
     setState(() {
@@ -613,7 +613,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : Column(
               children: [
                 Expanded(

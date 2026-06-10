@@ -139,7 +139,7 @@ Entities sorted by `(score × 0.4) + (daysSinceUpdated × 0.6)` descending, capp
 
 ### Persistent FAB
 
-50×50px, `accentDim` bg, `add` accent icon — always visible above the nav bar, opens `showQuickAddSheet`.
+`AppFab` (`lib/shared/widgets/app_fab.dart`) — 52×52px, `accentDim` bg, accent icon, radius 14. Every screen-level primary action uses this one widget (Collections quick-add, Projects new-project, RSS add-feed, Templates new-template, list-detail add-item); there are no raw `FloatingActionButton`s.
 
 ---
 

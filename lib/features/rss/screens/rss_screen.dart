@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/widgets/app_fab.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 import '../models/rss_feed.dart';
 import '../services/rss_feed_storage_service.dart';
 import '../services/rss_ingestion_service.dart';
@@ -191,8 +194,7 @@ class _RssScreenState extends State<RssScreen> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showSnack(context, message);
   }
 
   @override
@@ -229,11 +231,7 @@ class _RssScreenState extends State<RssScreen> {
                       style: const TextStyle(fontSize: 12),
                     ),
                     trailing: isSyncing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                        ? const InlineSpinner(size: 20)
                         : IconButton(
                             icon: const Icon(Icons.sync),
                             tooltip: 'Sync now',
@@ -245,11 +243,7 @@ class _RssScreenState extends State<RssScreen> {
                 },
               ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSheet,
-        tooltip: 'Add feed',
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: AppFab(tooltip: 'Add feed', onTap: _showAddSheet),
     );
   }
 }

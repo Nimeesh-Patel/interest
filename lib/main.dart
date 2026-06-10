@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'core/vault_setup_screen.dart';
 import 'core/vault_service.dart';
 import 'shared/constants/app_theme.dart';
+import 'shared/widgets/progress.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -75,7 +76,7 @@ class _StoragePermissionGateState extends State<_StoragePermissionGate>
   @override
   Widget build(BuildContext context) {
     if (_granted == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: LoadingState());
     }
     if (_granted == true) return widget.child;
 

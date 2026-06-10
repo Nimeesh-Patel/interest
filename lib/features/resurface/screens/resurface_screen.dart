@@ -10,8 +10,12 @@ import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/accent_button.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/list_row.dart';
+import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../../shared/widgets/snack.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../models/problem_note.dart';
@@ -191,15 +195,11 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Obsidian not installed')),
-        );
+        showSnack(context, 'Obsidian not installed');
       }
     } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Obsidian not installed')),
-        );
+        showSnack(context, 'Obsidian not installed');
       }
     }
   }
@@ -220,9 +220,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     final path = await ResurfaceService.resolveWikilink(vaultPath, name);
     if (!mounted) return;
     if (path == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Note not found: $name')),
-      );
+      showSnack(context, 'Note not found: $name');
       return;
     }
     await openNoteByPath(path);
@@ -232,11 +230,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
   /// Loads the note, then delegates to [_routeNote].
   Future<void> openNoteByPath(String filePath) async {
     if (!await File(filePath).exists()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Note not found')),
-        );
-      }
+      if (mounted) showSnack(context, 'Note not found');
       return;
     }
     final note = await ResurfaceService.loadSingleNote(filePath);
@@ -375,9 +369,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     final path = await ResurfaceService.resolveWikilink(_vaultPath!, targetName);
     if (!mounted) return;
     if (path == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Note not found: $targetName')),
-      );
+      showSnack(context, 'Note not found: $targetName');
       return;
     }
     await openNoteByPath(path);
@@ -459,7 +451,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const LoadingState();
     if (_error != null) return EmptyState(icon: Icons.error_outline, message: _error!);
 
     return SafeArea(
@@ -512,9 +504,7 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
     if (_searchQuery.isEmpty) return const SizedBox.shrink();
     final results = _searchResults;
     if (results.isEmpty) {
-      return const Center(
-        child: Text('No notes match', style: TextStyle(color: AppColors.textSecondary)),
-      );
+      return const EmptyState(message: 'No notes match');
     }
     return ListView.builder(
       itemCount: results.length,
@@ -523,10 +513,8 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
         final title = p.basenameWithoutExtension(note.sourceFile);
         final rawSnippet = _snippetFor(note);
         final snippet = plainTextWikilinks(rawSnippet);
-        return Container(
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
+        return ListRow(
+          padding: EdgeInsets.zero,
           child: ListTile(
             title: Text(title),
             subtitle: snippet.isNotEmpty
@@ -609,34 +597,23 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
           ),
           const Divider(height: 1),
           for (final deck in namedDecks)
-            Container(
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              child: InkWell(
-                onTap: () => _pushDeck(deck.name, _notesForDeck(deck.name)),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: kScreenHPad, vertical: 14),
-                  child: Row(
-                    children: [
-                      Text('✦',
-                          style: AppTextStyles.metaMuted
-                              .copyWith(fontSize: 11)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(deck.name,
-                            style: AppTextStyles.entityName),
-                      ),
-                      Text('${deck.count}',
-                          style: AppTextStyles.bodySmall
-                              .copyWith(color: AppColors.textTertiary)),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.arrow_forward_ios,
-                          size: 14, color: AppColors.textTertiary),
-                    ],
+            ListRow(
+              onTap: () => _pushDeck(deck.name, _notesForDeck(deck.name)),
+              child: Row(
+                children: [
+                  Text('✦',
+                      style: AppTextStyles.metaMuted.copyWith(fontSize: 11)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(deck.name, style: AppTextStyles.entityName),
                   ),
-                ),
+                  Text('${deck.count}',
+                      style: AppTextStyles.bodySmall
+                          .copyWith(color: AppColors.textTertiary)),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.arrow_forward_ios,
+                      size: 14, color: AppColors.textTertiary),
+                ],
               ),
             ),
         ],
@@ -655,40 +632,33 @@ class ResurfaceScreenState extends State<ResurfaceScreen> {
           )
         else
           for (final note in _recentNotes)
-            Container(
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              child: InkWell(
-                onTap: () => _routeNote(note),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: kScreenHPad, vertical: 13),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.basenameWithoutExtension(note.sourceFile),
-                              style: AppTextStyles.entityName,
-                            ),
-                            if (note.decks.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(note.decks.first,
-                                  style: AppTextStyles.bodySmall),
-                            ],
-                          ],
+            ListRow(
+              onTap: () => _routeNote(note),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: kScreenHPad, vertical: 13),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.basenameWithoutExtension(note.sourceFile),
+                          style: AppTextStyles.entityName,
                         ),
-                      ),
-                      if (note.isProblemNote)
-                        Text('✦',
-                            style: AppTextStyles.meta.copyWith(
-                                color: AppColors.accent, fontSize: 12)),
-                    ],
+                        if (note.decks.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(note.decks.first,
+                              style: AppTextStyles.bodySmall),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
+                  if (note.isProblemNote)
+                    Text('✦',
+                        style: AppTextStyles.meta.copyWith(
+                            color: AppColors.accent, fontSize: 12)),
+                ],
               ),
             ),
       ],
@@ -781,7 +751,7 @@ class _NoteViewerBody extends StatelessWidget {
                     _mdBodySerif(context, note.front!, fontSize: 21, height: 1.65),
                     const SizedBox(height: 38),
                     if (!backRevealed)
-                      _TapToRevealHint()
+                      const TapToRevealHint()
                     else ...[
                       const Divider(thickness: 1, color: AppColors.borderMid),
                       const SizedBox(height: 30),
@@ -864,31 +834,11 @@ class _NoteViewerBody extends StatelessWidget {
                   ),
                   const Spacer(),
                   // Next button
-                  GestureDetector(
-                    onTap: hasNext ? onNext : null,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 9),
-                      decoration: BoxDecoration(
-                        color: hasNext
-                            ? AppColors.accent
-                            : AppColors.accentDim,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Next',
-                              style: AppTextStyles.bodySmall.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              )),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.arrow_forward_ios,
-                              size: 14, color: Colors.white),
-                        ],
-                      ),
-                    ),
+                  AccentButton(
+                    label: 'Next',
+                    trailingIcon: Icons.arrow_forward_ios,
+                    enabled: hasNext,
+                    onTap: onNext,
                   ),
                   const SizedBox(width: 4),
                   PopupMenuButton<String>(
@@ -935,21 +885,3 @@ class _NoteViewerBody extends StatelessWidget {
   }
 }
 
-class _TapToRevealHint extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: const Text(
-          'tap to reveal',
-          style: TextStyle(
-            fontSize: 14,
-            color: AppColors.textTertiary,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      ),
-    );
-  }
-}

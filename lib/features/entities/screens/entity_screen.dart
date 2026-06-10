@@ -15,7 +15,9 @@ import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/backlinks_section.dart';
 import '../../../shared/widgets/note_markdown.dart';
+import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/section_header.dart';
+import '../../../shared/widgets/snack.dart';
 import '../../resurface/services/resurface_service.dart';
 
 /// An entity is a plain note that belongs to a collection. This screen is a
@@ -30,9 +32,11 @@ class EntityScreen extends StatefulWidget {
   final List<Collection> allCollections;
   final List<String> allTags;
 
-  /// Called when a wikilink or backlink resolves to a non-entity note. The
-  /// receiver should route the file path to the appropriate viewer.
-  final Future<void> Function(String filePath)? onOpenNonEntityNote;
+  /// Routes a file path through the canonical note router
+  /// (`ResurfaceScreenState.openNoteByPath`). Called when a wikilink or
+  /// backlink target should NOT open in EntityScreen: a non-entity note, or
+  /// a both-note — `***` takes priority over `collection:`.
+  final Future<void> Function(String filePath)? onOpenNoteByPath;
 
   const EntityScreen({
     super.key,
@@ -41,7 +45,7 @@ class EntityScreen extends StatefulWidget {
     required this.allEntities,
     required this.allCollections,
     required this.allTags,
-    this.onOpenNonEntityNote,
+    this.onOpenNoteByPath,
   });
 
   @override
@@ -190,39 +194,51 @@ class _EntityScreenState extends State<EntityScreen> {
           allEntities: widget.allEntities,
           allCollections: widget.allCollections,
           allTags: _allTags,
-          onOpenNonEntityNote: widget.onOpenNonEntityNote,
+          onOpenNoteByPath: widget.onOpenNoteByPath,
         ),
       ),
     ).then((_) => setState(() {}));
   }
 
   /// Navigate to a note by name (wikilink + backlink taps).
-  /// Entity targets open EntityScreen; non-entity targets route via
-  /// [onOpenNonEntityNote] if provided, otherwise show a snackbar.
+  /// `***` takes priority over `collection:`: a both-note target is handed
+  /// to the canonical router (card viewer), never opened as EntityScreen.
+  /// Entity-only targets open EntityScreen; all other targets route via
+  /// [EntityScreen.onOpenNoteByPath] if provided, otherwise show a snackbar.
   Future<void> _navigateToNoteName(String name) async {
     // Fast path: check in-memory entity list first.
     final match = widget.allEntities
         .where((e) => e.name.toLowerCase() == name.toLowerCase());
     if (match.isNotEmpty) {
-      _openEntity(match.first);
+      final entity = match.first;
+      final path = entity.sourcePath;
+      if (path != null && widget.onOpenNoteByPath != null) {
+        try {
+          final body = splitFrontmatter(await File(path).readAsString()).body;
+          if (splitFrontBack(body) != null) {
+            await widget.onOpenNoteByPath!(path);
+            return;
+          }
+        } catch (_) {}
+        if (!mounted) return;
+      }
+      _openEntity(entity);
       return;
     }
     // Resolve via vault-wide filename scan.
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted) return;
     if (vaultPath == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Note not found: $name')));
+      showSnack(context, 'Note not found: $name');
       return;
     }
     final path = await ResurfaceService.resolveWikilink(vaultPath, name);
     if (!mounted) return;
     if (path == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Note not found: $name')));
+      showSnack(context, 'Note not found: $name');
       return;
     }
-    widget.onOpenNonEntityNote?.call(path);
+    widget.onOpenNoteByPath?.call(path);
   }
 
   Future<void> _openInObsidian() async {
@@ -233,9 +249,7 @@ class _EntityScreenState extends State<EntityScreen> {
     final ok = await launchUrl(Uri.parse(obsidianUri(vaultPath, path)),
         mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Obsidian is not installed')),
-      );
+      showSnack(context, 'Obsidian is not installed');
     }
   }
 
@@ -274,11 +288,7 @@ class _EntityScreenState extends State<EntityScreen> {
   Future<void> _openGrokArticle(String url) async {
     final uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open article')),
-        );
-      }
+      if (mounted) showSnack(context, 'Could not open article');
     }
   }
 
@@ -301,11 +311,7 @@ class _EntityScreenState extends State<EntityScreen> {
         children: [
           if (_grokSummaryExpanded) ...[
             _grokSummaryFetching
-                ? const SizedBox(
-                    height: 14,
-                    width: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const InlineSpinner(size: 14)
                 : Text(
                     _grokArticle!.snippet ??
                         _grokFetchedSummary ??
@@ -401,11 +407,7 @@ class _EntityScreenState extends State<EntityScreen> {
             child: _loadingBody
                 ? const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
-                    child: SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                    child: InlineSpinner(),
                   )
                 : (_bodyText == null || _bodyText!.trim().isEmpty)
                     ? Text('Empty note. Tap edit to write.',

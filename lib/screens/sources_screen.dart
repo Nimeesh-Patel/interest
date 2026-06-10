@@ -9,6 +9,9 @@ import '../features/resurface/services/ankidroid_sync_controller.dart';
 import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
+import '../shared/widgets/list_row.dart';
+import '../shared/widgets/progress.dart';
+import '../shared/widgets/snack.dart';
 
 class SourcesScreen extends StatefulWidget {
   const SourcesScreen({super.key});
@@ -77,8 +80,14 @@ class _SourcesScreenState extends State<SourcesScreen> {
               meta: 'external app',
               onTap: () => launchObsidianApp(context),
             ),
-            _AnkiDroidRow(
-              syncing: _syncingAnki,
+            _SourceRow(
+              icon: Icons.style,
+              name: 'AnkiDroid',
+              description: _syncingAnki
+                  ? 'Syncing problem notes…'
+                  : 'Push problem notes to AnkiDroid',
+              meta: 'Flashcard sync',
+              busy: _syncingAnki,
               onTap: _syncAnkiDroid,
             ),
           ],
@@ -93,18 +102,14 @@ class _SourcesScreenState extends State<SourcesScreen> {
     final available = await AnkiDroidService.isAvailable();
     if (!mounted) return;
     if (!available) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AnkiDroid not installed')),
-      );
+      showSnack(context, 'AnkiDroid not installed');
       return;
     }
 
     final granted = await AnkiDroidService.requestPermission();
     if (!mounted) return;
     if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Permission denied')),
-      );
+      showSnack(context, 'Permission denied');
       return;
     }
 
@@ -116,9 +121,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
     setState(() => _syncingAnki = false);
 
     if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No vault configured')),
-      );
+      showSnack(context, 'No vault configured');
       return;
     }
 
@@ -145,19 +148,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
       final msg = result.failed == 0
           ? 'Synced $total problem notes to AnkiDroid (${result.added} added, ${result.updated} updated)'
           : '${result.failed} notes failed';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
-      );
+      showSnack(context, msg);
     }
   }
 
   static void _syncAll(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Open each source to trigger sync.'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    showSnack(context, 'Open each source to trigger sync.',
+        duration: const Duration(seconds: 2));
   }
 }
 
@@ -204,136 +201,65 @@ class _SourceRow extends StatelessWidget {
   final String meta;
   final VoidCallback? onTap;
 
+  /// While true the row is dimmed, untappable, and shows a spinner trailing.
+  final bool busy;
+
   const _SourceRow({
     required this.icon,
     required this.name,
     required this.description,
     required this.meta,
     required this.onTap,
+    this.busy = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final tappable = onTap != null;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.border)),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon,
-                size: 22,
-                color: tappable
-                    ? AppColors.textSecondary
-                    : AppColors.textTertiary),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    style: AppTextStyles.entityName.copyWith(
-                      color: tappable
-                          ? AppColors.textPrimary
-                          : AppColors.textTertiary,
+    final tappable = onTap != null && !busy;
+    return ListRow(
+      onTap: tappable ? onTap : null,
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 22,
+              color: tappable
+                  ? AppColors.textSecondary
+                  : AppColors.textTertiary),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  style: AppTextStyles.entityName.copyWith(
+                    color: tappable
+                        ? AppColors.textPrimary
+                        : AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(description,
+                          style: AppTextStyles.bodySmall),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(description,
-                            style: AppTextStyles.bodySmall),
-                      ),
-                      Text(meta,
-                          style: AppTextStyles.metaMuted),
-                    ],
-                  ),
-                ],
-              ),
+                    Text(meta,
+                        style: AppTextStyles.metaMuted),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            if (tappable)
-              const Icon(Icons.arrow_forward_ios,
-                  size: 14, color: AppColors.textTertiary),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AnkiDroidRow extends StatelessWidget {
-  final bool syncing;
-  final VoidCallback onTap;
-
-  const _AnkiDroidRow({required this.syncing, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: syncing ? null : onTap,
-      child: Container(
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.border)),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(Icons.style,
-                size: 22,
-                color: syncing
-                    ? AppColors.textTertiary
-                    : AppColors.textSecondary),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'AnkiDroid',
-                    style: AppTextStyles.entityName.copyWith(
-                      color: syncing
-                          ? AppColors.textTertiary
-                          : AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          syncing
-                              ? 'Syncing problem notes…'
-                              : 'Push problem notes to AnkiDroid',
-                          style: AppTextStyles.bodySmall,
-                        ),
-                      ),
-                      Text('Flashcard sync',
-                          style: AppTextStyles.metaMuted),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            if (syncing)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              const Icon(Icons.arrow_forward_ios,
-                  size: 14, color: AppColors.textTertiary),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          if (busy)
+            const InlineSpinner(size: 14)
+          else if (tappable)
+            const Icon(Icons.arrow_forward_ios,
+                size: 14, color: AppColors.textTertiary),
+        ],
       ),
     );
   }

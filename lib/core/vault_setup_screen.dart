@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'vault_service.dart';
 import '../screens/home_screen.dart';
+import '../shared/widgets/progress.dart';
 
 class VaultSetupScreen extends StatefulWidget {
   const VaultSetupScreen({super.key});
@@ -72,7 +73,7 @@ class _VaultSetupScreenState extends State<VaultSetupScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Will create: Interesting/Lists  ·  Interesting/Templates',
+                'Will create: Interesting/Projects  ·  Interesting/Templates  ·  Interesting/System',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],
@@ -82,11 +83,7 @@ class _VaultSetupScreenState extends State<VaultSetupScreen> {
               child: FilledButton(
                 onPressed: (_selectedPath == null || _isLoading) ? null : _confirm,
                 child: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
+                    ? const InlineSpinner(size: 20, color: Colors.white)
                     : const Text('Get Started'),
               ),
             ),

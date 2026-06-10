@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 
 class TemplateEditorScreen extends StatefulWidget {
   final String filePath;
@@ -58,39 +61,21 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
       await File(widget.filePath).writeAsString(_controller.text);
       if (mounted) {
         setState(() => _dirty = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved'), duration: Duration(seconds: 1)),
-        );
+        showSnack(context, 'Saved', duration: const Duration(seconds: 1));
       }
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save')),
-        );
-      }
+      if (mounted) showSnack(context, 'Failed to save');
     }
   }
 
   Future<bool> _maybeDiscard() async {
     if (!_dirty) return true;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text('Your unsaved edits will be lost.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Discard', style: TextStyle(color: AppColors.destructive)),
-          ),
-        ],
-      ),
+    return showConfirmDialog(
+      context,
+      title: 'Discard changes?',
+      message: 'Your unsaved edits will be lost.',
+      confirmLabel: 'Discard',
     );
-    return result == true;
   }
 
   @override
@@ -120,7 +105,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const LoadingState()
             : Padding(
                 padding: const EdgeInsets.all(16),
                 child: TextField(

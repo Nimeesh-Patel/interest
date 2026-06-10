@@ -50,3 +50,26 @@ void onNoteLinkTap(
     launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
   }
 }
+
+/// The "tap to reveal" hint shown where a problem note's back side is hidden.
+/// Shared by the card viewer and NoteDetailScreen.
+class TapToRevealHint extends StatelessWidget {
+  const TapToRevealHint({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'tap to reveal',
+          style: TextStyle(
+            fontSize: 14,
+            color: AppColors.textTertiary,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+    );
+  }
+}

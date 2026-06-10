@@ -15,8 +15,11 @@ import '../features/templates/screens/templates_screen.dart';
 import 'sources_screen.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/utils/obsidian_launcher.dart';
+import '../shared/widgets/app_fab.dart';
 import '../shared/widgets/input_dialog.dart';
+import '../shared/widgets/progress.dart';
 import '../shared/widgets/quick_add_sheet.dart';
+import '../shared/widgets/snack.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -106,10 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final (error, meta) = await XBookmarkService.fetchMetadata(url);
     if (error != null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error)));
-      }
+      if (mounted) showSnack(context, error);
       return;
     }
     if (!mounted) return;
@@ -143,8 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (meta == null) return;
     final saveError = await XBookmarkStorageService.save(vault, slug, meta);
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(saveError ?? 'Saved to Bookmarks')));
+    showSnack(context, saveError ?? 'Saved to Bookmarks');
   }
 
   // ── Entity navigation ─────────────────────────────────────────────────────
@@ -159,7 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
           allEntities: _controller.entities,
           allCollections: _controller.collections,
           allTags: _controller.tags,
-          onOpenNonEntityNote: (path) async {
+          onOpenNoteByPath: (path) async {
             Navigator.of(context).pop();
             setState(() => _currentTab = 0);
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -204,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: LoadingState());
     }
 
     final notesState = _resurfaceKey.currentState;
@@ -291,7 +290,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: switch (_currentTab) {
-        1 => _EntitiesFab(onTap: () => showQuickAddSheet(
+        1 => AppFab(
+            tooltip: 'Add to collection',
+            onTap: () => showQuickAddSheet(
               context,
               entities: _controller.entities,
               collections: _controller.collections,
@@ -300,11 +301,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 await _controller.reloadData();
                 if (mounted) await _openEntity(entity);
               },
-            )),
-        2 => FloatingActionButton(
-            onPressed: () => _projectsKey.currentState?.showCreateDialog(context),
+            ),
+          ),
+        2 => AppFab(
             tooltip: 'New project',
-            child: const Icon(Icons.add),
+            onTap: () => _projectsKey.currentState?.showCreateDialog(context),
           ),
         _ => null,
       },
@@ -343,24 +344,3 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _EntitiesFab extends StatelessWidget {
-  final VoidCallback onTap;
-  const _EntitiesFab({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: AppColors.accentDim,
-          border: Border.all(color: AppColors.accent.withValues(alpha: 0.33)),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: const Icon(Icons.add, color: AppColors.accent, size: 24),
-      ),
-    );
-  }
-}

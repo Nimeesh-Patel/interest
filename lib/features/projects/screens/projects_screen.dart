@@ -8,6 +8,9 @@ import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/list_row.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 import '../../tasks/screens/task_file_screen.dart';
 import '../models/project_file.dart';
 import '../screens/project_list_detail_screen.dart';
@@ -150,9 +153,7 @@ class ProjectsScreenState extends State<ProjectsScreen> {
     final result = await ProjectStorageService.renameProject(vault, project, trimmed);
     if (!mounted) return;
     if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rename failed — name already in use.')),
-      );
+      showSnack(context, 'Rename failed — name already in use.');
       return;
     }
     await _reload();
@@ -173,7 +174,7 @@ class ProjectsScreenState extends State<ProjectsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const LoadingState();
     if (_projects.isEmpty) {
       return const EmptyState(
         icon: Icons.folder_outlined,
@@ -191,19 +192,13 @@ class ProjectsScreenState extends State<ProjectsScreen> {
               proj.totalTasks > 0 && proj.completedTasks >= proj.totalTasks;
           final typeLabel = proj.isListStyle ? 'LIST' : 'TODO';
 
-          return InkWell(
+          return ListRow(
             onTap: () async {
               await _openProject(ctx, proj);
               await _reload();
             },
             onLongPress: () => _showProjectOptions(ctx, proj),
-            child: Container(
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 14),
-              child: Column(
+            child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -250,7 +245,6 @@ class ProjectsScreenState extends State<ProjectsScreen> {
                   ],
                 ],
               ),
-            ),
           );
         },
       ),

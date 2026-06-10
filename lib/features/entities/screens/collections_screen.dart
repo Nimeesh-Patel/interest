@@ -5,8 +5,13 @@ import '../models/collection.dart';
 import '../models/entity.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/list_row.dart';
+import '../../../shared/widgets/select_chip.dart';
+import '../../../shared/widgets/snack.dart';
 
 /// Self-contained Collections tab: collection filter chips, entity list, search,
 /// sort, and all entity/collection CRUD. Receives [controller] (owned by
@@ -87,10 +92,7 @@ class CollectionsScreenState extends State<CollectionsScreen> {
 
   void _deleteCollection(Collection category) {
     final error = _ctrl.deleteCollection(category);
-    if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
-    }
+    if (error != null) showSnack(context, error);
   }
 
   // ── UI ────────────────────────────────────────────────────────────────────
@@ -102,13 +104,13 @@ class CollectionsScreenState extends State<CollectionsScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         children: [
-          _CollectionChip(
+          SelectChip(
             label: 'All',
             selected: _ctrl.selectedCollectionId == null,
             onTap: () => setState(() => _ctrl.selectedCollectionId = null),
           ),
           for (final cat in _ctrl.collections)
-            _CollectionChip(
+            SelectChip(
               label: cat.name,
               selected: _ctrl.selectedCollectionId == cat.id,
               onTap: () => setState(() => _ctrl.selectedCollectionId = cat.id),
@@ -265,11 +267,8 @@ class CollectionsScreenState extends State<CollectionsScreen> {
   Widget _buildEntityList() {
     final items = _ctrl.filtered;
     if (items.isEmpty) {
-      return Center(
-        child: Text(
-          _ctrl.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
+      return EmptyState(
+        message: _ctrl.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
       );
     }
     return ListView.builder(
@@ -281,61 +280,54 @@ class CollectionsScreenState extends State<CollectionsScreen> {
             .firstWhere((c) => c.id == entity.collectionId,
                 orElse: () => Collection(id: '', name: ''))
             .name;
-        return GestureDetector(
+        return ListRow(
+          onTap: () => widget.onOpenEntity(entity),
           onLongPress: () => _showEntityOptions(entity),
-          child: InkWell(
-            onTap: () => widget.onOpenEntity(entity),
-            child: Container(
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kScreenHPad, vertical: 13),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(
+              horizontal: kScreenHPad, vertical: 13),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(entity.name,
+                        style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textPrimary)),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      spacing: 6,
                       children: [
-                        Text(entity.name,
+                        if (entity.score != null)
+                          Text(
+                            '★${entity.score!.toStringAsFixed(entity.score! % 1 == 0 ? 0 : 1)}',
                             style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.textPrimary)),
-                        const SizedBox(height: 3),
-                        Wrap(
-                          spacing: 6,
-                          children: [
-                            if (entity.score != null)
-                              Text(
-                                '★${entity.score!.toStringAsFixed(entity.score! % 1 == 0 ? 0 : 1)}',
-                                style: const TextStyle(
-                                    fontSize: 12, color: AppColors.score),
-                              ),
-                            if (catName.isNotEmpty)
-                              Text(catName,
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textSecondary)),
-                            for (final tag in entity.tags.take(2))
-                              Text('#$tag',
-                                  style: const TextStyle(
-                                      fontSize: 13, color: AppColors.accent)),
-                          ],
-                        ),
+                                fontSize: 12, color: AppColors.score),
+                          ),
+                        if (catName.isNotEmpty)
+                          Text(catName,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary)),
+                        for (final tag in entity.tags.take(2))
+                          Text('#$tag',
+                              style: const TextStyle(
+                                  fontSize: 13, color: AppColors.accent)),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _formatTimestamp(entity.updatedAt),
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textTertiary),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Text(
+                formatRelative(entity.updatedAt),
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textTertiary),
+              ),
+            ],
           ),
         );
       },
@@ -351,20 +343,6 @@ class CollectionsScreenState extends State<CollectionsScreen> {
         onTap: () => _deleteEntity(entity),
       ),
     ]);
-  }
-
-  static String _formatTimestamp(int msEpoch) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(msEpoch);
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${months[dt.month - 1]} ${dt.day}';
   }
 
   @override
@@ -392,42 +370,3 @@ class CollectionsScreenState extends State<CollectionsScreen> {
   }
 }
 
-class _CollectionChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-
-  const _CollectionChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.accentDim : Colors.transparent,
-          border: Border.all(
-            color: selected ? AppColors.accent : AppColors.border,
-          ),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? AppColors.accent : AppColors.textSecondary,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-}

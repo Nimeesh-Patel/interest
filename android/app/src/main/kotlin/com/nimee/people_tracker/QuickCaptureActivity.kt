@@ -37,21 +37,6 @@ class QuickCaptureActivity : Activity() {
         return prefs.getString("flutter.vault_path", null)
     }
 
-    private fun slugify(name: String): String {
-        val slug = name.trim()
-            .lowercase(Locale.US)
-            .replace(Regex("\\s+"), "-")
-            .replace(Regex("[^a-z0-9\\-]"), "")
-        return slug.ifEmpty { "entity" }
-    }
-
-    private fun uniqueId(base: String, entitiesDir: File): String {
-        if (!File(entitiesDir, "$base.md").exists()) return base
-        var n = 2
-        while (File(entitiesDir, "$base-$n.md").exists()) n++
-        return "$base-$n"
-    }
-
     private fun nowIso(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("UTC")
@@ -74,12 +59,14 @@ class QuickCaptureActivity : Activity() {
         }
     }
 
-    private fun safeFileName(name: String): String =
-        name.replace(Regex("[/\\\\:*?\"<>|]"), "_") + ".md"
+    private fun safeBaseName(name: String): String =
+        name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
 
-    private fun buildMarkdown(id: String, name: String, note: String?, vaultPath: String): String {
+    // collection: makes the note an entity (visible in the Collections tab);
+    // category: remains the AnkiDroid deck mapping. Both are required.
+    private fun buildMarkdown(name: String, note: String?, vaultPath: String): String {
         val iso = nowIso()
-        val frontmatter = "---\nalias: $id\ncategory: Default\ncreated_at: $iso\nupdated_at: $iso\n---"
+        val frontmatter = "---\ncollection: Quick Capture\ncategory: Default\ncreated_at: $iso\nupdated_at: $iso\n---"
 
         // Load body from default.md template; replace {{title}} placeholder
         val rawBody = loadTemplateBody(vaultPath)
@@ -115,16 +102,22 @@ class QuickCaptureActivity : Activity() {
             return
         }
 
-        val entitiesDir = File("$vaultPath/Interesting/Entities")
-        entitiesDir.mkdirs()
+        // New notes land at the vault root — the same write target as the
+        // app's own entity creation (MarkdownStorageService.saveEntity).
+        val dir = File(vaultPath)
+        val base = safeBaseName(title)
+        val markdown = buildMarkdown(title, note, vaultPath)
 
-        val base = slugify(title)
-        val id = uniqueId(base, entitiesDir)
-        val markdown = buildMarkdown(id, title, note, vaultPath)
-        val fileName = safeFileName(title)
+        // Collision handling matches the app: "Name.md", "Name 2.md", "Name 3.md"…
+        var file = File(dir, "$base.md")
+        var n = 2
+        while (file.exists()) {
+            file = File(dir, "$base $n.md")
+            n++
+        }
 
         try {
-            File(entitiesDir, fileName).writeText(markdown)
+            file.writeText(markdown)
             Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {

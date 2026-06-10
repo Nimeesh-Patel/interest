@@ -7,8 +7,12 @@ import '../../../shared/constants/app_spacing.dart';
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/markdown/vault_scanner.dart';
+import '../../../shared/widgets/app_fab.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 import 'template_editor_screen.dart';
 import '../../../shared/constants/app_theme.dart';
 
@@ -104,9 +108,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
 
     if (await File(filePath).exists()) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('A template named "$slug" already exists.')),
-        );
+        showSnack(context, 'A template named "$slug" already exists.');
       }
       return;
     }
@@ -147,15 +149,9 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         backgroundColor: AppColors.background,
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : _templates.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No templates yet.\nTap + to create one.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                )
+              ? const EmptyState(message: 'No templates yet.\nTap + to create one.')
               : ListView.builder(
                   padding: const EdgeInsets.only(bottom: kFabListBottomPad),
                   itemCount: _templates.length,
@@ -185,11 +181,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                     );
                   },
                 ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateDialog,
-        tooltip: 'New template',
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton:
+          AppFab(tooltip: 'New template', onTap: _showCreateDialog),
     );
   }
 }

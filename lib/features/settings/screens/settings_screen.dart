@@ -9,6 +9,7 @@ import '../../readwise/screens/readwise_screen.dart';
 import '../../readwise/services/readwise_service.dart';
 import '../../rss/screens/rss_screen.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/busy_button.dart';
 import '../../resurface/services/traversal_log_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -185,6 +186,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  InputDecoration _tokenDecoration(String label, String hint) =>
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        border: const OutlineInputBorder(),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -214,53 +222,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
             // ── Readwise ─────────────────────────────────────────────────────
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              'Readwise',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const _SettingsSection(
+              title: 'Readwise',
+              description:
+                  'Import book highlights from Readwise into the vault as Markdown files. '
+                  'Find your access token at readwise.io/access_token.',
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Import book highlights from Readwise into the vault as Markdown files. '
-              'Find your access token at readwise.io/access_token.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
             TextField(
               controller: _readwiseTokenController,
               obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Access Token',
-                hintText: 'Paste your Readwise access token',
-                border: OutlineInputBorder(),
-              ),
+              decoration: _tokenDecoration(
+                  'Access Token', 'Paste your Readwise access token'),
               autocorrect: false,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _saveReadwiseToken(),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _readwiseSaving ? null : _saveReadwiseToken,
-                child: _readwiseSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Save Token'),
-              ),
+            BusyButton(
+              label: 'Save Token',
+              busy: _readwiseSaving,
+              onPressed: _saveReadwiseToken,
             ),
-            if (_readwiseSaveStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _readwiseSaveStatus!,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
+            _StatusLine(_readwiseSaveStatus),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               icon: const Icon(Icons.book_outlined),
@@ -272,171 +255,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
             // ── Hardcover ────────────────────────────────────────────────────
-            const SizedBox(height: 32),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              'Hardcover',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const _SettingsSection(
+              title: 'Hardcover',
+              description:
+                  'Sync your Hardcover reading library with the vault. '
+                  'Find your API token at hardcover.app/account/api. '
+                  'Token expires annually on January 1st.',
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Sync your Hardcover reading library with the vault. '
-              'Find your API token at hardcover.app/account/api. '
-              'Token expires annually on January 1st.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
             TextField(
               controller: _hardcoverTokenController,
               obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'API Token',
-                hintText: 'Paste your Hardcover API token',
-                border: OutlineInputBorder(),
-              ),
+              decoration: _tokenDecoration(
+                  'API Token', 'Paste your Hardcover API token'),
               autocorrect: false,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _saveHardcoverToken(),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _hardcoverSaving ? null : _saveHardcoverToken,
-                child: _hardcoverSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Save Token'),
-              ),
+            BusyButton(
+              label: 'Save Token',
+              busy: _hardcoverSaving,
+              onPressed: _saveHardcoverToken,
             ),
-            if (_hardcoverSaveStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _hardcoverSaveStatus!,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
+            _StatusLine(_hardcoverSaveStatus),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _hardcoverTesting ? null : _testHardcoverConnection,
-                child: _hardcoverTesting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Test Connection'),
-              ),
+            BusyButton(
+              label: 'Test Connection',
+              busy: _hardcoverTesting,
+              onPressed: _testHardcoverConnection,
             ),
-            if (_hardcoverTestStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _hardcoverTestStatus!,
-                style: TextStyle(
-                  color: _hardcoverTestOk
-                      ? Colors.green.shade700
-                      : AppColors.destructive,
-                  fontSize: 13,
-                ),
-              ),
-            ],
+            _StatusLine(
+              _hardcoverTestStatus,
+              color: _hardcoverTestOk
+                  ? Colors.green.shade700
+                  : AppColors.destructive,
+            ),
 
             // ── ReadEra ──────────────────────────────────────────────────────
-            const SizedBox(height: 32),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              'ReadEra',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const _SettingsSection(
+              title: 'ReadEra',
+              description:
+                  'Import highlights from a ReadEra .bak backup file into your '
+                  'Books vault. Highlights are merged into existing book files '
+                  'without overwriting Readwise or Hardcover data.',
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Import highlights from a ReadEra .bak backup file into your '
-              'Books vault. Highlights are merged into existing book files '
-              'without overwriting Readwise or Hardcover data.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            BusyButton(
+              label: 'Import from .bak',
+              busy: _readeraImporting,
+              onPressed: _importReadera,
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _readeraImporting ? null : _importReadera,
-                child: _readeraImporting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Import from .bak'),
-              ),
+            _StatusLine(
+              _readeraStatus,
+              color: (_readeraStatus?.startsWith('Error') ?? false)
+                  ? AppColors.destructive
+                  : AppColors.textSecondary,
             ),
-            if (_readeraStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _readeraStatus!,
-                style: TextStyle(
-                  color: (_readeraStatus!.startsWith('Error'))
-                      ? AppColors.destructive
-                      : AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
-            ],
 
             // ── Resurface ────────────────────────────────────────────────────
-            const SizedBox(height: 32),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              'Resurface',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const _SettingsSection(
+              title: 'Resurface',
+              description:
+                  'Vault-wide semantic resurfacing viewer. '
+                  'Scans notes for *** separators and surfaces them as front/back pairs. '
+                  'Enter folder names to exclude (comma-separated).',
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Vault-wide semantic resurfacing viewer. '
-              'Scans notes for *** separators and surfaces them as front/back pairs. '
-              'Enter folder names to exclude (comma-separated).',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
             TextField(
               controller: _resurfaceExcludedController,
-              decoration: const InputDecoration(
-                labelText: 'Excluded folders',
-                hintText: 'Interesting, .obsidian, Templates, Attachments',
-                border: OutlineInputBorder(),
-              ),
+              decoration: _tokenDecoration('Excluded folders',
+                  'Interesting, .obsidian, Templates, Attachments'),
               autocorrect: false,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _saveResurfaceExcluded(),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _resurfaceSaving ? null : _saveResurfaceExcluded,
-                child: _resurfaceSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Save'),
-              ),
+            BusyButton(
+              label: 'Save',
+              busy: _resurfaceSaving,
+              onPressed: _saveResurfaceExcluded,
             ),
-            if (_resurfaceSaveStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _resurfaceSaveStatus!,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
+            _StatusLine(_resurfaceSaveStatus),
 
             // ── Graph neighbour range ─────────────────────────────────────
             const SizedBox(height: 24),
@@ -450,87 +347,129 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                const Text('Min degree', style: TextStyle(fontSize: 14)),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.remove, size: 18),
-                  onPressed: _minDegree > 1
-                      ? () => setState(() {
-                            _minDegree--;
-                            if (_maxDegree < _minDegree) _maxDegree = _minDegree;
-                          })
-                      : null,
-                ),
-                SizedBox(
-                  width: 28,
-                  child: Text(
-                    '$_minDegree',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 15),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add, size: 18),
-                  onPressed: _minDegree < 5 && _minDegree < _maxDegree
-                      ? () => setState(() => _minDegree++)
-                      : null,
-                ),
-              ],
+            _DegreeStepper(
+              label: 'Min degree',
+              value: _minDegree,
+              canDecrement: _minDegree > 1,
+              canIncrement: _minDegree < 5 && _minDegree < _maxDegree,
+              onDecrement: () => setState(() {
+                _minDegree--;
+                if (_maxDegree < _minDegree) _maxDegree = _minDegree;
+              }),
+              onIncrement: () => setState(() => _minDegree++),
             ),
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                const Text('Max degree', style: TextStyle(fontSize: 14)),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.remove, size: 18),
-                  onPressed: _maxDegree > _minDegree
-                      ? () => setState(() => _maxDegree--)
-                      : null,
-                ),
-                SizedBox(
-                  width: 28,
-                  child: Text(
-                    '$_maxDegree',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 15),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add, size: 18),
-                  onPressed: _maxDegree < 5
-                      ? () => setState(() => _maxDegree++)
-                      : null,
-                ),
-              ],
+            _DegreeStepper(
+              label: 'Max degree',
+              value: _maxDegree,
+              canDecrement: _maxDegree > _minDegree,
+              canIncrement: _maxDegree < 5,
+              onDecrement: () => setState(() => _maxDegree--),
+              onIncrement: () => setState(() => _maxDegree++),
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: _degreeSaving ? null : _saveDegreeSettings,
-                child: _degreeSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Save'),
-              ),
+            BusyButton(
+              label: 'Save',
+              busy: _degreeSaving,
+              onPressed: _saveDegreeSettings,
             ),
-            if (_degreeSaveStatus != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _degreeSaveStatus!,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
+            _StatusLine(_degreeSaveStatus),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Divider + bold title + secondary description — opens every settings group.
+class _SettingsSection extends StatelessWidget {
+  final String title;
+  final String description;
+
+  const _SettingsSection({required this.title, required this.description});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Divider(),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          description,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+/// Async action status line shown under a [BusyButton]; renders nothing
+/// while the status is null.
+class _StatusLine extends StatelessWidget {
+  final String? status;
+  final Color color;
+
+  const _StatusLine(this.status, {this.color = AppColors.textSecondary});
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Text(status!, style: TextStyle(color: color, fontSize: 13)),
+    );
+  }
+}
+
+/// Labelled −/+ integer stepper row for the graph degree settings.
+class _DegreeStepper extends StatelessWidget {
+  final String label;
+  final int value;
+  final bool canDecrement;
+  final bool canIncrement;
+  final VoidCallback onDecrement;
+  final VoidCallback onIncrement;
+
+  const _DegreeStepper({
+    required this.label,
+    required this.value,
+    required this.canDecrement,
+    required this.canIncrement,
+    required this.onDecrement,
+    required this.onIncrement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 14)),
+        const Spacer(),
+        IconButton(
+          icon: const Icon(Icons.remove, size: 18),
+          onPressed: canDecrement ? onDecrement : null,
+        ),
+        SizedBox(
+          width: 28,
+          child: Text(
+            '$value',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add, size: 18),
+          onPressed: canIncrement ? onIncrement : null,
+        ),
+      ],
     );
   }
 }

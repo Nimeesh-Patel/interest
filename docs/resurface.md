@@ -77,7 +77,7 @@ Notes may contain `[[Target Note]]` or `[[Target Note|Display Text]]` wikilinks.
 
 **Resolution:** `ResurfaceService.resolveWikilink(vaultPath, targetName)` searches the whole vault recursively (no folder exclusions) for a `.md` file whose basename-without-extension matches `targetName` case-insensitively. Returns the first match's absolute path, or `null`.
 
-**Unified routing** (`ResurfaceScreenState._routeNote`): every open-note path — wikilink tap (`_handleWikilinkTap`), search result tap, Recent Notes row tap, deep link (`openNoteByName`), and `EntityScreen`'s non-entity-link callback (`openNoteByPath`) — converges on one routing decision for the loaded note:
+**Unified routing** (`ResurfaceScreenState._routeNote`): every open-note path — wikilink tap (`_handleWikilinkTap`), search result tap, Recent Notes row tap, deep link (`openNoteByName`), and `EntityScreen`'s `onOpenNoteByPath` callback (which also receives both-notes — EntityScreen's wikilink fast path checks the target body for `***` before opening EntityScreen) — converges on one routing decision for the loaded note:
 - problem note (`***`) → `_CardViewerRoute` (single-note deck; `***` takes priority over `collection:`)
 - `collection:` present → `onOpenEntity` callback → HomeScreen pushes `EntityScreen` (falls back to `_NoteDetailRoute` if no callback is wired)
 - plain note → `_NoteDetailRoute` (plain viewer)

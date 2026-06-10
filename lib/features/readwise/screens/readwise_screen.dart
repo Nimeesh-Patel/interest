@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
+import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_retry_state.dart';
+import '../../../shared/widgets/progress.dart';
 import '../models/readwise_book.dart';
 import '../services/readwise_service.dart';
 import '../../../shared/constants/app_theme.dart';
@@ -121,11 +124,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
             _importingAll
                 ? const Padding(
                     padding: EdgeInsets.all(14),
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                    child: InlineSpinner(size: 20),
                   )
                 : IconButton(
                     icon: const Icon(Icons.download_outlined),
@@ -146,32 +145,13 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
       );
     }
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingState();
     }
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.destructive, fontSize: 14),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _fetchBooks,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
+      return ErrorRetryState(message: _error!, onRetry: _fetchBooks);
     }
     if (_books == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingState();
     }
     if (_books!.isEmpty) {
       return const EmptyState(
@@ -234,10 +214,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
         ],
       ),
       trailing: isImporting
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2))
+          ? const InlineSpinner(size: 24)
           : TextButton(
               onPressed: _importingAll ? null : () => _importBook(book),
               child: const Text('Import'),
@@ -258,12 +235,7 @@ class _ReadwiseScreenState extends State<ReadwiseScreen> {
   String _formatDate(String? isoDate) {
     if (isoDate == null || isoDate.isEmpty) return '';
     try {
-      final dt = DateTime.parse(isoDate).toLocal();
-      const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-      return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+      return formatMonthDayYear(DateTime.parse(isoDate).toLocal());
     } catch (_) {
       return '';
     }

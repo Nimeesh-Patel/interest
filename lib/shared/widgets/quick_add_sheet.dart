@@ -7,6 +7,8 @@ import '../../features/entities/services/markdown_storage_service.dart';
 import '../constants/app_spacing.dart';
 import '../constants/app_text_styles.dart';
 import '../constants/app_theme.dart';
+import 'accent_button.dart';
+import 'select_chip.dart';
 
 Future<void> showQuickAddSheet(
   BuildContext context, {
@@ -144,21 +146,12 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
                     style: AppTextStyles.entityName.copyWith(
                         fontWeight: FontWeight.w600, fontSize: 16)),
                 const Spacer(),
-                GestureDetector(
+                AccentButton(
+                  label: 'Add',
+                  enabled: !_adding,
                   onTap: _submit,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _adding ? AppColors.accentDim : AppColors.accent,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('Add',
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        )),
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 ),
               ],
             ),
@@ -198,32 +191,11 @@ class _QuickAddSheetContentState extends State<_QuickAddSheetContent> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: kScreenHPad, vertical: 8),
                 children: widget.collections.map((coll) {
-                  final selected = current == coll.name;
-                  return GestureDetector(
+                  return SelectChip(
+                    label: coll.name,
+                    selected: current == coll.name,
                     onTap: () => setState(
                         () => _collectionController.text = coll.name),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 5),
-                      decoration: BoxDecoration(
-                        color:
-                            selected ? AppColors.accentDim : Colors.transparent,
-                        border: Border.all(
-                          color:
-                              selected ? AppColors.accent : AppColors.border,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        coll.name,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: selected
-                              ? AppColors.accent
-                              : AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
                   );
                 }).toList(),
               ),

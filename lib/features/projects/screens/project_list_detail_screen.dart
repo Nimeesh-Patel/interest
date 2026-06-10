@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_theme.dart';
+import '../../../shared/widgets/app_fab.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
+import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/wikilink_text.dart';
 import '../services/project_storage_service.dart';
 
@@ -147,15 +150,9 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
       body: SafeArea(
         top: false,
         child: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const LoadingState()
             : _items.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No items yet.\nTap + to add one.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.textSecondary),
-                    ),
-                  )
+                ? const EmptyState(message: 'No items yet.\nTap + to add one.')
                 : ReorderableListView.builder(
                     padding: const EdgeInsets.only(bottom: kFabListBottomPad),
                     itemCount: _items.length,
@@ -216,11 +213,7 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
                     },
                   ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addItem,
-        tooltip: 'Add item',
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: AppFab(tooltip: 'Add item', onTap: _addItem),
     );
   }
 }

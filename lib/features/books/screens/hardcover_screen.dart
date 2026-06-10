@@ -4,6 +4,9 @@ import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_retry_state.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 import '../models/book.dart';
 import '../models/hardcover_book.dart';
 import '../services/book_storage_service.dart';
@@ -78,12 +81,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
     final result = await HardcoverSyncService.sync();
     if (!mounted) return;
     setState(() => _syncing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.summary),
-        backgroundColor: result.error != null ? AppColors.destructive : null,
-      ),
-    );
+    showSnack(context, result.summary, isError: result.error != null);
     if (result.error == null) await _loadBooks();
   }
 
@@ -116,7 +114,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingState();
     }
     if (_noToken != null) {
       return EmptyState(
@@ -125,27 +123,15 @@ class HardcoverScreenState extends State<HardcoverScreen> {
       );
     }
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(kScreenHPad),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_error!, style: const TextStyle(color: AppColors.destructive)),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-                  _loadBooks();
-                },
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+      return ErrorRetryState(
+        message: _error!,
+        onRetry: () {
+          setState(() {
+            _loading = true;
+            _error = null;
+          });
+          _loadBooks();
+        },
       );
     }
     if (_books == null || _books!.isEmpty) {
@@ -327,9 +313,7 @@ class _SearchSheetState extends State<_SearchSheet> {
   Future<void> _addBook(HardcoverBook hc, int statusId) async {
     if (_alreadyInVault(hc)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"${hc.title}" is already in your vault')),
-        );
+        showSnack(context, '"${hc.title}" is already in your vault');
         Navigator.pop(context, false);
       }
       return;
@@ -359,9 +343,7 @@ class _SearchSheetState extends State<_SearchSheet> {
     await BookStorageService.createBook(vaultPath, book);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Added "${hc.title}"')),
-      );
+      showSnack(context, 'Added "${hc.title}"');
       Navigator.pop(context, true);
     }
   }
@@ -386,11 +368,7 @@ class _SearchSheetState extends State<_SearchSheet> {
                 suffixIcon: _searching
                     ? const Padding(
                         padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
+                        child: InlineSpinner(size: 20),
                       )
                     : null,
                 border: const OutlineInputBorder(),
@@ -415,9 +393,7 @@ class _SearchSheetState extends State<_SearchSheet> {
       );
     }
     if (_results == null) {
-      return const Center(
-        child: Text('Type a title and press Search', style: TextStyle(color: AppColors.textSecondary)),
-      );
+      return const EmptyState(message: 'Type a title and press Search');
     }
     if (_results!.isEmpty) {
       return const EmptyState(icon: Icons.search_off, message: 'No results found.');

@@ -9,6 +9,8 @@ import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/note_markdown.dart';
+import '../../../shared/widgets/progress.dart';
+import '../../../shared/widgets/snack.dart';
 
 enum _EditMode { structured, plain, fullEdit }
 
@@ -138,9 +140,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     try {
       await File(widget.filePath).writeAsString(content);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
-      }
+      if (mounted) showSnack(context, 'Save failed: $e');
       return;
     }
     if (mounted) Navigator.pop(context, true);
@@ -376,7 +376,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: LoadingState());
     }
 
     return PopScope(

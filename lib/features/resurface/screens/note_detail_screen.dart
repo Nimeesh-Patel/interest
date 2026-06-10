@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/widgets/backlinks_section.dart';
+import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/note_markdown.dart';
+import '../../../shared/widgets/progress.dart';
 
 /// Body-only note viewer. No Scaffold — the caller (ResurfaceScreen) owns the
 /// AppBar. Navigation out of this widget goes via [onNavigateToNote].
@@ -86,7 +88,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const LoadingState();
 
     if (_front != null && _back != null) {
       return GestureDetector(
@@ -100,19 +102,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
               _mdBody(context, _front!),
               const SizedBox(height: 24),
               if (!_backRevealed)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      'tap to reveal',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textTertiary,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ),
-                )
+                const TapToRevealHint()
               else ...[
                 const Divider(thickness: 1, color: AppColors.border),
                 const SizedBox(height: 16),
@@ -144,6 +134,6 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       );
     }
 
-    return const Center(child: Text('Could not load note.'));
+    return const EmptyState(message: 'Could not load note.');
   }
 }
