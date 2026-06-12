@@ -7,16 +7,14 @@ Interest is an Android app that syncs Obsidian notes to AnkiDroid as flashcards 
 One Obsidian note = one Anki card. To make any note a card, add a `***` line: problem above, current best answer below.
 
 ```markdown
-Why does induction fail as an account of how knowledge grows,
-when predicting from past observations so obviously works?
+What makes Interest a better Obsidian-to-Anki bridge than the existing plugins?
 
 ***
 
-Observation is theory-laden — there is no neutral "past data" to
-generalize from. We conjecture an explanation first and use
-observation to criticize it. Prediction works because the surviving
-explanation has reach, not because the future resembles the past.
-See [[Deutsch on reach]].
+It creates one Anki card per note by reading a single `***`
+separator — no plugin syntax, no ID comments, no code added
+to your note. The file stays an ordinary, readable Markdown
+note that works on its own, with or without Anki.
 ```
 
 That is the entire format. No special fields, no ID comments, no code blocks injected into the note. It stays an ordinary Markdown file — fully readable and editable in Obsidian, useful on its own even if Anki never enters the picture. Optionally, a `category:` frontmatter key picks the AnkiDroid deck and `tags:` become Anki tags; neither is required.
