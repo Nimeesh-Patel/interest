@@ -98,6 +98,17 @@ class MainActivity : FlutterActivity() {
                             result.success(available)
                         }
 
+                        "getAnkiDroidVersion" -> {
+                            val versionName = try {
+                                applicationContext.packageManager
+                                    .getPackageInfo("com.ichi2.anki", 0)
+                                    .versionName
+                            } catch (e: PackageManager.NameNotFoundException) {
+                                null
+                            }
+                            result.success(versionName)
+                        }
+
                         "requestPermission" -> {
                             pendingAnkiPermissionResult = result
                             ActivityCompat.requestPermissions(
@@ -122,7 +133,6 @@ class MainActivity : FlutterActivity() {
                                     "Basic model not found in AnkiDroid — open AnkiDroid and ensure it is installed correctly.",
                                     null)
                             try {
-                                Log.d("AnkiSync", "Adding note: model=$modelId deck=$deckId front_len=${front.length}")
                                 val noteId = api.addNote(modelId, deckId, arrayOf(front, back), tags.toSet())
                                 if (noteId == null || noteId <= 0L) {
                                     val dupeMap = api.findDuplicateNotes(modelId, listOf(front))

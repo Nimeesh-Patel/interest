@@ -6,7 +6,7 @@ An **entity is a plain Markdown note that belongs to a collection.** The subsyst
 
 This is the evolved model. The original "entity is a structured document with `Why Interesting` / `Related` / `Sources` sections" view was retired in June 2026; enforcing a body shape both corrupted notes and added no value once entities became collection members. **No body structure is imposed at all** — a new note is created with frontmatter only and an empty body (not even an `# Name`).
 
-The user-facing screen is called **Collections** (tab 2). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is the Interest-app analogue of an Anki **Deck** — but an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid.
+The user-facing screen is called **Collections** (tab 1). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is the Interest-app analogue of an Anki **Deck** — but an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid.
 
 ## Ontology
 

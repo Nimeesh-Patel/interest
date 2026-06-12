@@ -12,18 +12,18 @@ import 'shared/widgets/progress.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final vaultPath = await VaultService.getVaultPath();
-  runApp(EntityTrackerApp(initialVaultPath: vaultPath));
+  runApp(InterestApp(initialVaultPath: vaultPath));
 }
 
-class EntityTrackerApp extends StatelessWidget {
+class InterestApp extends StatelessWidget {
   final String? initialVaultPath;
 
-  const EntityTrackerApp({super.key, this.initialVaultPath});
+  const InterestApp({super.key, this.initialVaultPath});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Entity Tracker',
+      title: 'Interest',
       theme: buildAppTheme(),
       darkTheme: buildAppTheme(),
       themeMode: ThemeMode.dark,

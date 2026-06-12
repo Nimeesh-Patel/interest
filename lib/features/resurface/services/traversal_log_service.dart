@@ -142,24 +142,6 @@ class TraversalLogService {
     }
   }
 
-  static Future<Map<String, DateTime>> loadTraversalLog() async {
-    try {
-      final vaultPath = await VaultService.getVaultPath();
-      if (vaultPath == null) return {};
-      final data = await _readAll(vaultPath);
-      final map = <String, DateTime>{};
-      for (final e in data.entries) {
-        if (e.lastTraversed == null) continue;
-        try {
-          map[noteKey(e.note)] = DateTime.parse(e.lastTraversed!);
-        } catch (_) {}
-      }
-      return map;
-    } catch (_) {
-      return {};
-    }
-  }
-
   static Future<
       Map<
           String,
@@ -276,58 +258,6 @@ class TraversalLogService {
           minDegree: data.minDegree,
           maxDegree: data.maxDegree,
           entries: updated,
-        )),
-      );
-    } catch (_) {}
-  }
-
-  static Future<void> patchGraphScores(
-    Map<String, ({double rawScore, String lastBoosted, bool isProblemNote})> updates,
-  ) async {
-    try {
-      final vaultPath = await VaultService.getVaultPath();
-      if (vaultPath == null) return;
-      final data = await _readAll(vaultPath);
-      var entries = data.entries;
-      for (final kv in updates.entries) {
-        final name = noteKey(kv.key);
-        final update = kv.value;
-        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
-        if (idx == -1) {
-          entries = [
-            ...entries,
-            (
-              note: name,
-              lastTraversed: null,
-              graphScore: update.rawScore,
-              lastBoosted: update.lastBoosted,
-              activatedBy: <String>[],
-              isProblemNote: update.isProblemNote,
-              scheduledInterval: null,
-            ),
-          ];
-        } else {
-          entries = [
-            for (var i = 0; i < entries.length; i++)
-              i == idx
-                  ? (
-                      note: name,
-                      lastTraversed: entries[idx].lastTraversed,
-                      graphScore: update.rawScore,
-                      lastBoosted: update.lastBoosted,
-                      activatedBy: entries[idx].activatedBy,
-                      isProblemNote: update.isProblemNote,
-                      scheduledInterval: entries[idx].scheduledInterval,
-                    )
-                  : entries[i],
-          ];
-        }
-      }
-      await File(_logPath(vaultPath)).writeAsString(
-        _serialize((
-          minDegree: data.minDegree,
-          maxDegree: data.maxDegree,
-          entries: entries,
         )),
       );
     } catch (_) {}
@@ -452,61 +382,4 @@ class TraversalLogService {
     } catch (_) {}
   }
 
-  /// Appends [traversedStarNote] to the `activated_by` list of each note in
-  /// [targets] (filename → isProblemNote). Creates entries for notes not yet in the log.
-  static Future<void> activateNotes(
-    String traversedStarNote,
-    Map<String, bool> targets,
-  ) async {
-    try {
-      final vaultPath = await VaultService.getVaultPath();
-      if (vaultPath == null) return;
-      final data = await _readAll(vaultPath);
-      final traverser = noteKey(traversedStarNote);
-      var entries = data.entries;
-      for (final kv in targets.entries) {
-        final name = noteKey(kv.key);
-        final isProblemNoteFlag = kv.value;
-        final idx = entries.indexWhere((e) => noteKey(e.note) == name);
-        if (idx == -1) {
-          entries = [
-            ...entries,
-            (
-              note: name,
-              lastTraversed: null,
-              graphScore: 0.0,
-              lastBoosted: null,
-              activatedBy: [traverser],
-              isProblemNote: isProblemNoteFlag,
-              scheduledInterval: null,
-            ),
-          ];
-        } else {
-          final existing = entries[idx];
-          if (existing.activatedBy.contains(traverser)) continue;
-          entries = [
-            for (var i = 0; i < entries.length; i++)
-              i == idx
-                  ? (
-                      note: name,
-                      lastTraversed: existing.lastTraversed,
-                      graphScore: existing.graphScore,
-                      lastBoosted: existing.lastBoosted,
-                      activatedBy: [...existing.activatedBy, traverser],
-                      isProblemNote: isProblemNoteFlag,
-                      scheduledInterval: existing.scheduledInterval,
-                    )
-                  : entries[i],
-          ];
-        }
-      }
-      await File(_logPath(vaultPath)).writeAsString(
-        _serialize((
-          minDegree: data.minDegree,
-          maxDegree: data.maxDegree,
-          entries: entries,
-        )),
-      );
-    } catch (_) {}
-  }
 }

@@ -49,9 +49,6 @@ class VaultService {
     } catch (_) {}
   }
 
-  static String boardsPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Boards');
-
   static String listsPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Lists');
 

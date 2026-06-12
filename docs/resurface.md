@@ -8,19 +8,18 @@ Vault-wide semantic notes layer. `ResurfaceService` scans every `.md` file in th
 
 ## Vault scan scope
 
-`ResurfaceService.getAllNotes()` calls `Directory(vaultPath).list(recursive: true)` and processes every `.md` file found, subject to folder exclusions.
+`ResurfaceService.getAllNotes()` scans every `.md` file under the vault (via `VaultScanner`), subject to folder exclusions and a per-note opt-out.
 
-**Default excluded folders:** `.obsidian`, `Templates`, `Attachments`.
+**Two exclusion defaults exist, used by different callers:**
 
-- `.obsidian` — Obsidian configuration; not user prose.
-- `Templates` — template stubs; not epistemic artifacts.
-- `Attachments` — binary assets.
+- The **config default** (`IntegrationsConfigService`, applied when the `## Resurface` section is absent from `integrations.md`): `Interesting`, `.obsidian`, `Templates`, `Attachments`. The deck list, search, Recent Notes, and the AnkiDroid sync all pass this configured list — so by default the app's own `Interesting/` tree does not surface in the deck list or sync to AnkiDroid.
+- The **service built-in default** (`ResurfaceService._defaultExcludedFolders`): `.obsidian`, `Templates`, `Attachments` — no `Interesting`. `GraphScoringService.updateGraphScores()` calls `getAllNotes()` without the configured list, so **graph construction includes `Interesting/`**: entity, book, and project files are reachable by the wikilink graph and can receive score boosts even though they don't appear in the deck list.
 
-`Interesting/` is **not excluded**. Entity files, book files, Anki cards, and project files are all reachable by the wikilink graph and can receive graph-score boosts. `***` notes inside `Interesting/` surface directly in the deck list.
+**Per-note opt-out:** a note with `exclude_resurface: true` in frontmatter is skipped by `getAllNotes()` entirely, regardless of folder.
 
 **Exclusion semantics:** segment-exact. The relative path from vault root is split on the OS separator, the filename is dropped, and each remaining segment is checked against the list. `Interesting` does not match `Interesting-notes`.
 
-**Configuring exclusions:** Settings → Resurface → "Excluded folders" (comma-separated). Stored in `Interesting/System/integrations.md` via `IntegrationsConfigService`. The default list is applied when the config section is absent.
+**Configuring exclusions:** Settings → Resurface → "Excluded folders" (comma-separated). Stored in `Interesting/System/integrations.md` via `IntegrationsConfigService`.
 
 ---
 
@@ -178,8 +177,8 @@ Read by `GraphScoringService` before each BFS traversal. Configurable in Setting
 
 **Who writes what:**
 - `recordTraversal(filename, isProblemNote:, scheduledInterval:)` — updates `last_reviewed`, `is_star`, and `scheduled_interval`; clears `activated_by` if promoting from plain note to problem note
-- `patchGraphScores(updates)` — updates `graph_score`, `last_boosted`, `is_star`
-- `activateNotes(traversedStarNote, targets)` — appends to `activated_by`; creates entries for notes not yet in the log
+- `updateGraphState(vaultPath, GraphStateUpdate)` — one atomic read-mutate-write applying both score patches (`graph_score`, `last_boosted`, `is_star`) and activation additions (`activated_by`, deduped); called by `GraphScoringService` after each BFS
+- `removeNote(filename)` — drops a note's entry (called when a note is deleted from the card viewer)
 - `saveSettings(minDegree:, maxDegree:)` — updates the `settings:` section; preserves all entries
 
 **Failure semantics:** if the file is missing or malformed, all methods return empty state and the app continues unaffected. No method throws.
@@ -270,9 +269,11 @@ priority = daysSinceReview + decayedScore(graph_score, last_boosted)
 priority = daysSinceReview + max_parent_score
 ```
 
-`daysSinceReview` = `today − last_reviewed` in integer days. If never reviewed: treated as 365.
+`daysSinceReview` = `today − last_reviewed` in integer days. If never reviewed: treated as 365. The `scheduled_interval` late-penalty cap (see the log-field table above) bounds `daysSinceReview` at `scheduled_interval × 1.5` so a long-ignored note cannot dominate the queue permanently.
 
-Higher priority surfaces first. Within ties, order is stable (Dart's sort is stable).
+**Noise:** a random jitter is added to each note's *sort* priority (not the stored score) to prevent pile-ups when many notes have similar staleness — ±0.5 expected for recently seen notes (≤ 10 days), ±3 for the mid range (≤ 60 days), and ±5 % of elapsed days beyond that (`kNoiseThresholdShort` / `kNoiseThresholdMedium` / `kNoiseLongFraction` in `graph_scoring_service.dart`). The pre-noise priority is what gets recorded as `scheduled_interval` on traversal.
+
+Higher priority surfaces first. The card viewer additionally applies a no-repeat rule: if the next card is the one just shown, it is deferred one position (`CardViewerController.goNext`).
 
 ---
 

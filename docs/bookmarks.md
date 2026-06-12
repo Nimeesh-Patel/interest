@@ -50,11 +50,11 @@ After `fetchMetadata` succeeds, `HomeScreen._ingestShareUrl` shows a dialog:
 - **Input**: optional text field ("Note name (optional)")
 - **Buttons**: Save / Skip
 
-**If the user provides a name**: the name is used verbatim — spaces and capitalisation are preserved; no slugification.
+**If the user provides a name**: that name is the base.
 
-**If the user skips** (or submits empty): the first seven whitespace-separated words of `tweetText` are joined with spaces, preserving original capitalisation. If `tweetText` is null (degraded case), falls back to `x-<tweetId>`.
+**If the user skips** (or submits empty): the first seven whitespace-separated words of `tweetText` are joined with spaces. If `tweetText` is null (degraded case), falls back to `x-<tweetId>`.
 
-The resulting base name is then passed to `XBookmarkStorageService.uniqueSlug(base, dirPath)` to guarantee no existing file is overwritten (see [§ Dedup](#dedup)).
+The base is then passed to `XBookmarkStorageService.uniqueSlug(base, dirPath)`, which **slugifies it** (lowercase, spaces → hyphens, non-alphanumerics stripped, via `generateUniqueId`/`slugify` in `md_utils.dart`) and guarantees no existing file is overwritten (see [§ Dedup](#dedup)). So "Popper on Falsification" becomes `popper-on-falsification.md`.
 
 ---
 
@@ -75,7 +75,7 @@ Files are written to `<vault>/<name>.md` (vault root).
 
 `buildFrontmatterBlock()` from `md_utils.dart` handles all YAML quoting. Fields with null or empty values are omitted entirely.
 
-**Body**: the note uses a `***` Resurface separator. The front side (above `***`) is left empty for the user to fill as a problem statement. The back side contains the tweet text and attribution.
+**Body**: the note uses a `***` Resurface separator. The front side (above `***`) is left empty for the user to fill as a problem statement. The back side contains the tweet text and attribution. Note: because `splitFrontBack()` requires non-empty content on *both* sides, a bookmark is **not** a problem note (and does not appear in the deck list or sync to AnkiDroid) until the user writes a front side. Until then it is reachable like any other vault note — via search, Recent Notes, and backlinks.
 
 ```
 <empty front side>
@@ -89,11 +89,11 @@ Files are written to `<vault>/<name>.md` (vault root).
 
 The attribution line is omitted if `authorName` is null. The `author_url` and `source_url` parts degrade gracefully: if `authorUrl` is null, the author name is written as plain text; if `sourceUrl` is null, `source` is written as plain text. Degraded notes (no `tweetText`) have no `***` separator and will not appear in Resurface until the user adds content.
 
-**Example** — user shared `https://x.com/QuotePopper/status/2059645404581417036` and named the note "popper on falsification":
+**Example** — user shared `https://x.com/QuotePopper/status/2059645404581417036` and named the note "Popper on falsification" (slugified to `popper-on-falsification`):
 
 ```markdown
 ---
-alias: popper on falsification
+alias: popper-on-falsification
 author: Karl Popper Quotes
 author_url: "https://twitter.com/QuotePopper"
 source_url: "https://x.com/QuotePopper/status/2059645404581417036"
@@ -111,7 +111,7 @@ The criterion of the scientific status of a theory is its falsifiability, or ref
 
 ```markdown
 ---
-alias: popper on falsification
+alias: popper-on-falsification
 date: 2026-05-27
 truncated: true
 ---
@@ -121,12 +121,12 @@ truncated: true
 
 ## Dedup
 
-`XBookmarkStorageService.uniqueSlug(base, dirPath)` checks the filesystem synchronously before write:
+`XBookmarkStorageService.uniqueSlug(base, dirPath)` slugifies `base` and checks the filesystem synchronously before write:
 
-- If `<base>.md` does not exist → returns `base` unchanged.
-- If it does exist → tries `<base>-2.md`, `<base>-3.md`, … until a free slot is found.
+- If `<slug>.md` does not exist → returns the slug unchanged.
+- If it does exist → tries `<slug>-2.md`, `<slug>-3.md`, … until a free slot is found.
 
-The returned name is then used as both the filename and the `alias` frontmatter value. This means two bookmarks saved with the same user-chosen name produce `name.md` and `name-2.md` with distinct `alias` values — no file is ever overwritten.
+The returned slug is then used as both the filename and the `alias` frontmatter value. Two bookmarks saved with the same name produce `slug.md` and `slug-2.md` with distinct `alias` values — no file is ever overwritten.
 
 `XBookmarkStorageService.save()` also checks `File(filePath).exists()` before writing as a final guard.
 
@@ -134,11 +134,9 @@ The returned name is then used as both the filename and the `alias` frontmatter 
 
 ## What is not implemented
 
-- No `BookmarksScreen`. Bookmarks are plain vault files; there is no list, search, or detail view for them within the app.
+- No `BookmarksScreen`. Bookmarks are plain vault files; there is no list, detail view, or deletion UI for them within the app — they are reached via note search/Recent Notes or edited in Obsidian.
 - No sync scheduler. Ingestion is user-triggered via the share sheet; nothing polls or re-fetches.
-- No deletion UI. Bookmarks are deleted by editing the vault directly.
-- No `BookmarksScreen` tab or navigation entry.
-- Bookmarks appear in the Notes/Resurface tab automatically — each saved bookmark includes a `***` separator with an empty front side (for the user to fill as a problem statement) and the tweet text on the back.
+- A bookmark does not surface as a review card on its own: its `***` separator has an empty front side, and the card extractor requires content on both sides. Writing a problem statement above the `***` promotes it to a problem note.
 
 ---
 

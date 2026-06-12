@@ -171,7 +171,7 @@ static Future<String?> renameProject(
 
 Displays all project files from `ProjectStorageService.loadAll()` in an A→Z `ListView`. State class is public (`ProjectsScreenState`) so `HomeScreen` can trigger project creation via `GlobalKey`.
 
-**Tile display**: folder icon for todo-style; list-bullets icon for list-style. Name as title. If `totalTasks > 0`, a `LinearProgressIndicator` + `"N / M done"` subtitle; otherwise "Empty" (always shown for list-style projects).
+**Row display**: name on the left (dimmed when 100 % complete), a "LIST" or "TODO" type badge on the right. If `totalTasks > 0`, a thin `LinearProgressIndicator` and a `"done / total"` count below; list-style rows show neither (their `- item` lines never match the task regex).
 
 **Creation flow**: FAB calls `showCreateDialog(ctx)`, which shows `showBottomSheetMenu` with:
 - "Todo outline" (`Icons.check_box_outline_blank`) → `_createProject(ctx, listStyle: false)`

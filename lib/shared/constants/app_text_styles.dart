@@ -49,20 +49,9 @@ class AppTextStyles {
         color: AppColors.textTertiary,
       );
 
-  static TextStyle get cardQuestion => GoogleFonts.ibmPlexSerif(
-        fontSize: 21,
-        height: 1.65,
-        color: AppColors.textPrimary,
-      );
-
   static TextStyle get cardAnswer => GoogleFonts.ibmPlexSerif(
         fontSize: 17,
         height: 1.78,
-        color: AppColors.textPrimary,
-      );
-
-  static TextStyle get notePeek => GoogleFonts.ibmPlexSerif(
-        fontSize: 17,
         color: AppColors.textPrimary,
       );
 

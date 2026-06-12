@@ -46,4 +46,6 @@ app.*.map.json
 
 # Claude Code local settings
 .claude/settings.local.json
-ReadEra-Premium_2026-05-23_04.49.bak
+
+# ReadEra backup files used for local import testing
+*.bak

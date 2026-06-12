@@ -85,32 +85,6 @@ Map<String, String> parseSectionsH2(String body) {
   return result;
 }
 
-/// Parses H1 (`#`) sections from a Markdown body.
-/// Used by Anki storage service (Front / Back / Text are H1 sections).
-/// Section content is `.trim()`-ed (not `trimRight`).
-Map<String, String> parseSectionsH1(String body) {
-  final sections = <String, String>{};
-  final lines = body.split('\n');
-  String? currentSection;
-  final buf = StringBuffer();
-
-  for (final line in lines) {
-    if (line.startsWith('# ')) {
-      if (currentSection != null) {
-        sections[currentSection] = buf.toString().trim();
-      }
-      currentSection = line.substring(2).trim();
-      buf.clear();
-    } else {
-      if (currentSection != null) buf.writeln(line);
-    }
-  }
-  if (currentSection != null) {
-    sections[currentSection] = buf.toString().trim();
-  }
-  return sections;
-}
-
 // ── H1 title extractor ────────────────────────────────────────────────────────
 
 /// Returns the first H1 title from a Markdown body, or null if absent.
@@ -132,10 +106,6 @@ List<String> extractWikilinks(String text) {
   final pattern = RegExp(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]');
   return pattern.allMatches(text).map((m) => m.group(1)!.trim()).toList();
 }
-
-/// Returns wikilink targets from a pre-parsed section content string.
-List<String> parseSectionAsWikilinks(String sectionContent) =>
-    extractWikilinks(sectionContent);
 
 /// Strips wikilinks to plain text: [[Target|display]] → display, [[Target]] → Target.
 String plainTextWikilinks(String text) => text.replaceAllMapped(
@@ -171,21 +141,6 @@ String rewriteWikilinksToHtml(
       return buildHref(target, display);
     },
   );
-}
-
-/// Returns list items from a pre-parsed section content string.
-/// Handles `- item`, `* item`, and bare non-empty lines.
-List<String> parseSectionAsList(String sectionContent) {
-  final result = <String>[];
-  for (final line in sectionContent.split('\n')) {
-    final t = line.trim();
-    if (t.startsWith('- ') || t.startsWith('* ')) {
-      result.add(t.substring(2).trim());
-    } else if (t.isNotEmpty) {
-      result.add(t);
-    }
-  }
-  return result;
 }
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────

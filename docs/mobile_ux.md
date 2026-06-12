@@ -70,8 +70,10 @@ Use screen-fraction height (not fixed pixels) so the sheet scales across device 
 
 | Sheet content | Height fraction |
 |---------------|----------------|
-| Search field + result list (entity link search) | `* 0.55` |
-| Title row + search field + result list (board entity add) | `* 0.60` |
+| RSS feed add/edit form | `* 0.55` |
+| Hardcover search + result list | `* 0.85` |
+
+(The Quick Add Sheet is `isScrollControlled` but sizes to its content; it needs only the keyboard-inset padding.)
 
 ---
 
@@ -88,7 +90,7 @@ ListView.builder(
 
 `kFabListBottomPad = 88.0` from `lib/shared/constants/app_spacing.dart` (FAB 56 + margin 16 + safe area buffer 16).
 
-Screens requiring this: `AnkiScreen`, `TemplatesScreen`, `BoardDetailScreen`.
+Screens requiring this: `CollectionsScreen` (entity list), `ProjectsScreen`, `ProjectListDetailScreen`, `TemplatesScreen`, `RssScreen`, `HardcoverScreen`.
 
 ---
 
@@ -114,7 +116,7 @@ Flutter's default focus traversal handles `next` hops without explicit `FocusNod
 
 ### Inline edit fields
 
-Inline `TextField`s (entity notes/links, task text) commit on:
+Inline `TextField`s (task text, list items) commit on:
 - `onSubmitted` — explicit keyboard submit
 - `onTapOutside` — tap elsewhere
 

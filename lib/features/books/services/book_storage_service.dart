@@ -38,48 +38,7 @@ class BookStorageService {
     return books;
   }
 
-  // ── Identity lookups ──────────────────────────────────────────────────────
-
-  static Future<Book?> findByHardcoverId(String vaultPath, int id) async {
-    final books = await loadBooks(vaultPath);
-    try {
-      return books.firstWhere((b) => b.hardcoverId == id);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<Book?> findByReadwiseId(String vaultPath, int id) async {
-    final books = await loadBooks(vaultPath);
-    try {
-      return books.firstWhere((b) => b.readwiseId == id);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<Book?> findByIsbn(String vaultPath, String isbn) async {
-    final normalized = _normalizeIsbn(isbn);
-    if (normalized.isEmpty) return null;
-    final books = await loadBooks(vaultPath);
-    try {
-      return books.firstWhere(
-          (b) => b.isbn != null && _normalizeIsbn(b.isbn!) == normalized);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<Book?> findByTitle(String vaultPath, String title) async {
-    final slug = slugify(title);
-    if (slug.isEmpty) return null;
-    final books = await loadBooks(vaultPath);
-    try {
-      return books.firstWhere((b) => slugify(b.title) == slug);
-    } catch (_) {
-      return null;
-    }
-  }
+  // ── Identity reconciliation ───────────────────────────────────────────────
 
   /// Reconcile: find an existing book matching any of the given anchors,
   /// checking in priority order: hardcoverId > readwiseId > isbn > title.

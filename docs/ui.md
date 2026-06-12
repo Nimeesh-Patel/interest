@@ -8,7 +8,7 @@ Canonical reference for visual design and navigation. Color constants live in `l
 
 Material 3, dark only (`Brightness.dark`). No light theme. `scaffoldBackgroundColor` is `AppColors.background`.
 
-**Font:** IBM Plex Sans (body, UI) and IBM Plex Serif (card front/back, note peek) via `google_fonts`. All `ThemeData.textTheme` entries use `GoogleFonts.ibmPlexSans()`.
+**Font:** IBM Plex Sans (body, UI) and IBM Plex Serif (card front/back) via `google_fonts`. All `ThemeData.textTheme` entries use `GoogleFonts.ibmPlexSans()`.
 
 ---
 
@@ -51,9 +51,7 @@ All use `GoogleFonts.ibmPlexSans()` unless noted.
 | `bodySmall` | Sans | 13 | 400 | textSecondary | Subtitles, metadata |
 | `meta` | Sans | 12 | 400 | textSecondary | Timestamps, counts |
 | `metaMuted` | Sans | 11 | 400 | textTertiary | Muted labels |
-| `cardQuestion` | **Serif** | 21 | 400 | textPrimary | Card front, height 1.65 |
-| `cardAnswer` | **Serif** | 17 | 400 | textPrimary | Card back, height 1.78 |
-| `notePeek` | **Serif** | 17 | 400 | textPrimary | Home dashboard card peek |
+| `cardAnswer` | **Serif** | 17 | 400 | textPrimary | Card back, height 1.78; card front uses `copyWith(fontSize: 21, height: 1.65)` |
 | `navLabel` | Sans | 9 | 600 | — | Bottom nav; uppercase, letterSpacing 0.5 |
 
 ### `ThemeData.textTheme` (fallback for widgets using `Theme.of(context).textTheme`)
@@ -75,20 +73,21 @@ AppBar title: 17px w600 IBM Plex Sans.
 
 ## Navigation
 
-**Bottom nav bar** — 4 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
+**Bottom nav bar** — 3 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
 
 | Index | Label | Icon (inactive / active) | Screen |
 |---|---|---|---|
-| 0 | HOME | `home_outlined` / `home` | `HomeDashboardScreen` |
-| 1 | NOTES | `auto_stories_outlined` / `auto_stories` | `ResurfaceScreen` |
-| 2 | COLLECTIONS | `hub_outlined` / `hub` | Collections tab (inline in `HomeScreen`) |
-| 3 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
+| 0 | NOTES | `auto_stories_outlined` / `auto_stories` | `ResurfaceScreen` |
+| 1 | COLLECTIONS | `hub_outlined` / `hub` | `CollectionsScreen` |
+| 2 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
 
 Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `navLabel` (9px w600, uppercase, letterSpacing 0.5).
 
-Double-tapping the NOTES tab calls `ResurfaceScreenState.resetStack()` (collapses to deck list).
+Tapping the NOTES tab while it is already active calls `ResurfaceScreenState.resetStack()` (collapses to the deck list and clears search).
 
-**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Full inbox-style layout: Hardcover, Articles, Readwise, Bookmarks, and Obsidian as rows with icon / name+description / last-sync meta / chevron.
+**AppBar** (owned by `HomeScreen`) is computed per tab: back button and search/edit/Obsidian actions appear when the Notes tab has a note open; the `sensors` icon pushes the Sources screen; the overflow menu holds Settings, Templates, and Open Obsidian.
+
+**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Inbox-style rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid — icon / name+description / meta / chevron. "Sync all" is currently a hint snackbar (per-source sync lives in each row).
 
 ---
 
@@ -102,44 +101,17 @@ Double-tapping the NOTES tab calls `ResurfaceScreenState.resetStack()` (collapse
 
 **Bottom sheets / dialogs** — background `surfaceElevated`, radius 14 (top corners for sheets, all corners for dialogs).
 
-**FAB** — background `accentDim`, foreground `accent`, radius 14, size 52×52, border `1px accent.withValues(alpha:0.33)`.
+**FAB** — `AppFab` (`lib/shared/widgets/app_fab.dart`): 52×52, background `accentDim`, foreground `accent`, radius 14, border `1px accent.withValues(alpha: 0.33)`. Every screen-level primary action uses this one widget (Collections quick-add, Projects new-project, RSS add-feed, Templates new-template, list-detail add-item); there are no raw `FloatingActionButton`s.
 
 **Dividers** — color `border` (#1E1E1E), thickness 1, space 0.
 
 **Input fields** — background `surface`, border `border`, focused border `accent`, hint `textTertiary`, radius 10.
 
-**Chips (category filter)** — padding `5×14`, radius 20, gap 6. Active: bg `accentDim`, border `accent`, text `accent`. Inactive: bg transparent, border `border`, text `textSecondary`.
+**Chips (`SelectChip`)** — padding `5×14`, radius 20, gap 6. Active: bg `accentDim`, border `accent`, text `accent`. Inactive: bg transparent, border `border`, text `textSecondary`. Used for collection filters and quick-fill rows.
 
-**Related chips (entity detail)** — text `[[Name]]`, 13px `accent`, padding `4×10`, border `accentDim`, radius 6.
-
-**Inline edit fields** — bg `surface`, border `1px accent`, radius 7, padding `6×10`.
+**List rows (`ListRow`)** — hairline bottom border `border`; default padding 14px vertical / `kScreenHPad` horizontal. Every bordered list row builds on this widget.
 
 **Section headers** — `SectionHeader` widget: 10px IBM Plex Sans w600 uppercase, letterSpacing 1.3, `textTertiary`. Top padding 14px, bottom 8px.
-
----
-
-## Home Dashboard (`HomeDashboardScreen`)
-
-Entry point screen (tab 0). Loads on `initState` via `ResurfaceService.getAllNotes()` and `MarkdownStorageService`.
-
-### Card Peek Hero
-
-Surface-colored container with `borderMid` border, radius 10:
-- First card's question text in IBM Plex Serif 17px (from `GraphScoringService.sortByPriority()`)
-- Deck name + "N cards to review" meta
-- "Review" `→` button (accent bg, white text) — switches to Notes tab (tab 1)
-
-### Worth Revisiting section
-
-Entities sorted by `(score × 0.4) + (daysSinceUpdated × 0.6)` descending, capped at 3 rows. Each row shows name + reason text (e.g. "Not visited in 7 days") + category right-aligned. Reason logic: days > 7 → "Not visited in N days"; score > 7 → "High rated"; days ≤ 2 → "Updated recently"; else → "Worth another look".
-
-### Recent Notes section
-
-2 most recently modified vault notes (by file `stat().modified`). Shows filename + deck name + `✦` glyph if note has card.
-
-### Persistent FAB
-
-`AppFab` (`lib/shared/widgets/app_fab.dart`) — 52×52px, `accentDim` bg, accent icon, radius 14. Every screen-level primary action uses this one widget (Collections quick-add, Projects new-project, RSS add-feed, Templates new-template, list-detail add-item); there are no raw `FloatingActionButton`s.
 
 ---
 
@@ -149,48 +121,41 @@ Opened via `showQuickAddSheet(context, ...)`. `showModalBottomSheet(isScrollCont
 
 Layout:
 1. Handle bar (36×4 `borderMid`)
-2. Header row: "Add entity" (16px w600) + "Add" CTA (accent bg, white text)
-3. Auto-focused name `TextField` (accent border when focused)
-4. Category chips (horizontal scroll, same active/inactive style as entity list)
-5. Last-used category persisted in `SharedPreferences` key `last_used_category`
+2. Header row: "Add to collection" (16px w600) + "Add" `AccentButton`
+3. Auto-focused name `TextField`
+4. Free-text Collection `TextField` — any value creates/uses a collection
+5. Existing collections as quick-fill `SelectChip`s (horizontal scroll)
+6. Last-used collection persisted in `SharedPreferences` key `last_used_collection`
 
-On submit: calls `MarkdownStorageService` create path → dismisses sheet → navigates to new entity.
+On submit: creates the file via `MarkdownStorageService.saveEntity` → dismisses sheet → `onCreated` callback (HomeScreen reloads and opens the new entity).
 
 ---
 
-## Entity list rows
+## Collections tab rows
 
-Used in Home (Worth Revisiting) and Collections tab. Layout per row:
+Layout per entity row:
 - Name: IBM Plex Sans 15px w500 `textPrimary`
-- Metadata `Wrap`: `★N` (score color 12px), category name (13px `textSecondary`), `#tag` (13px accent)
-- Timestamp right-aligned: 11px `textTertiary`
-- Bottom border `border`; padding 13px vertical / 16px horizontal
+- Metadata `Wrap`: `★N` (score color 12px), collection name (13px `textSecondary`), up to two `#tag`s (13px accent)
+- Timestamp right-aligned: 11px `textTertiary` (`formatRelative`)
+- `ListRow` bottom border; padding 13px vertical / 16px horizontal
 
 ---
 
-## Entity detail view
+## Entity detail view (`EntityScreen`)
 
-**Title block** (padding `22 top / 16 horizontal`):
-- Name: IBM Plex Sans 26px w600, letterSpacing −0.3, height 1.2; tappable → inline `TextField`
-- Meta row: category · `#tag` (accent) · `★N` (score) — all 13px
+**Title block** (padding `22 top / 16 horizontal`): name 26px w600 letterSpacing −0.3 height 1.2; meta row below — collection · `#tag` (accent) · `★N` (score) — all 13px.
 
-**Section pattern:** `SectionHeader` (caps) + content, left-padded `kScreenHPad`.
+**Body**: rendered via the shared `noteMarkdownBody` (tappable wikilinks), then `BacklinksSection`, then the Grokipedia card.
 
-**Notes bullets:** `· ` (14px `textTertiary`) + text (15px, height 1.55); each bullet tappable → inline `TextField`. `+ Add note` row always visible below bullets.
+**Grokipedia card**: `surface` bg, `borderMid` border, radius 8, padding `12×14`; body 14px `textSecondary` height 1.65; "Read full article" link + `open_in_new` icon in accent; "Show/Hide summary" toggle.
 
-**Sources:** `link` icon (14px accent) + URL text (14px accent), gap 8, margin-bottom 6.
-
-**Related:** `[[Name]]` chips (13px accent, border `accentDim`, radius 6); `+ Link` chip always visible.
-
-**Grokipedia card:** `surface` bg, `borderMid` border, radius 8, padding `12×14`; body 14px `textSecondary` height 1.65; "Read full article" link + `open_in_new` icon in accent; "Show/Hide summary" toggle.
-
-**Inline edit AppBar:** when `_hasUnsavedChanges == true` → `check` icon (accent) → calls `_saveEdit()`. When false → `edit` icon + (implicit) `more_vert` menu.
+**Edit details mode**: collection dropdown, tag chips with `RawAutocomplete` add field, score slider. AppBar shows Cancel / Save text buttons.
 
 ---
 
 ## Notes / Decks screen layout
 
-**Deck list (DeckListRoute):**
+**Deck list:**
 1. **All Notes hero** — surface card with `borderMid` border, radius 10: `✦` (16px accent) + "All Notes" (w600 16px) + "N problem notes to review" (13px `textSecondary`) + `arrow_forward_ios` right
 2. **DECKS section** (named decks only, if any): `✦` glyph (11px `textTertiary`) + deck name (500 15px) + count + `arrow_forward_ios`
 3. **RECENT NOTES section**: top-2 most recently modified vault notes, filename (15px) + first deck below (13px) + `✦` right (12px accent) if `isProblemNote`
@@ -203,11 +168,14 @@ Used in Home (Worth Revisiting) and Collections tab. Layout per row:
 - Front: IBM Plex Serif 21px, height 1.65, `textPrimary`; margin-bottom 38
 - Divider: `borderMid`, margin-bottom 30 (shown after reveal)
 - Back: IBM Plex Serif 17px, height 1.78, `textPrimary`; `**bold**` spans rendered in accent w600
+- Backlinks panel after the back content (visible once revealed)
+- Horizontal swipe advances/retreats; tap toggles back reveal
 
 **Navigation row** (border-top `border`, padding `12 vertical / kScreenHPad horizontal`):
 - **Prev:** outlined button (border `border`, radius 8, padding `9×18`), `arrow_back_ios_new` + "Prev" in `textSecondary`
 - **Progress:** "N / total" center (13px `textTertiary`)
-- **Next:** filled button (`accent` bg, radius 8, padding `9×20`), "Next" w600 white + `arrow_forward_ios` white; dimmed to `accentDim` when at last card
+- **Next:** `AccentButton` (accent bg, radius 8), dimmed to `accentDim` at the last card
+- **⋮ menu:** Delete note (destructive)
 
 ---
 
@@ -215,7 +183,7 @@ Used in Home (Worth Revisiting) and Collections tab. Layout per row:
 
 Inbox-style list. AppBar: "Sources" title + "Sync all" outlined button (border `border`, `sync` icon + text, 12px `textSecondary`).
 
-Row layout: icon (22px `textSecondary`) | name (500 15px) + description+meta below (13px/11px `textSecondary`/`textTertiary`) | `arrow_forward_ios` right (14px `textTertiary`).
+Row layout: icon (22px `textSecondary`) | name (500 15px) + description+meta below (13px/11px `textSecondary`/`textTertiary`) | `arrow_forward_ios` right (14px `textTertiary`). Rows with a sync in flight dim and show an `InlineSpinner`.
 
 ---
 
@@ -224,7 +192,7 @@ Row layout: icon (22px `textSecondary`) | name (500 15px) + description+meta bel
 Row layout (padding `14×16`):
 - Name: IBM Plex Sans 500 15px; `textSecondary` if 100% complete
 - Type badge right: "LIST" or "TODO", 11px w600 uppercase, 0.8px letterSpacing, `textTertiary`
-- Progress bar: height 2, `LinearProgressIndicator`, `accent` fill (in-progress) / `textTertiary` (complete), `border` track, radius 1
+- Progress bar (todo-style with tasks): height 2, `LinearProgressIndicator`, `accent` fill (in-progress) / `textTertiary` (complete), `border` track, radius 1
 - Count label: "done / total" 11px `textTertiary`
 
 ---

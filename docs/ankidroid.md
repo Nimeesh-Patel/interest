@@ -25,6 +25,7 @@ Channel name: `com.nimeesh.interest/ankidroid`
 |---|---|---|---|
 | `isAnkiDroidAvailable` | — | `bool` | Package check (`com.ichi2.anki`) |
 | `requestPermission` | — | `bool` | Runtime permission `com.ichi2.anki.permission.READ_WRITE_DATABASE` |
+| `getAnkiDroidVersion` | — | `String?` (versionName, or null) | PackageManager lookup; gates `anki://` link emission |
 | `addNote` | `deckName, front, back, tags` | `Long` (noteId, or -1) | Creates deck and model if absent |
 | `updateNote` | `noteId, front, back, tags` | `bool` | `updateNoteFields` + `updateNoteTags` |
 | `noteExists` | `noteId` | `bool` | `getNote(noteId) != null` |
@@ -75,24 +76,33 @@ Per-note errors are accumulated in `AnkiSyncResult.errors` and reported in the f
 
 ## Wikilink deep-links
 
-### URI scheme
+### Two link tiers
 
-```
-interest://note/<percent-encoded-note-name>
-```
+A wikilink in a synced card resolves to one of two schemes, decided per link at sync time:
 
-Example: a wikilink `[[Zeno's Paradox]]` becomes `interest://note/Zeno's%20Paradox`.
+| Tier | Condition | Rendered href | Tap behaviour |
+|---|---|---|---|
+| **In-AnkiDroid** | target is a synced problem note (its `anki_note_id` is known) AND installed AnkiDroid ≥ 2.16 | `anki://x-callback-url/browser?search=nid%3A<anki_note_id>` | AnkiDroid's own Card Browser opens filtered to that note, stacked on the reviewer; back returns to the review session |
+| **Fallback** | anything else (target not a problem note, not yet synced, version unknown or < 2.16) | `interest://note/<percent-encoded-note-name>` | Hands off to Interest, which resolves and routes the note |
+
+The `anki://x-callback-url/browser` intent filter (`BROWSABLE` + `DEFAULT`) exists on AnkiDroid's `CardBrowser` activity since 2.16. AnkiDroid's reviewer fires link taps as `ACTION_VIEW` intents, so the link resolves back into AnkiDroid itself. This is the deepest in-AnkiDroid traversal possible: neither AnkiDroid's JS API nor any URI scheme can navigate the *reviewer* to an arbitrary card.
+
+Example: `[[Zeno's Paradox]]` becomes `<a href="anki://x-callback-url/browser?search=nid%3A1234567890">Zeno's Paradox</a>` if that note is synced, else `<a href="interest://note/Zeno's%20Paradox">Zeno's Paradox</a>`.
 
 ### Export transformation
 
-During sync, `AnkiDroidService._wikilinkToAnkiLink()` rewrites wikilinks in the Markdown source before passing it to the HTML renderer:
+During sync, `AnkiDroidService._markdownToAnkiHtml()` rewrites wikilinks (via `rewriteWikilinksToHtml` in `md_utils.dart`) before Markdown→HTML conversion:
 
 | Vault syntax | Rendered in AnkiDroid card |
 |---|---|
-| `[[Note Name]]` | `<a href="interest://note/Note%20Name">Note Name</a>` |
-| `[[Note Name\|alias]]` | `<a href="interest://note/Note%20Name">alias</a>` |
+| `[[Note Name]]` | `<a href="<resolved-href>">Note Name</a>` |
+| `[[Note Name\|alias]]` | `<a href="<resolved-href>">alias</a>` |
 
-The note name is percent-encoded with `Uri.encodeComponent` (same function used by `substituteWikilinks` in `md_utils.dart`). If encoding fails for any reason the link is omitted and only the display text is emitted — no crash.
+Resolution uses an ID map built at sync start from each problem note's `anki_note_id` frontmatter, keyed by `noteKey` (lowercased basename); wikilink targets are lowercased to match. The map grows as the sync assigns new IDs, so notes later in the loop resolve earlier additions immediately.
+
+**Not-yet-synced targets:** a note synced before its link target received an ID gets the `interest://` fallback. After the main loop, an upgrade pass re-renders and re-updates any successfully synced note whose wikilinks point at a note that received a new ID this sync (first add, or re-add after deletion in AnkiDroid — the latter also heals stale `nid:` links). Upgrade-pass failures are silently ignored: the fallback link still works, so the user is never worse off than the fallback tier.
+
+**Version gate:** `_supportsBrowserLinks()` reads AnkiDroid's `versionName` via `getAnkiDroidVersion` and requires ≥ 2.16. On any failure (not installed, unparsable version) every link falls back to `interest://`.
 
 Markdown files in the vault are never modified. Wikilink rendering inside Interest (Notes tab) is unchanged.
 
@@ -104,14 +114,14 @@ interest://note/<name> intent (VIEW)
   → MethodChannel "com.nimeesh.interest/deeplink"
       cold start  → getInitialDeeplinkNote (polled from initState)
       warm start  → openNote (pushed via onNewIntent)
-  → HomeScreen._openNoteFromDeeplink()      switch to Notes tab (index 1)
+  → HomeScreen._openNoteFromDeeplink()      switch to Notes tab (index 0)
   → ResurfaceScreenState.openNoteByName()   resolve and route (see below)
       problem note (***) → card viewer (_CardViewerRoute)
       plain note         → detail screen (_NoteDetailRoute)
       not found          → snackbar "Note not found: <name>"
 ```
 
-**Decoding:** Android's `Uri.lastPathSegment` percent-decodes the note name segment before it reaches Flutter (e.g. `%20` → space). No `Uri.decodeComponent()` call is needed on the Flutter side.
+**Decoding:** Android's `Uri.lastPathSegment` percent-decodes the note name segment before it reaches Flutter (e.g. `%20` → space). `HomeScreen._openNoteFromDeeplink()` nonetheless runs `Uri.decodeComponent()` on the already-decoded name. Known quirk: this double decode is harmless for ordinary names but would mangle a note name that itself contains a literal percent-escape sequence.
 
 **Resolution in `openNoteByName()`:** two-step.
 1. Case-insensitive scan of `_allNotes` (already loaded in `ResurfaceScreenState`) — fast path; covers the common case.
