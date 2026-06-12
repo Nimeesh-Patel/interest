@@ -4,7 +4,9 @@ Interest is an Android app that syncs Obsidian notes to AnkiDroid as flashcards 
 
 ## The Problem Note
 
-One Obsidian note = one Anki card. To make any note a card, add a `***` line: problem above, current best answer below.
+Problem Note is term for Markdown note having `***` separator, converting it into an Anki syncable card.
+
+One Obsidian note = one Anki card. To make any note a card, add a `***` line: question/problem above, answer/idea below.
 
 ```markdown
 What makes Interest a better Obsidian-to-Anki bridge than the existing plugins?
