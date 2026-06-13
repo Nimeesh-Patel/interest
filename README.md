@@ -25,11 +25,11 @@ The framing is deliberate: the front is a problem situation, the back is your cu
 
 ## Why not the existing plugins
 
-The community Obsidian↔Anki bridges generally need special syntax inside notes (ID comments, custom blocks, regex-matched patterns), a desktop Anki instance running AnkiConnect, or both. Interest reads the vault directly from disk on the phone and pushes cards through AnkiDroid's ContentProvider API. No laptop in the loop, no markers in your prose.
+The community Obsidian↔Anki bridges generally need special syntax inside notes (ID comments, custom blocks, regex-matched patterns), a desktop Anki instance running AnkiConnect, or both. Interest reads the vault directly from disk on the phone and pushes cards through AnkiDroid's ContentProvider API. No laptop in the loop, no markers in your prose. When the laptop *is* the loop — vault open in Obsidian desktop, Anki desktop running — the same one-way sync runs over AnkiConnect instead, with identical card semantics; the transports share one sync core and one `anki_note_id`.
 
-**The sync is one-way: vault → AnkiDroid.** The Markdown files are always the source of truth. AnkiDroid never writes into the vault; review history, intervals, and FSRS state stay on Anki's side and Interest never sees them. The single thing written back to a note is an `anki_note_id` frontmatter key, so re-syncs update the existing card instead of duplicating it. This is structural, not a configuration option — no code path in the sync touches a note body, so it cannot alter what you wrote.
+**The sync is one-way: vault → Anki.** The Markdown files are always the source of truth. Anki never writes into the vault; review history, intervals, and FSRS state stay on Anki's side and Interest never sees them. The single thing written back to a note is an `anki_note_id` frontmatter key, so re-syncs update the existing card instead of duplicating it. This is structural, not a configuration option — no code path in the sync touches a note body, so it cannot alter what you wrote.
 
-Honestly, what you give up: one note is one card, so you cannot generate several cards from one file the way the extraction plugins can. Cards use AnkiDroid's Basic model only — no cloze, no media. Sync is a manual tap, not a background job. And Interest is a personal project, Android-only, built from source, with no onboarding — the conventions live in `docs/`, not in the UI.
+Honestly, what you give up: one note is one card, so you cannot generate several cards from one file the way the extraction plugins can. Cards use Anki's Basic model only — no cloze, no media. Sync is a manual tap, not a background job. And Interest is a personal project, Android-first (the Windows desktop build exists mainly to drive the AnkiConnect sync), built from source, with no onboarding — the conventions live in `docs/`, not in the UI.
 
 ## The three-system model
 
@@ -39,7 +39,7 @@ Honestly, what you give up: one note is one card, so you cannot generate several
 | **Interest** | Traversal. Resurfacing problem notes, graph-weighted ordering, backlinks, search. |
 | **AnkiDroid** | Retention. FSRS scheduling and drilling, fed by the one-way push. |
 
-Deep links stitch the three together. Every synced card's front carries an `obsidian://` link to its source note, so mid-review you are one tap from editing. `[[wikilinks]]` inside a card render as tappable links: if the target is itself a synced card, the link opens it inside AnkiDroid's own browser (AnkiDroid ≥ 2.16); otherwise it fires `interest://note/...`, which opens the note in Interest's reader. Drilling a card, jumping sideways into a linked idea, and landing in the editor are each one tap apart.
+Deep links stitch the three together. Every synced card's front carries an `obsidian://` link to its source note, so mid-review you are one tap from editing. `[[wikilinks]]` inside a card render as tappable `obsidian://` links too — tapping one opens the linked note in Obsidian, where the `***`-note plugin renders it with tap-to-reveal. And `interest://sync-anki` lets Obsidian fire a whole-vault push back to AnkiDroid with one tap. Drilling a card, jumping sideways into a linked idea, and landing in the editor are each one tap apart.
 
 ## What else it does
 
@@ -51,20 +51,20 @@ Side features, mentioned for completeness rather than novelty. Book data from Re
 
 ## Running it
 
-You need Flutter and an Android device. There are no published releases; build from source:
+You need Flutter and an Android device, or Windows with the Visual Studio C++ build tools for the desktop build. There are no published releases; build from source:
 
 ```
 flutter pub get
-flutter run -d android
+flutter run -d android    # or: flutter run -d windows
 ```
 
 First launch asks for "All Files Access" (the vault is read straight from disk) and a vault folder — point it at an Obsidian vault or any folder of Markdown files. Interest keeps its own structured data inside an `Interesting/` subtree; everything outside it is yours and is only ever frontmatter-patched, never rebuilt. It is still a personal project writing into your vault: try it on a copy first.
 
-For the Anki bridge: install AnkiDroid, add `***` to a note, tap AnkiDroid in the Sources screen.
+For the Anki bridge: add `***` to a note, then on the phone install AnkiDroid and tap AnkiDroid in the Sources screen; on desktop run Anki with the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on and tap Anki desktop in the same screen.
 
 ## Architecture in brief
 
-Flutter, `setState` only. Storage is a set of all-static services that never throw, each owning exactly one vault directory; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. The two invariants that matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, `***` makes it a card — a note can be both), and the app patches frontmatter but never note bodies, so no operation can destroy prose. Subsystem detail: [docs/](docs/) — [AnkiDroid sync](docs/ankidroid.md), [resurfacing & scoring](docs/resurface.md), [entities & collections](docs/entities.md), [books](docs/books.md), [projects](docs/projects.md), [bookmarks](docs/bookmarks.md), [UI](docs/ui.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
+Flutter, `setState` only. Storage is a set of all-static services that never throw, each owning exactly one vault directory; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. The two invariants that matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, `***` makes it a card — a note can be both), and the app patches frontmatter but never note bodies, so no operation can destroy prose. Subsystem detail: [docs/](docs/) — [Anki sync](docs/anki.md), [resurfacing & scoring](docs/resurface.md), [entities & collections](docs/entities.md), [books](docs/books.md), [projects](docs/projects.md), [bookmarks](docs/bookmarks.md), [UI](docs/ui.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
 
 ## License
 

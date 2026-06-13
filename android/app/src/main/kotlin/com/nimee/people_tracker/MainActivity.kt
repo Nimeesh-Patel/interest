@@ -1,10 +1,13 @@
 package com.nimee.people_tracker
 
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import com.ichi2.anki.FlashCardsContract
 import com.ichi2.anki.api.AddContentApi
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private val deeplinkChannelName = "com.nimeesh.interest/deeplink"
     private var pendingShareUrl: String? = null
     private var pendingDeeplinkNote: String? = null
+    private var pendingSyncAnki: Boolean = false
     private var pendingAnkiPermissionResult: MethodChannel.Result? = null
 
     companion object {
@@ -26,6 +30,7 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         pendingShareUrl = extractShareUrl(intent)
         pendingDeeplinkNote = extractDeeplinkNote(intent)
+        pendingSyncAnki = extractSyncAnki(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -39,6 +44,11 @@ class MainActivity : FlutterActivity() {
         extractDeeplinkNote(intent)?.let { noteName ->
             flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
                 MethodChannel(messenger, deeplinkChannelName).invokeMethod("openNote", noteName)
+            }
+        }
+        if (extractSyncAnki(intent)) {
+            flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                MethodChannel(messenger, deeplinkChannelName).invokeMethod("syncAnki", null)
             }
         }
     }
@@ -71,14 +81,19 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // Deep-link channel (interest://note/<name>)
+        // Deep-link channel (interest://note/<name>, interest://sync-anki)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deeplinkChannelName)
             .setMethodCallHandler { call, result ->
-                if (call.method == "getInitialDeeplinkNote") {
-                    result.success(pendingDeeplinkNote)
-                    pendingDeeplinkNote = null
-                } else {
-                    result.notImplemented()
+                when (call.method) {
+                    "getInitialDeeplinkNote" -> {
+                        result.success(pendingDeeplinkNote)
+                        pendingDeeplinkNote = null
+                    }
+                    "getInitialSyncAnki" -> {
+                        result.success(pendingSyncAnki)
+                        pendingSyncAnki = false
+                    }
+                    else -> result.notImplemented()
                 }
             }
 
@@ -172,6 +187,24 @@ class MainActivity : FlutterActivity() {
                             result.success(note != null)
                         }
 
+                        "getCardDeck" -> {
+                            val noteId = call.argument<Long>("noteId") ?: -1L
+                            val api = AddContentApi(applicationContext)
+                            result.success(getCardDeckName(api, noteId))
+                        }
+
+                        "moveNoteToDeck" -> {
+                            val noteId = call.argument<Long>("noteId") ?: -1L
+                            val deckName = call.argument<String>("deckName") ?: ""
+                            val api = AddContentApi(applicationContext)
+                            val deckId = getOrCreateDeck(api, deckName)
+                            if (deckId == null) {
+                                result.success(false)
+                            } else {
+                                result.success(moveCardsToDeck(noteId, deckId))
+                            }
+                        }
+
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {
@@ -195,6 +228,51 @@ class MainActivity : FlutterActivity() {
         return null
     }
 
+    /// The cards of a note via the ContentProvider: notes/<id>/cards.
+    private fun cardsUriFor(noteId: Long): Uri =
+        Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, "$noteId/cards")
+
+    /// Name of the deck the note's first card lives in, or null if it can't be
+    /// resolved. Used by the sync core to detect a category (deck) change.
+    private fun getCardDeckName(api: AddContentApi, noteId: Long): String? {
+        return try {
+            contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return null
+                val idx = c.getColumnIndex(FlashCardsContract.Card.DECK_ID)
+                if (idx < 0) return null
+                api.getDeckList()?.get(c.getLong(idx))
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /// Moves every card of the note into [deckId] by updating each card's
+    /// DECK_ID through the ContentProvider. Returns false (no-op) on any error.
+    private fun moveCardsToDeck(noteId: Long, deckId: Long): Boolean {
+        return try {
+            val ords = mutableListOf<Int>()
+            contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
+                val ordIdx = c.getColumnIndex(FlashCardsContract.Card.CARD_ORD)
+                if (ordIdx < 0) return false
+                while (c.moveToNext()) ords.add(c.getInt(ordIdx))
+            }
+            if (ords.isEmpty()) return false
+            for (ord in ords) {
+                val values = ContentValues().apply {
+                    put(FlashCardsContract.Card.DECK_ID, deckId)
+                }
+                contentResolver.update(
+                    Uri.withAppendedPath(cardsUriFor(noteId), ord.toString()),
+                    values, null, null,
+                )
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun extractShareUrl(intent: Intent): String? {
         if (intent.action != Intent.ACTION_SEND) return null
         if (intent.type != "text/plain") return null
@@ -206,5 +284,11 @@ class MainActivity : FlutterActivity() {
         val uri = intent.data ?: return null
         if (uri.scheme != "interest" || uri.host != "note") return null
         return uri.lastPathSegment  // Android Uri auto-decodes %20 → space
+    }
+
+    private fun extractSyncAnki(intent: Intent): Boolean {
+        if (intent.action != Intent.ACTION_VIEW) return false
+        val uri = intent.data ?: return false
+        return uri.scheme == "interest" && uri.host == "sync-anki"
     }
 }

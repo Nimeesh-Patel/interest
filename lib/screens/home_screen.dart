@@ -8,6 +8,7 @@ import '../features/entities/screens/collections_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
+import '../features/resurface/services/anki_sync_runner.dart';
 import '../features/bookmarks/x_bookmark_service.dart';
 import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';
@@ -59,6 +60,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final noteName =
           await _deeplinkChannel.invokeMethod<String?>('getInitialDeeplinkNote');
       if (noteName != null && mounted) _openNoteFromDeeplink(noteName);
+      final syncAnki =
+          await _deeplinkChannel.invokeMethod<bool>('getInitialSyncAnki') ??
+              false;
+      if (syncAnki && mounted) _syncAnkiFromDeeplink();
     });
   }
 
@@ -89,7 +94,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (call.method == 'openNote') {
       final name = call.arguments as String?;
       if (name != null && mounted) _openNoteFromDeeplink(name);
+    } else if (call.method == 'syncAnki') {
+      if (mounted) _syncAnkiFromDeeplink();
     }
+  }
+
+  /// `interest://sync-anki` — an external app (the Obsidian plugin) triggers
+  /// the same whole-vault AnkiDroid push as the Sources screen row, with the
+  /// standard result UI. No navigation, no new write path.
+  void _syncAnkiFromDeeplink() {
+    showSnack(context, 'Syncing problem notes to AnkiDroid…');
+    runAnkiDroidSync(context);
   }
 
   void _openNoteFromDeeplink(String rawName) {

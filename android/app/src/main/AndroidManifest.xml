@@ -45,6 +45,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="interest" android:host="note" />
+                <data android:scheme="interest" android:host="sync-anki" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

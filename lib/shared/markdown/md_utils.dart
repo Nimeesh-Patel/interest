@@ -167,9 +167,15 @@ String noteKey(String filePath) => p.basenameWithoutExtension(filePath).toLowerC
 
 /// Returns an `obsidian://open` URI for [noteFilePath] inside [vaultPath].
 /// Pure — no I/O. Both vault name and note name are percent-encoded.
-String obsidianUri(String vaultPath, String noteFilePath) {
+String obsidianUri(String vaultPath, String noteFilePath) =>
+    obsidianUriForName(vaultPath, p.basenameWithoutExtension(noteFilePath));
+
+/// Returns an `obsidian://open` URI for a bare note [noteName] (a wikilink
+/// target, already extension-less) inside [vaultPath]. Shares the vault-name
+/// derivation and percent-encoding of [obsidianUri]; the only difference is
+/// that the note name is used verbatim rather than stripped from a file path.
+String obsidianUriForName(String vaultPath, String noteName) {
   final vaultName = p.basename(vaultPath);
-  final noteName = p.basenameWithoutExtension(noteFilePath);
   return 'obsidian://open?vault=${Uri.encodeComponent(vaultName)}'
       '&file=${Uri.encodeComponent(noteName)}';
 }

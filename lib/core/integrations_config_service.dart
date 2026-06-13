@@ -14,12 +14,18 @@ class IntegrationsConfig {
 
   final String? readwiseToken;
   final String? hardcoverToken;
+
+  /// AnkiConnect endpoint override; null means the transport default
+  /// (http://127.0.0.1:8765). Set by hand-editing the `## AnkiConnect`
+  /// section in integrations.md — there is no in-app editor.
+  final String? ankiConnectUrl;
   final List<Map<String, dynamic>> rssFeeds;
   final List<String> resurfaceExcludedFolders;
 
   const IntegrationsConfig({
     this.readwiseToken,
     this.hardcoverToken,
+    this.ankiConnectUrl,
     List<Map<String, dynamic>>? rssFeeds,
     List<String>? resurfaceExcludedFolders,
   }) : rssFeeds = rssFeeds ?? const [],
@@ -40,8 +46,9 @@ class IntegrationsConfigService {
       final split = splitFrontmatter(content);
       final sections = parseSectionsH2(split.body);
       return IntegrationsConfig(
-        readwiseToken: _parseTokenSection(sections['Readwise'] ?? ''),
-        hardcoverToken: _parseTokenSection(sections['Hardcover'] ?? ''),
+        readwiseToken: _parseScalarSection(sections['Readwise'] ?? '', 'token'),
+        hardcoverToken: _parseScalarSection(sections['Hardcover'] ?? '', 'token'),
+        ankiConnectUrl: _parseScalarSection(sections['AnkiConnect'] ?? '', 'url'),
         rssFeeds: _parseRssSection(sections['RSS'] ?? ''),
         resurfaceExcludedFolders: _parseResurfaceSection(sections['Resurface'] ?? ''),
       );
@@ -70,6 +77,7 @@ class IntegrationsConfigService {
     await save(vaultPath, IntegrationsConfig(
       readwiseToken: token,
       hardcoverToken: c.hardcoverToken,
+      ankiConnectUrl: c.ankiConnectUrl,
       rssFeeds: c.rssFeeds,
       resurfaceExcludedFolders: c.resurfaceExcludedFolders,
     ));
@@ -83,6 +91,7 @@ class IntegrationsConfigService {
     await save(vaultPath, IntegrationsConfig(
       readwiseToken: c.readwiseToken,
       hardcoverToken: token,
+      ankiConnectUrl: c.ankiConnectUrl,
       rssFeeds: c.rssFeeds,
       resurfaceExcludedFolders: c.resurfaceExcludedFolders,
     ));
@@ -100,6 +109,7 @@ class IntegrationsConfigService {
     await save(vaultPath, IntegrationsConfig(
       readwiseToken: c.readwiseToken,
       hardcoverToken: c.hardcoverToken,
+      ankiConnectUrl: c.ankiConnectUrl,
       rssFeeds: feeds,
       resurfaceExcludedFolders: c.resurfaceExcludedFolders,
     ));
@@ -111,6 +121,7 @@ class IntegrationsConfigService {
     await save(vaultPath, IntegrationsConfig(
       readwiseToken: c.readwiseToken,
       hardcoverToken: c.hardcoverToken,
+      ankiConnectUrl: c.ankiConnectUrl,
       rssFeeds: c.rssFeeds,
       resurfaceExcludedFolders: folders,
     ));
@@ -153,13 +164,13 @@ class IntegrationsConfigService {
 
   // ── Private: parsing ──────────────────────────────────────────────────────
 
-  static String? _parseTokenSection(String sectionContent) {
+  static String? _parseScalarSection(String sectionContent, String key) {
     if (sectionContent.trim().isEmpty) return null;
     try {
       final yaml = loadYaml(sectionContent.trim());
       if (yaml is YamlMap) {
-        final token = yaml['token']?.toString();
-        return (token != null && token.isNotEmpty) ? token : null;
+        final value = yaml[key]?.toString();
+        return (value != null && value.isNotEmpty) ? value : null;
       }
     } catch (_) {}
     return null;
@@ -222,6 +233,13 @@ class IntegrationsConfigService {
     buf.writeln();
     if (config.hardcoverToken != null && config.hardcoverToken!.isNotEmpty) {
       buf.writeln('token: ${yamlScalar(config.hardcoverToken!)}');
+    }
+
+    buf.writeln();
+    buf.writeln('## AnkiConnect');
+    buf.writeln();
+    if (config.ankiConnectUrl != null && config.ankiConnectUrl!.isNotEmpty) {
+      buf.writeln('url: ${yamlScalar(config.ankiConnectUrl!)}');
     }
 
     buf.writeln();

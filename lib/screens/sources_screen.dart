@@ -1,11 +1,17 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
+import '../core/integrations_config_service.dart';
+import '../core/vault_service.dart';
 import '../shared/utils/obsidian_launcher.dart';
 
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
-import '../features/resurface/services/ankidroid_service.dart';
-import '../features/resurface/services/ankidroid_sync_controller.dart';
+import '../features/resurface/services/anki_connect_transport.dart';
+import '../features/resurface/services/anki_sync_controller.dart';
+import '../features/resurface/services/anki_sync_runner.dart';
+import '../features/resurface/services/anki_transport.dart';
 import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
@@ -21,7 +27,12 @@ class SourcesScreen extends StatefulWidget {
 }
 
 class _SourcesScreenState extends State<SourcesScreen> {
-  bool _syncingAnki = false;
+  // One flag per Anki row, but the two syncs are mutually exclusive: both
+  // write anki_note_id back to the same vault files.
+  bool _syncingAnkiDroid = false;
+  bool _syncingAnkiConnect = false;
+
+  bool get _ankiBusy => _syncingAnkiDroid || _syncingAnkiConnect;
 
   @override
   Widget build(BuildContext context) {
@@ -80,15 +91,26 @@ class _SourcesScreenState extends State<SourcesScreen> {
               meta: 'external app',
               onTap: () => launchObsidianApp(context),
             ),
+            if (Platform.isAndroid)
+              _SourceRow(
+                icon: Icons.style,
+                name: 'AnkiDroid',
+                description: _syncingAnkiDroid
+                    ? 'Syncing problem notes…'
+                    : 'Push problem notes to AnkiDroid',
+                meta: 'Flashcard sync',
+                busy: _syncingAnkiDroid,
+                onTap: _syncAnkiDroid,
+              ),
             _SourceRow(
-              icon: Icons.style,
-              name: 'AnkiDroid',
-              description: _syncingAnki
+              icon: Icons.desktop_windows,
+              name: 'Anki desktop',
+              description: _syncingAnkiConnect
                   ? 'Syncing problem notes…'
-                  : 'Push problem notes to AnkiDroid',
+                  : 'Push problem notes via AnkiConnect',
               meta: 'Flashcard sync',
-              busy: _syncingAnki,
-              onTap: _syncAnkiDroid,
+              busy: _syncingAnkiConnect,
+              onTap: _syncAnkiConnect,
             ),
           ],
         ),
@@ -97,59 +119,49 @@ class _SourcesScreenState extends State<SourcesScreen> {
   }
 
   Future<void> _syncAnkiDroid() async {
-    if (_syncingAnki) return;
+    if (_ankiBusy) return;
+    await runAnkiDroidSync(context,
+        onBusy: (busy) => setState(() => _syncingAnkiDroid = busy));
+  }
 
-    final available = await AnkiDroidService.isAvailable();
+  Future<void> _syncAnkiConnect() async {
+    if (_ankiBusy) return;
+
+    final vaultPath = await VaultService.getVaultPath();
     if (!mounted) return;
-    if (!available) {
-      showSnack(context, 'AnkiDroid not installed');
-      return;
-    }
-
-    final granted = await AnkiDroidService.requestPermission();
-    if (!mounted) return;
-    if (!granted) {
-      showSnack(context, 'Permission denied');
-      return;
-    }
-
-    setState(() => _syncingAnki = true);
-
-    final result = await AnkiDroidSyncController.sync();
-
-    if (!mounted) return;
-    setState(() => _syncingAnki = false);
-
-    if (result == null) {
+    if (vaultPath == null) {
       showSnack(context, 'No vault configured');
       return;
     }
 
-    final total = result.added + result.updated;
-
-    if (result.failed > 0 && result.errors.isNotEmpty) {
-      showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text('${result.failed} note${result.failed == 1 ? '' : 's'} failed'),
-          content: SingleChildScrollView(
-            child: Text(result.errors.join('\n\n'),
-                style: AppTextStyles.bodySmall),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    } else {
-      final msg = result.failed == 0
-          ? 'Synced $total problem notes to AnkiDroid (${result.added} added, ${result.updated} updated)'
-          : '${result.failed} notes failed';
-      showSnack(context, msg);
+    final config = await IntegrationsConfigService.load(vaultPath);
+    final transport = AnkiConnectTransport(url: config.ankiConnectUrl);
+    final available = await transport.isAvailable();
+    if (!mounted) return;
+    if (!available) {
+      showSnack(context,
+          'Anki desktop not reachable — is Anki running with AnkiConnect installed?');
+      return;
     }
+
+    final granted = await transport.requestPermission();
+    if (!mounted) return;
+    if (!granted) {
+      showSnack(context, 'AnkiConnect denied the connection');
+      return;
+    }
+
+    await _runAnkiSync(
+        transport, (busy) => setState(() => _syncingAnkiConnect = busy));
+  }
+
+  Future<void> _runAnkiSync(
+      AnkiTransport transport, void Function(bool) setBusy) async {
+    setBusy(true);
+    final result = await AnkiSyncController.sync(transport);
+    if (!mounted) return;
+    setBusy(false);
+    showAnkiSyncResult(context, transport, result);
   }
 
   static void _syncAll(BuildContext context) {

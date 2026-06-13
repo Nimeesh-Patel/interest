@@ -27,7 +27,7 @@ Start here based on task class:
 | Understanding the book enrichment source pattern | [docs/readwise.md](docs/readwise.md) (Readwise), [docs/readera.md](docs/readera.md) (ReadEra) |
 | Modifying entity files, graph, or categories | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
 | Modifying or adding an RSS adapter | CLAUDE.md § RSS ingestion, then `rss_adapter.dart` |
-| Modifying AnkiDroid sync | [docs/ankidroid.md](docs/ankidroid.md), then `AnkiDroidService` |
+| Modifying Anki sync (either transport) | [docs/anki.md](docs/anki.md), then `AnkiSyncService` + the `AnkiTransport` impls |
 | Modifying resurfacing extraction, deck metadata, viewer, search, or note editing | [docs/resurface.md](docs/resurface.md), then `ResurfaceService` / `NoteEditScreen` |
 | Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
 | Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
@@ -63,7 +63,7 @@ Problem Note ⟺ `***` in body (Anki-syncable; deck = `category:`, default `Defa
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `TaskStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `AnkiDroidService`, `ProjectStorageService`.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, `ImportResult.error`, or `null`) — never exceptions. This applies to: `TaskStorageService`, `BookStorageService`, `ReadwiseService`, `HardcoverService`, `RssFetchService`, `RssFeedStorageService`, `RssIngestionService`, `ArticleStorageService`, `IntegrationsConfigService`, `ReaderaParser`, `ReaderaIngestionService`, `ResurfaceService`, `AnkiSyncService`, `ProjectStorageService`. Sole sanctioned exception: `AnkiTransport` implementations may throw `AnkiSyncAbort` / `AnkiNoteFailure`, consumed only by `AnkiSyncService.syncVault` — they never escape it.
 
 ## Save semantics
 
@@ -127,13 +127,14 @@ Integration configuration lives in `Interesting/System/integrations.md` (vault-c
 | Readwise token | `integrations.md` | Portable; syncs via Obsidian Sync |
 | Hardcover token | `integrations.md` | Portable; syncs via Obsidian Sync |
 | RSS feed configs | `integrations.md` | Portable; syncs via Obsidian Sync |
+| AnkiConnect URL override | `integrations.md` (`## AnkiConnect`) | Hand-edited only (no in-app editor); null = `http://127.0.0.1:8765` |
 | Resurface excluded folders | `integrations.md` (`## Resurface`) | Portable; syncs via Obsidian Sync |
 
 Migration from SharedPreferences runs once on first `_loadData()` (idempotent: skipped if file already exists). All token/config methods on `ReadwiseService`, `HardcoverService`, and `RssFeedStorageService` require `vaultPath` — consistent with other storage services.
 
 ## Subsystem constraints
 
-**AnkiDroid** — one-way push only (vault → AnkiDroid); only `anki_note_id` written back to frontmatter; a Problem Note is any note with `***` in its body; deck from `category:` field (default `Default`); review history never written to Markdown. Full details: [docs/ankidroid.md](docs/ankidroid.md).
+**Anki sync** — one-way push only (vault → Anki) over two transports: `AnkiDroidTransport` (MethodChannel → ContentProvider, Android) and `AnkiConnectTransport` (HTTP → Anki desktop's AnkiConnect add-on, pure Dart, default `http://127.0.0.1:8765`). `AnkiSyncService` is the shared core — card rendering, `category:`→deck mapping (default `Default`, including the deck move when a card's deck no longer matches `category:` on update), the `obsidian://` card-body wikilink rewrite, single-newline→`<br>` hard-break promotion (Anki HTML only), and the `anki_note_id` round-trip live there only; transports translate the seven `AnkiTransport` operations and nothing else (`currentDeck`/`moveToDeck` no-op gracefully when a backend can't read/change a card's deck). Only `anki_note_id` written back to frontmatter — it is the Anki collection note id, identical across transports when the user syncs via AnkiWeb. Both transports require the model literally named `Basic`. Card-body `[[wikilinks]]` render as `obsidian://open` links (note traversal lives in Obsidian, where the `***`-note plugin gives tap-to-reveal); the front's source link is likewise `obsidian://`. Two `interest://` deep links are handled on Android: `interest://note/<name>` (open in Interest's reader; legacy/external) and `interest://sync-anki` (trigger the whole-vault AnkiDroid push — same path as the Sources row, no new write path). Review history never written to Markdown. Full details: [docs/anki.md](docs/anki.md).
 
 **Projects** — unified semantic workspaces replacing Lists + Todos. New project files land in `Interesting/Projects/`. On first `ProjectStorageService.loadAll()`, existing files in `Lists/` and `Tasks/` are migrated to `Projects/` (best-effort, idempotent). Detail screen is always `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 

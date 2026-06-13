@@ -1,5 +1,5 @@
 name: people_tracker
-description: Interest — a problem-centric traversal layer over an Obsidian vault, with one-way AnkiDroid sync.
+description: Interest — a problem-centric traversal layer over an Obsidian vault, with one-way Anki sync.
 publish_to: 'none'
 version: 1.0.0+1
 
