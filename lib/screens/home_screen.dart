@@ -8,7 +8,7 @@ import '../features/entities/screens/collections_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
 import '../features/resurface/screens/resurface_screen.dart';
-import '../features/resurface/services/anki_sync_runner.dart';
+import '../features/anki/services/anki_sync_runner.dart';
 import '../features/bookmarks/x_bookmark_service.dart';
 import '../features/bookmarks/x_bookmark_storage_service.dart';
 import '../features/settings/screens/settings_screen.dart';

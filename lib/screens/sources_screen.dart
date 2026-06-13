@@ -8,10 +8,10 @@ import '../shared/utils/obsidian_launcher.dart';
 
 import '../features/books/screens/hardcover_screen.dart';
 import '../features/readwise/screens/readwise_screen.dart';
-import '../features/resurface/services/anki_connect_transport.dart';
-import '../features/resurface/services/anki_sync_controller.dart';
-import '../features/resurface/services/anki_sync_runner.dart';
-import '../features/resurface/services/anki_transport.dart';
+import '../features/anki/services/anki_connect_transport.dart';
+import '../features/anki/services/anki_sync_controller.dart';
+import '../features/anki/services/anki_sync_runner.dart';
+import '../features/anki/services/anki_transport.dart';
 import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';

@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 
 import '../models/collection.dart';
 import '../models/entity.dart';
-import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/markdown/vault_scanner.dart';
 import '../../../core/vault_service.dart';
@@ -166,11 +165,6 @@ class MarkdownStorageService {
     }
     return sorted;
   }
-
-  // ── Frontmatter patches ────────────────────────────────────────────────────
-
-  static Future<void> patchAnkiNoteId(String filePath, int noteId) =>
-      patchFrontmatterField(filePath, 'anki_note_id', '$noteId');
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
 

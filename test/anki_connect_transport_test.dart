@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:people_tracker/features/resurface/services/anki_connect_transport.dart';
-import 'package:people_tracker/features/resurface/services/anki_transport.dart';
+import 'package:people_tracker/features/anki/services/anki_connect_transport.dart';
+import 'package:people_tracker/features/anki/services/anki_transport.dart';
 
 // Verifies the AnkiConnect transport against a local fake implementing the
 // wire contract confirmed live against AnkiConnect API version 6:

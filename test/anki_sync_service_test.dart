@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:people_tracker/features/resurface/models/resurface_note.dart';
-import 'package:people_tracker/features/resurface/services/anki_sync_service.dart';
-import 'package:people_tracker/features/resurface/services/anki_transport.dart';
+import 'package:people_tracker/features/anki/models/anki_problem_note.dart';
+import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
+import 'package:people_tracker/features/anki/services/anki_transport.dart';
 
 // Locks the transport-agnostic sync core across the AnkiDroid/AnkiConnect
 // split: add vs update vs re-add decisions, the anki_note_id write-back, the
@@ -77,9 +77,9 @@ void main() {
 
   tearDown(() => vault.delete(recursive: true));
 
-  /// Writes a problem-note file and returns the matching ResurfaceNote
-  /// projection (the shape ResurfaceService would produce).
-  Future<ResurfaceNote> problemNote(
+  /// Writes a problem-note file and returns the matching AnkiProblemNote
+  /// projection (the shape AnkiProblemNoteScanner would produce).
+  Future<AnkiProblemNote> problemNote(
     String name, {
     String front = 'Question?',
     String back = 'Answer.',
@@ -94,11 +94,9 @@ void main() {
     fm.writeln('---');
     await File(path)
         .writeAsString('$fm$front\n\n***\n\n$back\n');
-    return ResurfaceNote(
+    return AnkiProblemNote(
       sourcePath: path,
       sourceFile: '$name.md',
-      body: '$front\n\n***\n\n$back',
-      isProblemNote: true,
       front: front,
       back: back,
       category: category,
@@ -107,7 +105,7 @@ void main() {
     );
   }
 
-  Future<String> fileContent(ResurfaceNote note) =>
+  Future<String> fileContent(AnkiProblemNote note) =>
       File(note.sourcePath).readAsString();
 
   group('add / update / re-add decision', () {

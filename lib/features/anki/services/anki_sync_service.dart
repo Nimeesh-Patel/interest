@@ -1,9 +1,9 @@
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
+import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
-import '../../entities/services/markdown_storage_service.dart';
-import '../models/resurface_note.dart';
+import '../models/anki_problem_note.dart';
 import 'anki_transport.dart';
 
 class AnkiSyncResult {
@@ -27,7 +27,7 @@ class AnkiSyncResult {
 /// same note yields the same card whichever transport carries it.
 class AnkiSyncService {
   static Future<AnkiSyncResult> syncVault(AnkiTransport transport,
-      List<ResurfaceNote> problemNotes, String vaultPath) async {
+      List<AnkiProblemNote> problemNotes, String vaultPath) async {
     int added = 0;
     int updated = 0;
     int failed = 0;
@@ -49,7 +49,8 @@ class AnkiSyncService {
           }
           final exists = await transport.noteExists(noteIdLong);
           if (exists) {
-            final ok = await transport.updateNote(noteIdLong, front, back, tags);
+            final ok =
+                await transport.updateNote(noteIdLong, front, back, tags);
             if (ok) {
               // The card's deck tracks `category:`; if the user changed it
               // since the last sync, move the card. Transports that can't
@@ -67,7 +68,7 @@ class AnkiSyncService {
             // Note was deleted from Anki — re-add and write new ID back.
             final newId = await transport.addNote(deckName, front, back, tags);
             if (newId > 0) {
-              await MarkdownStorageService.patchAnkiNoteId(note.sourcePath, newId);
+              await _patchAnkiNoteId(note.sourcePath, newId);
               added++;
             } else {
               failed++;
@@ -77,7 +78,7 @@ class AnkiSyncService {
         } else {
           final newId = await transport.addNote(deckName, front, back, tags);
           if (newId > 0) {
-            await MarkdownStorageService.patchAnkiNoteId(note.sourcePath, newId);
+            await _patchAnkiNoteId(note.sourcePath, newId);
             added++;
           } else {
             failed++;
@@ -102,7 +103,7 @@ class AnkiSyncService {
 
   /// Renders a problem note's (front, back) card HTML. The front is
   /// prepended with the right-aligned Obsidian source link.
-  static (String, String) _renderCard(ResurfaceNote note, String vaultPath) {
+  static (String, String) _renderCard(AnkiProblemNote note, String vaultPath) {
     final noteDisplayName = p.basenameWithoutExtension(note.sourcePath);
     final obsUri = obsidianUri(vaultPath, note.sourcePath);
     final obsLinkHtml =
@@ -131,4 +132,10 @@ class AnkiSyncService {
     return md.markdownToHtml(hardWrapped,
         extensionSet: md.ExtensionSet.gitHubWeb);
   }
+
+  /// The sync's ONLY vault write: surgically patches the `anki_note_id`
+  /// frontmatter key via [patchFrontmatterField], which preserves the note body
+  /// byte-for-byte. No sync code opens or rewrites a note body. Never throws.
+  static Future<void> _patchAnkiNoteId(String filePath, int noteId) =>
+      patchFrontmatterField(filePath, 'anki_note_id', '$noteId');
 }
