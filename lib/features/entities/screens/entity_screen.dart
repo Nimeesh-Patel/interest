@@ -7,36 +7,28 @@ import '../models/collection.dart';
 import '../models/entity.dart';
 import '../services/grokipedia_service.dart';
 import '../services/markdown_storage_service.dart';
-import '../../resurface/screens/note_edit_screen.dart';
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
 import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/markdown/md_utils.dart';
-import '../../../shared/widgets/backlinks_section.dart';
 import '../../../shared/widgets/note_markdown.dart';
 import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/section_header.dart';
 import '../../../shared/widgets/snack.dart';
-import '../../resurface/services/resurface_service.dart';
 
-/// An entity is a plain note that belongs to a collection. This screen is a
-/// note VIEWER built on the shared note-view primitives ([noteMarkdownBody],
-/// [BacklinksSection], Open-in-Obsidian) plus entity-specific bits (collection/
-/// tags/score frontmatter editing, Grokipedia). The body is edited as plain
-/// Markdown via [NoteEditScreen]; the app never rewrites an entity's body.
+/// An entity is a plain note that belongs to a collection. This screen is the
+/// Collections detail surface: it shows the note (read-only body render +
+/// Grokipedia) and edits the structured frontmatter the app owns (collection,
+/// tags, score). Note viewing/editing, backlinks, and wikilink traversal live
+/// in Obsidian — wikilink taps and "Open in Obsidian" hand off there. The app
+/// never rewrites an entity's body.
 class EntityScreen extends StatefulWidget {
   final Entity entity;
   final MarkdownStorageService storage;
   final List<Entity> allEntities;
   final List<Collection> allCollections;
   final List<String> allTags;
-
-  /// Routes a file path through the canonical note router
-  /// (`ResurfaceScreenState.openNoteByPath`). Called when a wikilink or
-  /// backlink target should NOT open in EntityScreen: a non-entity note, or
-  /// a both-note — `***` takes priority over `collection:`.
-  final Future<void> Function(String filePath)? onOpenNoteByPath;
 
   const EntityScreen({
     super.key,
@@ -45,7 +37,6 @@ class EntityScreen extends StatefulWidget {
     required this.allEntities,
     required this.allCollections,
     required this.allTags,
-    this.onOpenNoteByPath,
   });
 
   @override
@@ -114,16 +105,6 @@ class _EntityScreenState extends State<EntityScreen> {
     }
   }
 
-  Future<void> _editNote() async {
-    final path = _entity.sourcePath;
-    if (path == null) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => NoteEditScreen(filePath: path)),
-    );
-    await _loadBody();
-  }
-
   // ── Frontmatter edit lifecycle ──────────────────────────────────────────────
 
   void _enterEditMode() {
@@ -182,63 +163,18 @@ class _EntityScreenState extends State<EntityScreen> {
   void _setScore(double value) =>
       setState(() => _entity.score = (value * 10).round() / 10);
 
-  // ── Navigation ──────────────────────────────────────────────────────────────
+  // ── Navigation (traversal lives in Obsidian) ────────────────────────────────
 
-  void _openEntity(Entity other) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => EntityScreen(
-          entity: other,
-          storage: widget.storage,
-          allEntities: widget.allEntities,
-          allCollections: widget.allCollections,
-          allTags: _allTags,
-          onOpenNoteByPath: widget.onOpenNoteByPath,
-        ),
-      ),
-    ).then((_) => setState(() {}));
-  }
-
-  /// Navigate to a note by name (wikilink + backlink taps).
-  /// `***` takes priority over `collection:`: a both-note target is handed
-  /// to the canonical router (card viewer), never opened as EntityScreen.
-  /// Entity-only targets open EntityScreen; all other targets route via
-  /// [EntityScreen.onOpenNoteByPath] if provided, otherwise show a snackbar.
-  Future<void> _navigateToNoteName(String name) async {
-    // Fast path: check in-memory entity list first.
-    final match = widget.allEntities
-        .where((e) => e.name.toLowerCase() == name.toLowerCase());
-    if (match.isNotEmpty) {
-      final entity = match.first;
-      final path = entity.sourcePath;
-      if (path != null && widget.onOpenNoteByPath != null) {
-        try {
-          final body = splitFrontmatter(await File(path).readAsString()).body;
-          if (splitFrontBack(body) != null) {
-            await widget.onOpenNoteByPath!(path);
-            return;
-          }
-        } catch (_) {}
-        if (!mounted) return;
-      }
-      _openEntity(entity);
-      return;
-    }
-    // Resolve via vault-wide filename scan.
+  /// Wikilink taps open the target note in Obsidian — Interest no longer does
+  /// in-app note traversal.
+  Future<void> _openNoteInObsidian(String name) async {
     final vaultPath = await VaultService.getVaultPath();
-    if (!mounted) return;
-    if (vaultPath == null) {
-      showSnack(context, 'Note not found: $name');
-      return;
+    if (vaultPath == null) return;
+    final ok = await launchUrl(Uri.parse(obsidianUriForName(vaultPath, name)),
+        mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      showSnack(context, 'Obsidian is not installed');
     }
-    final path = await ResurfaceService.resolveWikilink(vaultPath, name);
-    if (!mounted) return;
-    if (path == null) {
-      showSnack(context, 'Note not found: $name');
-      return;
-    }
-    widget.onOpenNoteByPath?.call(path);
   }
 
   Future<void> _openInObsidian() async {
@@ -416,20 +352,9 @@ class _EntityScreenState extends State<EntityScreen> {
                         context,
                         _bodyText!,
                         onTapLink: (text, href, title) =>
-                            onNoteLinkTap(href, _navigateToNoteName),
+                            onNoteLinkTap(href, _openNoteInObsidian),
                       ),
           ),
-
-          // ── Backlinks (shared note-view primitive) ─────────────────────────
-          if (_entity.sourcePath != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-              child: BacklinksSection(
-                key: ValueKey(_entity.sourcePath),
-                noteFilePath: _entity.sourcePath!,
-                onNavigateToNote: _navigateToNoteName,
-              ),
-            ),
           const Divider(height: 32),
 
           // ── Grokipedia ─────────────────────────────────────────────────────
@@ -672,11 +597,6 @@ class _EntityScreenState extends State<EntityScreen> {
                   icon: const Icon(Icons.open_in_new),
                   onPressed: _openInObsidian,
                   tooltip: 'Open in Obsidian',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.notes_outlined),
-                  onPressed: _editNote,
-                  tooltip: 'Edit note body',
                 ),
                 IconButton(
                   icon: const Icon(Icons.tune),
