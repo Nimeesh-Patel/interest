@@ -73,21 +73,18 @@ AppBar title: 17px w600 IBM Plex Sans.
 
 ## Navigation
 
-**Bottom nav bar** — 3 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
+**Bottom nav bar** — 2 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
 
 | Index | Label | Icon (inactive / active) | Screen |
 |---|---|---|---|
-| 0 | NOTES | `auto_stories_outlined` / `auto_stories` | `ResurfaceScreen` |
-| 1 | COLLECTIONS | `hub_outlined` / `hub` | `CollectionsScreen` |
-| 2 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
+| 0 | COLLECTIONS | `hub_outlined` / `hub` | `CollectionsScreen` (landing) |
+| 1 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
 
 Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `navLabel` (9px w600, uppercase, letterSpacing 0.5).
 
-Tapping the NOTES tab while it is already active calls `ResurfaceScreenState.resetStack()` (collapses to the deck list and clears search).
+**AppBar** (owned by `HomeScreen`): the title is the tab name; the `sensors` icon pushes the Sources screen; the overflow menu holds Settings, Templates, and Open Obsidian.
 
-**AppBar** (owned by `HomeScreen`) is computed per tab: back button and search/edit/Obsidian actions appear when the Notes tab has a note open; the `sensors` icon pushes the Sources screen; the overflow menu holds Settings, Templates, and Open Obsidian.
-
-**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Inbox-style rows: Hardcover, Articles, Readwise, Bookmarks, Obsidian, AnkiDroid — icon / name+description / meta / chevron. "Sync all" is currently a hint snackbar (per-source sync lives in each row).
+**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Three rows: Hardcover, Obsidian, Anki desktop — icon / name+description / meta / chevron. (AnkiDroid sync is deep-link triggered, not a row.)
 
 ---
 
@@ -101,7 +98,7 @@ Tapping the NOTES tab while it is already active calls `ResurfaceScreenState.res
 
 **Bottom sheets / dialogs** — background `surfaceElevated`, radius 14 (top corners for sheets, all corners for dialogs).
 
-**FAB** — `AppFab` (`lib/shared/widgets/app_fab.dart`): 52×52, background `accentDim`, foreground `accent`, radius 14, border `1px accent.withValues(alpha: 0.33)`. Every screen-level primary action uses this one widget (Collections quick-add, Projects new-project, RSS add-feed, Templates new-template, list-detail add-item); there are no raw `FloatingActionButton`s.
+**FAB** — `AppFab` (`lib/shared/widgets/app_fab.dart`): 52×52, background `accentDim`, foreground `accent`, radius 14, border `1px accent.withValues(alpha: 0.33)`. Every screen-level primary action uses this one widget (Collections quick-add, Projects new-project, Templates new-template, list-detail add-item); there are no raw `FloatingActionButton`s.
 
 **Dividers** — color `border` (#1E1E1E), thickness 1, space 0.
 
@@ -145,37 +142,13 @@ Layout per entity row:
 
 **Title block** (padding `22 top / 16 horizontal`): name 26px w600 letterSpacing −0.3 height 1.2; meta row below — collection · `#tag` (accent) · `★N` (score) — all 13px.
 
-**Body**: rendered via the shared `noteMarkdownBody` (tappable wikilinks), then `BacklinksSection`, then the Grokipedia card.
+**Body**: a read-only render of the note via the shared `noteMarkdownBody` (tappable wikilinks open Obsidian), then the Grokipedia card. There is no in-app backlinks panel or body editor — those live in Obsidian.
 
 **Grokipedia card**: `surface` bg, `borderMid` border, radius 8, padding `12×14`; body 14px `textSecondary` height 1.65; "Read full article" link + `open_in_new` icon in accent; "Show/Hide summary" toggle.
 
 **Edit details mode**: collection dropdown, tag chips with `RawAutocomplete` add field, score slider. AppBar shows Cancel / Save text buttons.
 
----
-
-## Notes / Decks screen layout
-
-**Deck list:**
-1. **All Notes hero** — surface card with `borderMid` border, radius 10: `✦` (16px accent) + "All Notes" (w600 16px) + "N problem notes to review" (13px `textSecondary`) + `arrow_forward_ios` right
-2. **DECKS section** (named decks only, if any): `✦` glyph (11px `textTertiary`) + deck name (500 15px) + count + `arrow_forward_ios`
-3. **RECENT NOTES section**: top-2 most recently modified vault notes, filename (15px) + first deck below (13px) + `✦` right (12px accent) if `isProblemNote`
-
----
-
-## Card review layout (`_NoteViewerBody`)
-
-**Card body** (padding `40 top / 26 horizontal / 28 bottom`):
-- Front: IBM Plex Serif 21px, height 1.65, `textPrimary`; margin-bottom 38
-- Divider: `borderMid`, margin-bottom 30 (shown after reveal)
-- Back: IBM Plex Serif 17px, height 1.78, `textPrimary`; `**bold**` spans rendered in accent w600
-- Backlinks panel after the back content (visible once revealed)
-- Horizontal swipe advances/retreats; tap toggles back reveal
-
-**Navigation row** (border-top `border`, padding `12 vertical / kScreenHPad horizontal`):
-- **Prev:** outlined button (border `border`, radius 8, padding `9×18`), `arrow_back_ios_new` + "Prev" in `textSecondary`
-- **Progress:** "N / total" center (13px `textTertiary`)
-- **Next:** `AccentButton` (accent bg, radius 8), dimmed to `accentDim` at the last card
-- **⋮ menu:** Delete note (destructive)
+> Card rendering and the `***` review viewer live in **Obsidian** (the Problem Notes plugin), not in Interest — there is no in-app deck list or card viewer. IBM Plex Serif is still defined in `app_text_styles.dart` for card-like surfaces but the app no longer renders cards.
 
 ---
 

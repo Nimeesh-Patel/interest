@@ -70,7 +70,6 @@ Use screen-fraction height (not fixed pixels) so the sheet scales across device 
 
 | Sheet content | Height fraction |
 |---------------|----------------|
-| RSS feed add/edit form | `* 0.55` |
 | Hardcover search + result list | `* 0.85` |
 
 (The Quick Add Sheet is `isScrollControlled` but sizes to its content; it needs only the keyboard-inset padding.)

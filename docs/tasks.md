@@ -26,7 +26,7 @@ Do not add: due dates, reminders, recurring tasks, priorities, notifications, ca
   - [ ] Preserve arbitrary sections
   - [ ] Improve conflict handling
 
-- [ ] Explore [[Readwise]]
+- [ ] Explore [[David Deutsch]]
 
 ## Done
 

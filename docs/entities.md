@@ -2,17 +2,17 @@
 
 ## Purpose
 
-An **entity is a plain Markdown note that belongs to a collection.** The subsystem answers two questions: *what collections exist and who belongs to them*, and *how do notes relate* (backlinks). It does not own note content — the body is the user's territory, edited as Markdown.
+An **entity is a plain Markdown note that belongs to a collection.** The subsystem answers one question: *what collections exist and who belongs to them*. It does not own note content — the body is the user's territory, edited in Obsidian. (Backlinks and traversal also live in Obsidian now.)
 
 This is the evolved model. The original "entity is a structured document with `Why Interesting` / `Related` / `Sources` sections" view was retired in June 2026; enforcing a body shape both corrupted notes and added no value once entities became collection members. **No body structure is imposed at all** — a new note is created with frontmatter only and an empty body (not even an `# Name`).
 
-The user-facing screen is called **Collections** (tab 1). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is the Interest-app analogue of an Anki **Deck** — but an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid.
+The user-facing screen is called **Collections** (tab 0, the landing tab). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid. **Books are entities too**: a Hardcover import is just a vault-root note with `collection: Books` and a `hardcover_id` (see [books-as-entities in the Hardcover sync](../README.md#books-hardcover)).
 
 ## Ontology
 
 - **Entity**: any vault note whose frontmatter has a `collection:` key. Carries `collection` (grouping), optional `tags`, optional `score`, and a `sourcePath`. Its `id` is the `alias:` value if present, else the filename slug. Its `name` is the filename. Nothing else is required — not even timestamps.
 - **Collection**: not a stored object — derived at load time from the distinct `collection:` values across all entity notes. There is no collection table, and none is invented (no default "People").
-- **Backlinks**: connections are not a stored graph. Forward `[[wikilinks]]` render as tappable links in the body; incoming links are listed live by the shared `BacklinksSection` (`ResurfaceService.getBacklinks`). Read-only — links are made by writing `[[wikilinks]]` in the body.
+- **Connections**: not a stored graph. Forward `[[wikilinks]]` render as tappable links in the entity body; **incoming links (backlinks) and traversal now live in Obsidian** — Interest no longer has an in-app backlinks panel. Links are made by writing `[[wikilinks]]` in the body.
 - **Tag**: a flat label stored as a YAML list in frontmatter.
 
 ## Orthogonality (important)
@@ -21,7 +21,7 @@ Entity-ness and Problem-Note-ness are independent axes:
 
 | | predicate | what it grants |
 |---|---|---|
-| **Entity** | `collection:` in frontmatter | collection membership + backlinks |
+| **Entity** | `collection:` in frontmatter | collection membership |
 | **Problem Note** | `***` in body | AnkiDroid sync (deck = `category:`, default `Default`) |
 
 A note can be **both** (a `collection:` note that also has a `***` front/back). Because the app patches only frontmatter and never the body, saving such a note as an entity preserves its `***` content. `alias` and `category` are orthogonal to entity-ness.
@@ -85,7 +85,7 @@ Three lists load on startup (`MarkdownStorageService.loadData`):
 | `collections` | distinct `entity.collection` values |
 | `tags` | all entity tag values, deduplicated |
 
-There is no in-memory link/graph list — incoming links are fetched live by `BacklinksSection`.
+There is no in-memory link/graph list, and no in-app backlinks — incoming links and traversal are an Obsidian concern.
 
 ---
 
@@ -108,10 +108,10 @@ The sole I/O layer for entities. Writes are **per-file** — there is no bulk sa
 
 ## EntityScreen (`lib/features/entities/screens/entity_screen.dart`)
 
-A note **viewer** built on the shared note-view primitives. Display mode renders: the title (filename), collection, tags, score, the note **body** via `noteMarkdownBody` (tappable `[[wikilinks]]`), `BacklinksSection` (what links here), and the Grokipedia panel. The AppBar offers **Open in Obsidian** (`obsidianUri` + `launchUrl`), **Edit note body**, and **Edit details**.
+The Collections **detail surface**. Display mode renders: the title (filename), collection, tags, score, a **read-only** render of the note body via `noteMarkdownBody`, and the Grokipedia panel. The AppBar offers **Open in Obsidian** (`obsidianUri` + `launchUrl`) and **Edit details**.
 
 - **Edit details** (`tune` icon) → frontmatter-only edit mode (collection dropdown, tags, score). `Save` → `storage.saveEntity(_entity)`; `Cancel` restores the in-memory snapshot.
-- **Edit note body** (`notes` icon) → pushes `NoteEditScreen(filePath: sourcePath)`; on return the body is re-read. This is the only way the body changes.
+- **Body editing and traversal live in Obsidian**: there is no in-app note-body editor or backlinks panel. Tapping a `[[wikilink]]` in the body opens the target note in Obsidian (`obsidianUriForName` + `launchUrl`).
 - **Grokipedia** state lives entirely in `_EntityScreenState` — never written to the vault.
 
 The name (filename) is not edited here; renaming a note is a file-rename concern outside this screen.
