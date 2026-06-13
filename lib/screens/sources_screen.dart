@@ -7,12 +7,10 @@ import '../core/vault_service.dart';
 import '../shared/utils/obsidian_launcher.dart';
 
 import '../features/books/screens/hardcover_screen.dart';
-import '../features/readwise/screens/readwise_screen.dart';
 import '../features/anki/services/anki_connect_transport.dart';
 import '../features/anki/services/anki_sync_controller.dart';
 import '../features/anki/services/anki_sync_runner.dart';
 import '../features/anki/services/anki_transport.dart';
-import '../features/rss/screens/rss_screen.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/widgets/list_row.dart';
@@ -51,38 +49,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
               icon: Icons.auto_stories,
               name: 'Hardcover',
               description: 'Sync your reading list',
-              meta: 'Books & highlights',
+              meta: 'Books',
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const _HardcoverPage()),
               ),
-            ),
-            _SourceRow(
-              icon: Icons.rss_feed,
-              name: 'Articles',
-              description: 'RSS feeds and articles',
-              meta: 'Feed reader',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RssScreen()),
-              ),
-            ),
-            _SourceRow(
-              icon: Icons.bookmark_outline,
-              name: 'Readwise',
-              description: 'Highlights from your reading',
-              meta: 'Highlight importer',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ReadwiseScreen()),
-              ),
-            ),
-            const _SourceRow(
-              icon: Icons.link,
-              name: 'Bookmarks',
-              description: 'via share sheet',
-              meta: 'X / Twitter links',
-              onTap: null,
             ),
             _SourceRow(
               icon: Icons.folder_open,
