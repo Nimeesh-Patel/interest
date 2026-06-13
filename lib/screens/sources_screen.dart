@@ -6,7 +6,7 @@ import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../shared/utils/obsidian_launcher.dart';
 
-import '../features/books/screens/hardcover_screen.dart';
+import '../features/hardcover/screens/hardcover_screen.dart';
 import '../features/anki/services/anki_connect_transport.dart';
 import '../features/anki/services/anki_sync_controller.dart';
 import '../features/anki/services/anki_sync_runner.dart';

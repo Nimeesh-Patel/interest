@@ -2,18 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../../core/vault_service.dart';
 import '../../../shared/constants/app_spacing.dart';
+import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/error_retry_state.dart';
 import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/snack.dart';
-import '../models/book.dart';
+import '../models/book_note.dart';
 import '../models/hardcover_book.dart';
-import '../services/book_storage_service.dart';
+import '../services/book_note_storage.dart';
 import '../services/hardcover_service.dart';
 import '../services/hardcover_sync_service.dart';
-import '../../../shared/constants/app_theme.dart';
 
+/// Hardcover sync surface: pulls the reading library into the Books collection
+/// (book notes are ordinary entities, also browsable in the Collections tab)
+/// and offers search-and-add. Listing here is for the sync/dedup view.
 class HardcoverScreen extends StatefulWidget {
   const HardcoverScreen({super.key});
 
@@ -22,7 +25,7 @@ class HardcoverScreen extends StatefulWidget {
 }
 
 class HardcoverScreenState extends State<HardcoverScreen> {
-  List<Book>? _books;
+  List<BookNote>? _books;
   bool _loading = true;
   bool _syncing = false;
   String? _error;
@@ -58,8 +61,8 @@ class HardcoverScreenState extends State<HardcoverScreen> {
     }
 
     try {
-      final books = await BookStorageService.loadBooks(vaultPath);
-      books.sort((a, b) => a.title.compareTo(b.title));
+      final books = await BookNoteStorage.loadBooks(vaultPath);
+      books.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
       if (mounted) {
         setState(() {
           _books = books;
@@ -85,7 +88,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
     if (result.error == null) await _loadBooks();
   }
 
-  // Public entry points called by HomeScreen
+  // Public entry points called by the Sources Hardcover page.
   Future<void> sync() => _sync();
   void openSearchSheet() => _openSearchSheet(context);
 
@@ -104,8 +107,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
       top: false,
       child: Column(
         children: [
-          if (_syncing)
-            const LinearProgressIndicator(minHeight: 2),
+          if (_syncing) const LinearProgressIndicator(minHeight: 2),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -113,14 +115,9 @@ class HardcoverScreenState extends State<HardcoverScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const LoadingState();
-    }
+    if (_loading) return const LoadingState();
     if (_noToken != null) {
-      return EmptyState(
-        icon: Icons.book_outlined,
-        message: _noToken!,
-      );
+      return EmptyState(icon: Icons.book_outlined, message: _noToken!);
     }
     if (_error != null) {
       return ErrorRetryState(
@@ -135,7 +132,7 @@ class HardcoverScreenState extends State<HardcoverScreen> {
       );
     }
     if (_books == null || _books!.isEmpty) {
-      return EmptyState(
+      return const EmptyState(
         icon: Icons.book_outlined,
         message: 'No books yet. Tap sync to import your Hardcover library.',
       );
@@ -150,24 +147,23 @@ class HardcoverScreenState extends State<HardcoverScreen> {
 
 class _BookTile extends StatelessWidget {
   const _BookTile({required this.book});
-  final Book book;
+  final BookNote book;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding:
           const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 4),
-      title: Text(
-        book.title,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
+      title: Text(book.title,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (book.authors.isNotEmpty)
             Text(
               book.authors.join(', '),
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              style:
+                  const TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
           const SizedBox(height: 4),
           Wrap(
@@ -176,16 +172,7 @@ class _BookTile extends StatelessWidget {
             children: [
               if (book.status != null) _statusChip(book.status!),
               if (book.rating != null)
-                _chip(
-                  '★ ${book.rating!.toStringAsFixed(1)}',
-                  AppColors.score,
-                ),
-              if (book.hardcoverId != null)
-                _chip('HC', AppColors.accent),
-              if (book.readwiseId != null)
-                _chip('RW', AppColors.accent),
-              if (book.numHighlights != null && book.numHighlights! > 0)
-                _chip('${book.numHighlights} highlights', AppColors.textSecondary),
+                _chip('★ ${book.rating!.toStringAsFixed(1)}', AppColors.score),
             ],
           ),
         ],
@@ -223,7 +210,8 @@ class _BookTile extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+        style:
+            TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -233,7 +221,7 @@ class _BookTile extends StatelessWidget {
 
 class _SearchSheet extends StatefulWidget {
   const _SearchSheet({required this.existingBooks});
-  final List<Book> existingBooks;
+  final List<BookNote> existingBooks;
 
   @override
   State<_SearchSheet> createState() => _SearchSheetState();
@@ -260,9 +248,15 @@ class _SearchSheetState extends State<_SearchSheet> {
       _searchError = null;
     });
     final vaultPath = await VaultService.getVaultPath();
-    final token = vaultPath != null ? await HardcoverService.getToken(vaultPath) : null;
+    final token =
+        vaultPath != null ? await HardcoverService.getToken(vaultPath) : null;
     if (token == null || token.isEmpty) {
-      if (mounted) setState(() { _searching = false; _searchError = 'No token configured.'; });
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _searchError = 'No token configured.';
+        });
+      }
       return;
     }
     final results = await HardcoverService.searchBooks(token, trimmed);
@@ -270,15 +264,15 @@ class _SearchSheetState extends State<_SearchSheet> {
       setState(() {
         _searching = false;
         _results = results ?? [];
-        _searchError = results == null ? 'Search failed. Check your connection.' : null;
+        _searchError =
+            results == null ? 'Search failed. Check your connection.' : null;
       });
     }
   }
 
-  bool _alreadyInVault(HardcoverBook hc) =>
-      widget.existingBooks.any((b) =>
-          b.hardcoverId == hc.bookId ||
-          b.title.toLowerCase() == hc.title.toLowerCase());
+  bool _alreadyInVault(HardcoverBook hc) => widget.existingBooks.any((b) =>
+      b.hardcoverId == hc.bookId ||
+      b.title.toLowerCase() == hc.title.toLowerCase());
 
   void _onResultTap(HardcoverBook hc) {
     showBottomSheetMenu(context, items: [
@@ -324,23 +318,23 @@ class _SearchSheetState extends State<_SearchSheet> {
     final token = await HardcoverService.getToken(vaultPath);
     if (token == null) return;
 
-    // Add to Hardcover library — tolerate failure (untested mutation; next sync reconciles)
+    // Add to Hardcover library — tolerate failure (next sync reconciles).
     await HardcoverService.insertUserBook(token, hc.bookId, statusId);
 
-    final existingAliases = widget.existingBooks.map((b) => b.alias).toSet();
-    final alias = BookStorageService.generateAlias(hc.title, hc.authors, existing: existingAliases);
-    const statusSlugs = {1: 'want_to_read', 2: 'reading', 3: 'read', 4: 'paused', 5: 'dnf'};
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final book = Book(
-      alias: alias,
+    const statusSlugs = {
+      1: 'want_to_read',
+      2: 'reading',
+      3: 'read',
+      4: 'paused',
+      5: 'dnf'
+    };
+    await BookNoteStorage.createBookNote(
+      vaultPath,
       title: hc.title,
       authors: hc.authors,
       hardcoverId: hc.bookId,
       status: statusSlugs[statusId] ?? 'read',
-      createdAt: now,
-      updatedAt: now,
     );
-    await BookStorageService.createBook(vaultPath, book);
 
     if (mounted) {
       showSnack(context, 'Added "${hc.title}"');
@@ -388,7 +382,8 @@ class _SearchSheetState extends State<_SearchSheet> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(kScreenHPad),
-          child: Text(_searchError!, style: const TextStyle(color: AppColors.destructive)),
+          child: Text(_searchError!,
+              style: const TextStyle(color: AppColors.destructive)),
         ),
       );
     }
@@ -404,7 +399,8 @@ class _SearchSheetState extends State<_SearchSheet> {
         final hc = _results![i];
         final alreadyAdded = _alreadyInVault(hc);
         return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 2),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 2),
           title: Text(
             hc.title,
             style: TextStyle(
@@ -415,11 +411,13 @@ class _SearchSheetState extends State<_SearchSheet> {
           subtitle: hc.authors.isNotEmpty
               ? Text(
                   hc.authors.join(', '),
-                  style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.textSecondary),
                 )
               : null,
           trailing: alreadyAdded
-              ? const Text('In vault', style: TextStyle(fontSize: 12, color: AppColors.textTertiary))
+              ? const Text('In vault',
+                  style: TextStyle(fontSize: 12, color: AppColors.textTertiary))
               : const Icon(Icons.add, size: 20),
           onTap: alreadyAdded ? null : () => _onResultTap(hc),
         );

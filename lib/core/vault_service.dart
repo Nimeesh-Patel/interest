@@ -26,8 +26,6 @@ class VaultService {
     if (!await tdir.exists()) await tdir.create(recursive: true);
     final tsdir = Directory(tasksPath(vaultPath));
     if (!await tsdir.exists()) await tsdir.create(recursive: true);
-    final bkdir = Directory(booksPath(vaultPath));
-    if (!await bkdir.exists()) await bkdir.create(recursive: true);
     await _migrateBoardsToLists(vaultPath);
     final ldir = Directory(listsPath(vaultPath));
     if (!await ldir.exists()) await ldir.create(recursive: true);
@@ -55,9 +53,6 @@ class VaultService {
 
   static String tasksPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Tasks');
-
-  static String booksPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Books');
 
   static String systemPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'System');

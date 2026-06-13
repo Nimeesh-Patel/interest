@@ -149,37 +149,8 @@ query SearchBooks(\$query: String!) {
   }
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-
-  static Future<bool> updateUserBook(
-    String token,
-    int userBookId, {
-    required int statusId,
-    double? rating,
-  }) async {
-    const gql = '''
-mutation UpdateUserBook(\$id: Int!, \$statusId: Int!, \$rating: numeric) {
-  update_user_book(
-    where: {id: {_eq: \$id}},
-    _set: {status_id: \$statusId, rating: \$rating}
-  ) {
-    returning { id }
-  }
-}''';
-    final variables = <String, dynamic>{
-      'id': userBookId,
-      'statusId': statusId,
-      if (rating != null) 'rating': rating,
-    };
-    final data = await _graphql(token, gql, variables);
-    if (data == null) return false;
-    try {
-      final returning =
-          data['update_user_book']['returning'] as List? ?? [];
-      return returning.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
+  // Sync is one-way (Hardcover → vault); the only mutation kept is adding a
+  // searched book to the user's Hardcover library when imported in-app.
 
   static Future<int?> insertUserBook(
       String token, int bookId, int statusId) async {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
-import '../../books/services/hardcover_service.dart';
+import '../../hardcover/services/hardcover_service.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/busy_button.dart';
 
