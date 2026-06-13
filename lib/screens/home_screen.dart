@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../features/entities/controllers/entity_list_controller.dart';
@@ -7,7 +6,6 @@ import '../features/entities/models/entity.dart';
 import '../features/entities/screens/collections_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
-import '../features/anki/services/anki_sync_runner.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
 import 'sources_screen.dart';
@@ -16,12 +14,12 @@ import '../shared/utils/obsidian_launcher.dart';
 import '../shared/widgets/app_fab.dart';
 import '../shared/widgets/progress.dart';
 import '../shared/widgets/quick_add_sheet.dart';
-import '../shared/widgets/snack.dart';
 
 /// Two-tab shell: Collections (0, landing) and Projects (1). Note viewing,
 /// editing, and traversal live in Obsidian; Interest is a Collections + Projects
 /// tool plus a one-way Anki sync triggered by the `interest://sync-anki` deep
-/// link from the Problem Notes Obsidian plugin.
+/// link from the Problem Notes Obsidian plugin (handled by SyncActivity, not
+/// this UI).
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -30,8 +28,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static final _deeplinkChannel = MethodChannel('com.nimeesh.interest/deeplink');
-
   final _projectsKey = GlobalKey<ProjectsScreenState>();
 
   late final _controller = EntityListController(
@@ -48,13 +44,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
-    _deeplinkChannel.setMethodCallHandler(_onDeeplinkMethod);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final syncAnki =
-          await _deeplinkChannel.invokeMethod<bool>('getInitialSyncAnki') ??
-              false;
-      if (syncAnki && mounted) _syncAnkiFromDeeplink();
-    });
   }
 
   Future<void> _loadData() async {
@@ -64,17 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (vault != null) {
       await IntegrationsConfigService.migrateFromPrefs(vault);
     }
-  }
-
-  Future<void> _onDeeplinkMethod(MethodCall call) async {
-    if (call.method == 'syncAnki' && mounted) _syncAnkiFromDeeplink();
-  }
-
-  /// `interest://sync-anki` — the Obsidian plugin triggers the whole-vault
-  /// AnkiDroid push. No navigation, no new write path.
-  void _syncAnkiFromDeeplink() {
-    showSnack(context, 'Syncing problem notes to AnkiDroid…');
-    runAnkiDroidSync(context);
   }
 
   // ── Entity navigation ─────────────────────────────────────────────────────

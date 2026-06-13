@@ -53,7 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final config = await IntegrationsConfigService.load(vaultPath);
     if (mounted) {
       setState(() =>
-          _excludedController.text = config.resurfaceExcludedFolders.join(', '));
+          _excludedController.text = config.excludedFolders.join(', '));
     }
   }
 
@@ -69,8 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _excludedSaving = true;
       _excludedSaveStatus = null;
     });
-    await IntegrationsConfigService.setResurfaceExcludedFolders(
-        vaultPath, folders);
+    await IntegrationsConfigService.setExcludedFolders(vaultPath, folders);
     if (mounted) {
       setState(() {
         _excludedSaving = false;

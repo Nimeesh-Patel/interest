@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 
 import '../core/integrations_config_service.dart';
@@ -25,22 +23,12 @@ class SourcesScreen extends StatefulWidget {
 }
 
 class _SourcesScreenState extends State<SourcesScreen> {
-  // One flag per Anki row, but the two syncs are mutually exclusive: both
-  // write anki_note_id back to the same vault files.
-  bool _syncingAnkiDroid = false;
   bool _syncingAnkiConnect = false;
-
-  bool get _ankiBusy => _syncingAnkiDroid || _syncingAnkiConnect;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sources'),
-        actions: [
-          _SyncAllButton(onTap: () => _syncAll(context)),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Sources')),
       body: SafeArea(
         top: false,
         child: ListView(
@@ -48,7 +36,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
             _SourceRow(
               icon: Icons.auto_stories,
               name: 'Hardcover',
-              description: 'Sync your reading list',
+              description: 'Import your reading list into Books',
               meta: 'Books',
               onTap: () => Navigator.push(
                 context,
@@ -58,21 +46,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
             _SourceRow(
               icon: Icons.folder_open,
               name: 'Obsidian',
-              description: 'Open to sync vault',
+              description: 'Open the vault',
               meta: 'external app',
               onTap: () => launchObsidianApp(context),
             ),
-            if (Platform.isAndroid)
-              _SourceRow(
-                icon: Icons.style,
-                name: 'AnkiDroid',
-                description: _syncingAnkiDroid
-                    ? 'Syncing problem notes…'
-                    : 'Push problem notes to AnkiDroid',
-                meta: 'Flashcard sync',
-                busy: _syncingAnkiDroid,
-                onTap: _syncAnkiDroid,
-              ),
+            // AnkiDroid sync is triggered by the interest://sync-anki deep link
+            // from the Problem Notes plugin — no row here. This is the desktop
+            // (AnkiConnect) manual trigger, the only in-app sync entry point.
             _SourceRow(
               icon: Icons.desktop_windows,
               name: 'Anki desktop',
@@ -89,14 +69,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
     );
   }
 
-  Future<void> _syncAnkiDroid() async {
-    if (_ankiBusy) return;
-    await runAnkiDroidSync(context,
-        onBusy: (busy) => setState(() => _syncingAnkiDroid = busy));
-  }
-
   Future<void> _syncAnkiConnect() async {
-    if (_ankiBusy) return;
+    if (_syncingAnkiConnect) return;
 
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted) return;
@@ -135,46 +109,6 @@ class _SourcesScreenState extends State<SourcesScreen> {
     showAnkiSyncResult(context, transport, result);
   }
 
-  static void _syncAll(BuildContext context) {
-    showSnack(context, 'Open each source to trigger sync.',
-        duration: const Duration(seconds: 2));
-  }
-}
-
-class _SyncAllButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _SyncAllButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Center(
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.sync,
-                    size: 14, color: AppColors.textSecondary),
-                const SizedBox(width: 5),
-                Text('Sync all',
-                    style: AppTextStyles.meta
-                        .copyWith(color: AppColors.textSecondary)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _SourceRow extends StatelessWidget {

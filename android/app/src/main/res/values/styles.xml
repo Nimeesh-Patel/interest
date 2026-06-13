@@ -18,4 +18,13 @@
     <style name="QuickCaptureTheme" parent="@android:style/Theme.Material.Light.Dialog.MinWidth">
         <item name="android:windowNoTitle">true</item>
     </style>
+    <!-- Transparent, chromeless theme for the deep-link sync trampoline so it
+         runs the sync without drawing any visible UI over Obsidian. -->
+    <style name="SyncTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

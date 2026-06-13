@@ -14,7 +14,7 @@ class AnkiSyncController {
       final config = await IntegrationsConfigService.load(vaultPath);
       final problemNotes = await AnkiProblemNoteScanner.scan(
         vaultPath,
-        excludedFolders: config.resurfaceExcludedFolders,
+        excludedFolders: config.excludedFolders,
       );
       return await AnkiSyncService.syncVault(transport, problemNotes, vaultPath);
     } catch (_) {

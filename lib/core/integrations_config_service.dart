@@ -21,13 +21,13 @@ class IntegrationsConfig {
   /// Folders the Anki sync skips when scanning the vault for `***` problem
   /// notes. (Section name `## Resurface` is preserved in integrations.md for
   /// backward compatibility with existing vaults.)
-  final List<String> resurfaceExcludedFolders;
+  final List<String> excludedFolders;
 
   const IntegrationsConfig({
     this.hardcoverToken,
     this.ankiConnectUrl,
-    List<String>? resurfaceExcludedFolders,
-  }) : resurfaceExcludedFolders = resurfaceExcludedFolders ?? _defaultExcluded;
+    List<String>? excludedFolders,
+  }) : excludedFolders = excludedFolders ?? _defaultExcluded;
 }
 
 class IntegrationsConfigService {
@@ -46,8 +46,7 @@ class IntegrationsConfigService {
       return IntegrationsConfig(
         hardcoverToken: _parseScalarSection(sections['Hardcover'] ?? '', 'token'),
         ankiConnectUrl: _parseScalarSection(sections['AnkiConnect'] ?? '', 'url'),
-        resurfaceExcludedFolders:
-            _parseResurfaceSection(sections['Resurface'] ?? ''),
+        excludedFolders: _parseExcludedSection(sections['Resurface'] ?? ''),
       );
     } catch (_) {
       return const IntegrationsConfig();
@@ -74,17 +73,17 @@ class IntegrationsConfigService {
     await save(vaultPath, IntegrationsConfig(
       hardcoverToken: token,
       ankiConnectUrl: c.ankiConnectUrl,
-      resurfaceExcludedFolders: c.resurfaceExcludedFolders,
+      excludedFolders: c.excludedFolders,
     ));
   }
 
-  static Future<void> setResurfaceExcludedFolders(
+  static Future<void> setExcludedFolders(
       String vaultPath, List<String> folders) async {
     final c = await load(vaultPath);
     await save(vaultPath, IntegrationsConfig(
       hardcoverToken: c.hardcoverToken,
       ankiConnectUrl: c.ankiConnectUrl,
-      resurfaceExcludedFolders: folders,
+      excludedFolders: folders,
     ));
   }
 
@@ -114,7 +113,7 @@ class IntegrationsConfigService {
     return null;
   }
 
-  static List<String> _parseResurfaceSection(String sectionContent) {
+  static List<String> _parseExcludedSection(String sectionContent) {
     if (sectionContent.trim().isEmpty) return IntegrationsConfig._defaultExcluded;
     try {
       final yaml = loadYaml(sectionContent.trim());
@@ -152,11 +151,13 @@ class IntegrationsConfigService {
       buf.writeln('url: ${yamlScalar(config.ankiConnectUrl!)}');
     }
 
+    // Section name kept as `Resurface` for backward compatibility with vaults
+    // written before the role change; it now scopes the Anki problem-note scan.
     buf.writeln();
     buf.writeln('## Resurface');
     buf.writeln();
     buf.writeln('excluded_folders:');
-    for (final folder in config.resurfaceExcludedFolders) {
+    for (final folder in config.excludedFolders) {
       buf.writeln('  - $folder');
     }
 
