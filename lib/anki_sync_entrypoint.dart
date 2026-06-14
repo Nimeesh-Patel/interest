@@ -5,12 +5,12 @@ import 'features/anki/services/anki_sync_controller.dart';
 import 'features/anki/services/anki_sync_service.dart';
 import 'features/anki/services/ankidroid_transport.dart';
 
-/// Headless Dart entrypoint run by SyncActivity (the `interest://sync-anki`
-/// trampoline). It performs the whole-vault AnkiDroid push WITHOUT any UI —
-/// progress and result surface as an Android notification posted over the
-/// platform channel — then asks the native side to finish the activity, so the
-/// user stays in Obsidian. The sync logic itself is unchanged from the in-app
-/// path; only the trigger and feedback differ.
+/// Headless Dart entrypoint run by SyncService (the foreground service started by
+/// the `interest://sync-anki` trampoline). It performs the whole-vault AnkiDroid
+/// push WITHOUT any UI — progress and result surface as an Android notification
+/// posted over the platform channel — then asks the native side to `finish`,
+/// which stops the service. The user stays in Obsidian throughout. The sync logic
+/// itself is unchanged from the in-app path; only the trigger and feedback differ.
 @pragma('vm:entry-point')
 void ankiSyncMain() async {
   WidgetsFlutterBinding.ensureInitialized();

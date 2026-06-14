@@ -1,65 +1,36 @@
 package com.nimee.people_tracker
 
-import android.os.Build
+import android.app.Activity
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.android.FlutterActivityLaunchConfigs.BackgroundMode
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
+import androidx.core.content.ContextCompat
 
-/// Transparent, no-history trampoline that handles `interest://sync-anki` from
-/// the Problem Notes Obsidian plugin. It runs the sync on its own Flutter engine
-/// (the `ankiSyncMain` Dart entrypoint) WITHOUT bringing Interest's main UI to
-/// the foreground — it lives on a separate task, is excluded from recents, draws
-/// nothing (transparent), and finishes the moment Dart signals completion. The
-/// user sees a notification and stays in Obsidian.
+/// Receives the `interest://sync-anki` deep link and immediately hands the work
+/// to the headless SyncService foreground service, then finishes. It draws no
+/// content (translucent theme) and never runs the sync itself — so it cannot
+/// freeze or steal focus from Obsidian, the bug the old transparent-FlutterActivity
+/// trampoline had.
 ///
-/// NOTE: this native headless path has not been verified on a physical device in
-/// this environment. A fully invisible (zero-flash) variant would use a
-/// foreground Service + long-lived background isolate; this trampoline is the
-/// cleanest reliable approximation. See docs/anki.md.
-class SyncActivity : FlutterActivity() {
-    private var bridge: AnkiBridge? = null
-    private val syncChannelName = "com.nimeesh.interest/sync"
-
-    override fun getDartEntrypointFunctionName(): String = "ankiSyncMain"
-
-    override fun getBackgroundMode(): BackgroundMode = BackgroundMode.transparent
+/// The one thing only an Activity can do is request AnkiDroid's runtime
+/// READ_WRITE_DATABASE permission (a service can't), so this is the sole reason
+/// the deep link still touches an Activity at all:
+///   • permission already granted (every sync after the first) → start the
+///     service and finish in onCreate; effectively a zero-window bounce.
+///   • not yet granted (first run only) → request it here; on grant start the
+///     service, otherwise post a notification telling the user. Either way finish.
+class SyncActivity : Activity() {
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 1001
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Best-effort POST_NOTIFICATIONS request (Android 13+); the sync runs
-        // regardless of the outcome — only the visible feedback depends on it.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (hasAnkiPermission()) {
+            startSyncAndFinish()
+        } else {
             ActivityCompat.requestPermissions(
-                this, arrayOf("android.permission.POST_NOTIFICATIONS"), 1002)
-        }
-    }
-
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        val messenger = flutterEngine.dartExecutor.binaryMessenger
-
-        bridge = AnkiBridge(this).also { it.register(messenger) }
-
-        MethodChannel(messenger, syncChannelName).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "notify" -> {
-                    SyncNotifier.show(
-                        applicationContext,
-                        call.argument<String>("title") ?: "Anki sync",
-                        call.argument<String>("text") ?: "",
-                        call.argument<Boolean>("ongoing") ?: false,
-                    )
-                    result.success(null)
-                }
-                "finish" -> {
-                    result.success(null)
-                    finish()
-                }
-                else -> result.notImplemented()
-            }
+                this, arrayOf(AnkiBridge.PERMISSION), PERMISSION_REQUEST_CODE)
         }
     }
 
@@ -69,6 +40,31 @@ class SyncActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        bridge?.onRequestPermissionsResult(requestCode, grantResults)
+        if (requestCode != PERMISSION_REQUEST_CODE) {
+            finish()
+            return
+        }
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            startSyncAndFinish()
+        } else {
+            SyncNotifier.show(
+                applicationContext,
+                "Anki sync",
+                "Grant AnkiDroid access to Interest, then sync again.",
+                ongoing = false,
+            )
+            finish()
+        }
+    }
+
+    private fun hasAnkiPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, AnkiBridge.PERMISSION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun startSyncAndFinish() {
+        SyncService.start(this)
+        finish()
     }
 }

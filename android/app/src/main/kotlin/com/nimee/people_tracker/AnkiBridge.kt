@@ -1,26 +1,30 @@
 package com.nimee.people_tracker
 
-import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.ichi2.anki.FlashCardsContract
 import com.ichi2.anki.api.AddContentApi
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 
 /// The AnkiDroid ContentProvider bridge (AddContentApi) exposed to Dart over a
-/// MethodChannel. Translates the seven AnkiTransport operations and the
-/// permission request; nothing else. Registered on whichever activity hosts the
-/// sync engine (currently only SyncActivity, the deep-link trampoline).
-class AnkiBridge(private val activity: Activity) {
-    private var pendingPermissionResult: MethodChannel.Result? = null
+/// MethodChannel. Translates the seven AnkiTransport operations; nothing else.
+/// Context-based, so it runs from the headless SyncService engine (no Activity).
+///
+/// `requestPermission` here is a pure *check*, not a request: granting AnkiDroid's
+/// runtime READ_WRITE_DATABASE permission needs a visible Activity, which the
+/// service has none of. SyncActivity (the deep-link trampoline) obtains the grant
+/// before the service ever runs, so by the time Dart asks, the answer is settled.
+class AnkiBridge(context: Context) {
+    private val ctx: Context = context.applicationContext
 
     companion object {
         const val CHANNEL = "com.nimeesh.interest/ankidroid"
-        const val PERMISSION_REQUEST_CODE = 1001
+        const val PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
     }
 
     fun register(messenger: BinaryMessenger) {
@@ -32,17 +36,6 @@ class AnkiBridge(private val activity: Activity) {
             }
         }
     }
-
-    /// Forwarded from the hosting activity's onRequestPermissionsResult.
-    fun onRequestPermissionsResult(requestCode: Int, grantResults: IntArray) {
-        if (requestCode != PERMISSION_REQUEST_CODE) return
-        val granted = grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED
-        pendingPermissionResult?.success(granted)
-        pendingPermissionResult = null
-    }
-
-    private val ctx get() = activity.applicationContext
 
     private fun handle(method: String, call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
         when (method) {
@@ -66,12 +59,9 @@ class AnkiBridge(private val activity: Activity) {
             }
 
             "requestPermission" -> {
-                pendingPermissionResult = result
-                ActivityCompat.requestPermissions(
-                    activity,
-                    arrayOf("com.ichi2.anki.permission.READ_WRITE_DATABASE"),
-                    PERMISSION_REQUEST_CODE,
-                )
+                val granted = ContextCompat.checkSelfPermission(ctx, PERMISSION) ==
+                    PackageManager.PERMISSION_GRANTED
+                result.success(granted)
             }
 
             "addNote" -> {
@@ -165,7 +155,7 @@ class AnkiBridge(private val activity: Activity) {
 
     private fun getCardDeckName(api: AddContentApi, noteId: Long): String? {
         return try {
-            activity.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
+            ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
                 if (!c.moveToFirst()) return null
                 val idx = c.getColumnIndex(FlashCardsContract.Card.DECK_ID)
                 if (idx < 0) return null
@@ -179,7 +169,7 @@ class AnkiBridge(private val activity: Activity) {
     private fun moveCardsToDeck(noteId: Long, deckId: Long): Boolean {
         return try {
             val ords = mutableListOf<Int>()
-            activity.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
+            ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
                 val ordIdx = c.getColumnIndex(FlashCardsContract.Card.CARD_ORD)
                 if (ordIdx < 0) return false
                 while (c.moveToNext()) ords.add(c.getInt(ordIdx))
@@ -189,7 +179,7 @@ class AnkiBridge(private val activity: Activity) {
                 val values = ContentValues().apply {
                     put(FlashCardsContract.Card.DECK_ID, deckId)
                 }
-                activity.contentResolver.update(
+                ctx.contentResolver.update(
                     Uri.withAppendedPath(cardsUriFor(noteId), ord.toString()),
                     values, null, null,
                 )

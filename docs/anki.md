@@ -47,36 +47,46 @@ Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFail
 
 | Trigger | Path |
 |---|---|
-| **`interest://sync-anki` deep link** (the primary path — fired by the Problem Notes Obsidian plugin) | `SyncActivity` → headless `ankiSyncMain` Dart entrypoint → `AnkiSyncController.sync(AnkiDroidTransport())`; progress as a notification |
+| **`interest://sync-anki` deep link** (the primary path — fired by the Problem Notes Obsidian plugin) | `SyncActivity` (trampoline) → `SyncService` (foreground service) → headless `ankiSyncMain` Dart entrypoint → `AnkiSyncController.sync(AnkiDroidTransport())`; progress as a notification |
 | **Sources → Anki desktop** (manual) | `AnkiSyncController.sync(AnkiConnectTransport())` → result dialog/snackbar |
 
 There is no AnkiDroid sync row in the app — the deep link is the only AnkiDroid trigger. No background scheduler.
 
 ## The deep-link sync contract (Android)
 
-`interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin: the plugin's sync button fires it; Interest runs the whole-vault AnkiDroid push **without bringing its main UI to the foreground**, so the user stays in Obsidian.
+`interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin: the plugin's sync button fires it; Interest runs the whole-vault AnkiDroid push in a **headless foreground service** — no Activity, no window — so the user stays in Obsidian and nothing can steal focus or freeze the screen.
+
+The deep link is split into a near-zero **trampoline activity** (the only component that can receive a VIEW intent and the only one that can request a runtime permission) and a **foreground service** that does the work:
 
 ```
 interest://sync-anki  (VIEW intent)
-  → SyncActivity                         transparent, excludeFromRecents,
-                                         noHistory, separate taskAffinity,
-                                         singleInstance — draws nothing
-      getDartEntrypointFunctionName() = "ankiSyncMain"   ← its own Flutter engine
-      configureFlutterEngine: registers AnkiBridge (ankidroid channel)
-                              + the `com.nimeesh.interest/sync` channel
+  → SyncActivity                         translucent, excludeFromRecents,
+                                         separate taskAffinity. Draws nothing;
+                                         finishes in onCreate.
+      permission already granted? ──yes──▶ SyncService.start(); finish()
+                                └──no───▶ request READ_WRITE_DATABASE (only an
+                                          Activity can); on grant SyncService.start(),
+                                          on deny notify "Grant access…"; finish()
+  → SyncService  (foreground service — startForeground "Syncing…", dataSync)
+      FlutterEngine(ankiSyncMain)        ← its own engine, no Activity
+      registers AnkiBridge (ankidroid channel) + `com.nimeesh.interest/sync`
   → ankiSyncMain()  (lib/anki_sync_entrypoint.dart)
-      notify "Syncing problem notes to AnkiDroid…"  (ongoing)
-      AnkiDroidTransport.isAvailable / requestPermission
+      notify "Syncing problem notes to AnkiDroid…"  (updates the fg notification)
+      AnkiDroidTransport.isAvailable / requestPermission (now a checkSelfPermission)
       AnkiSyncController.sync(AnkiDroidTransport())
       notify "N synced (A added, U updated)"         (result)
-      channel.invoke("finish")  → SyncActivity.finish()
+      channel.invoke("finish")  → SyncService stops (detaches the result notification)
 ```
 
-The sync logic itself is unchanged from any other trigger; only *how it starts* and *how progress shows* differ. Progress surfaces via an Android notification (`SyncNotifier.kt`); `POST_NOTIFICATIONS` is requested best-effort (Android 13+) — the sync runs regardless of whether the notification is allowed.
+The sync logic itself is unchanged from any other trigger; only *how it starts* and *how progress shows* differ. One notification (`SyncNotifier`, id `4201`) is reused as both the service's mandatory foreground notification and every Dart progress/result update, so it morphs in place from "Syncing…" to the result.
 
-`MainActivity` is now a plain `FlutterActivity` — it hosts only the Collections/Projects UI and has no Anki or deep-link code.
+**Why this shape.** A VIEW deep link can only be delivered to an Activity, and AnkiDroid's runtime `READ_WRITE_DATABASE` permission can only be requested from a visible Activity — so the trampoline must be an Activity. But an Activity that *also runs the sync* is exactly the old bug: a translucent full-screen window that renders nothing yet captures all touch for the whole sync, freezing Obsidian, while a permission-dialog/`singleInstance`/`noHistory` race left the `await` hanging forever. Moving the work to a windowless foreground service removes the focus-capturing window entirely; the trampoline does nothing but check/grant the permission and start the service.
 
-> **Status:** this transparent-trampoline path compiles and the debug APK builds, but its runtime behaviour has **not been verified on a physical device** in the current environment. A fully invisible (zero-flash) variant would use a foreground Service + a long-lived background isolate; the trampoline is the cleanest reliable approximation and is what is shipped.
+**Permission split.** `AnkiBridge.requestPermission` is now a pure `checkSelfPermission` (it has only a `Context`, no Activity). The actual grant happens once, in `SyncActivity`, before the service runs — so the common already-granted case is fully headless (no window, no flash), and first-run shows only the standard system permission dialog.
+
+`POST_NOTIFICATIONS` is **not** requested on the sync path (that request was part of the old race). If notifications are disabled the sync still completes; only the visible feedback is suppressed. `MainActivity` remains a plain `FlutterActivity` with no Anki or deep-link code.
+
+> **Status:** this foreground-service path compiles and the debug APK builds. Device-verification notes are in the task log; the already-granted headless path is the intended steady state, first-run routes once through the permission dialog.
 
 ## `anki_note_id` — the only vault write
 
@@ -140,7 +150,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 
 ## MethodChannel contracts (Android)
 
-**`com.nimeesh.interest/ankidroid`** (`AnkiBridge`, registered on `SyncActivity`):
+**`com.nimeesh.interest/ankidroid`** (`AnkiBridge`, registered on the `SyncService` engine):
 
 | Method | Args | Returns |
 |---|---|---|
@@ -152,6 +162,6 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 | `getCardDeck` | `noteId` | `String?` |
 | `moveNoteToDeck` | `noteId, deckName` | `bool` |
 
-**`com.nimeesh.interest/sync`** (`SyncActivity`): `notify {title, text, ongoing}` posts/updates the sync notification; `finish` finishes the trampoline activity.
+**`com.nimeesh.interest/sync`** (`SyncService`): `notify {title, text, ongoing}` posts/updates the sync notification; `finish` stops the foreground service.
 
 Android implementation uses `AddContentApi` and `FlashCardsContract` from `com.github.ankidroid:Anki-Android:api-2.0.0:api@aar`.
