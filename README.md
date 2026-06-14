@@ -4,7 +4,7 @@ Interest is a small Android (and Windows) companion to an Obsidian vault. It doe
 
 1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
 2. **Projects** — a lightweight todo/project workspace.
-3. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion **Problem Notes** Obsidian plugin.
+3. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion [**Problem Notes** Obsidian plugin](https://github.com/Nimeesh-Patel/Problem-Notes).
 
 It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Interest only ever *patches frontmatter* — it never rewrites a note body.
 
