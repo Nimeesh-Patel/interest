@@ -2,10 +2,10 @@ import 'package:flutter/services.dart';
 
 import 'anki_transport.dart';
 
-/// AnkiDroid transport: MethodChannel to AnkiBridge.kt (registered on the
-/// SyncService engine), which talks to AnkiDroid's ContentProvider via
-/// AddContentApi. Android only — on other platforms every call fails closed
-/// (isAvailable returns false).
+/// AnkiDroid transport: MethodChannel to AnkiBridge.kt (registered on
+/// MainActivity), which talks to AnkiDroid's ContentProvider via AddContentApi.
+/// Android only — on other platforms every call fails closed (isAvailable
+/// returns false).
 class AnkiDroidTransport implements AnkiTransport {
   static const _channel = MethodChannel('com.nimeesh.interest/ankidroid');
 

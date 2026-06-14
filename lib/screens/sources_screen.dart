@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 import '../core/integrations_config_service.dart';
@@ -23,7 +25,12 @@ class SourcesScreen extends StatefulWidget {
 }
 
 class _SourcesScreenState extends State<SourcesScreen> {
+  // One flag per Anki row, but the two syncs are mutually exclusive: both
+  // write anki_note_id back to the same vault files.
+  bool _syncingAnkiDroid = false;
   bool _syncingAnkiConnect = false;
+
+  bool get _ankiBusy => _syncingAnkiDroid || _syncingAnkiConnect;
 
   @override
   Widget build(BuildContext context) {
@@ -50,9 +57,19 @@ class _SourcesScreenState extends State<SourcesScreen> {
               meta: 'external app',
               onTap: () => launchObsidianApp(context),
             ),
-            // AnkiDroid sync is triggered by the interest://sync-anki deep link
-            // from the Problem Notes plugin — no row here. This is the desktop
-            // (AnkiConnect) manual trigger, the only in-app sync entry point.
+            // AnkiDroid: the interest://sync-anki deep link triggers the same
+            // sync, but this row is a no-plugin manual trigger. Android only.
+            if (Platform.isAndroid)
+              _SourceRow(
+                icon: Icons.style,
+                name: 'AnkiDroid',
+                description: _syncingAnkiDroid
+                    ? 'Syncing problem notes…'
+                    : 'Push problem notes to AnkiDroid',
+                meta: 'Flashcard sync',
+                busy: _syncingAnkiDroid,
+                onTap: _syncAnkiDroid,
+              ),
             _SourceRow(
               icon: Icons.desktop_windows,
               name: 'Anki desktop',
@@ -69,8 +86,14 @@ class _SourcesScreenState extends State<SourcesScreen> {
     );
   }
 
+  Future<void> _syncAnkiDroid() async {
+    if (_ankiBusy) return;
+    await runAnkiDroidSync(context,
+        onBusy: (busy) => setState(() => _syncingAnkiDroid = busy));
+  }
+
   Future<void> _syncAnkiConnect() async {
-    if (_syncingAnkiConnect) return;
+    if (_ankiBusy) return;
 
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted) return;

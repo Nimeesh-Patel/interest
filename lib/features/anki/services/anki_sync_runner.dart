@@ -2,8 +2,39 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/constants/app_text_styles.dart';
 import '../../../shared/widgets/snack.dart';
+import 'anki_sync_controller.dart';
 import 'anki_sync_service.dart';
+import 'ankidroid_transport.dart';
 import 'anki_transport.dart';
+
+/// Runs the whole-vault AnkiDroid push (availability + permission + sync) and
+/// reports the outcome through [showAnkiSyncResult]. Shared by the Sources
+/// screen's AnkiDroid row and the `interest://sync-anki` deep link so both
+/// behave identically. [onBusy] lets a caller reflect progress in its own UI.
+Future<void> runAnkiDroidSync(BuildContext context,
+    {void Function(bool busy)? onBusy}) async {
+  final transport = AnkiDroidTransport();
+
+  final available = await transport.isAvailable();
+  if (!context.mounted) return;
+  if (!available) {
+    showSnack(context, 'AnkiDroid not installed');
+    return;
+  }
+
+  final granted = await transport.requestPermission();
+  if (!context.mounted) return;
+  if (!granted) {
+    showSnack(context, 'Permission denied');
+    return;
+  }
+
+  onBusy?.call(true);
+  final result = await AnkiSyncController.sync(transport);
+  onBusy?.call(false);
+  if (!context.mounted) return;
+  showAnkiSyncResult(context, transport, result);
+}
 
 /// Reports an [AnkiSyncResult]: a scrollable failures dialog when notes failed
 /// with messages, otherwise a one-line summary snackbar. A null result means

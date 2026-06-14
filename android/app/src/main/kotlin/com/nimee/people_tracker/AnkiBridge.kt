@@ -1,11 +1,11 @@
 package com.nimee.people_tracker
 
+import android.app.Activity
 import android.content.ContentValues
-import android.content.Context
 import android.net.Uri
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
 import com.ichi2.anki.FlashCardsContract
 import com.ichi2.anki.api.AddContentApi
 import io.flutter.plugin.common.BinaryMessenger
@@ -13,18 +13,18 @@ import io.flutter.plugin.common.MethodChannel
 
 /// The AnkiDroid ContentProvider bridge (AddContentApi) exposed to Dart over a
 /// MethodChannel. Translates the seven AnkiTransport operations; nothing else.
-/// Context-based, so it runs from the headless SyncService engine (no Activity).
-///
-/// `requestPermission` here is a pure *check*, not a request: granting AnkiDroid's
-/// runtime READ_WRITE_DATABASE permission needs a visible Activity, which the
-/// service has none of. SyncActivity (the deep-link trampoline) obtains the grant
-/// before the service ever runs, so by the time Dart asks, the answer is settled.
-class AnkiBridge(context: Context) {
-    private val ctx: Context = context.applicationContext
+/// Hosted on MainActivity: the sync runs in the foreground app, so the runtime
+/// READ_WRITE_DATABASE permission can be requested through the normal Activity
+/// flow. `register` wires the channel; the host activity must forward
+/// `onRequestPermissionsResult` so the first-run grant completes.
+class AnkiBridge(private val activity: Activity) {
+    private var pendingPermissionResult: MethodChannel.Result? = null
+    private val ctx get() = activity.applicationContext
 
     companion object {
         const val CHANNEL = "com.nimeesh.interest/ankidroid"
         const val PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+        const val PERMISSION_REQUEST_CODE = 1001
     }
 
     fun register(messenger: BinaryMessenger) {
@@ -35,6 +35,16 @@ class AnkiBridge(context: Context) {
                 result.error("ANKI_ERROR", e.message, null)
             }
         }
+    }
+
+    /// Forwarded from the host activity's onRequestPermissionsResult; completes
+    /// the pending `requestPermission` call with the grant outcome.
+    fun onRequestPermissionsResult(requestCode: Int, grantResults: IntArray) {
+        if (requestCode != PERMISSION_REQUEST_CODE) return
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pendingPermissionResult?.success(granted)
+        pendingPermissionResult = null
     }
 
     private fun handle(method: String, call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
@@ -59,9 +69,14 @@ class AnkiBridge(context: Context) {
             }
 
             "requestPermission" -> {
-                val granted = ContextCompat.checkSelfPermission(ctx, PERMISSION) ==
-                    PackageManager.PERMISSION_GRANTED
-                result.success(granted)
+                if (ActivityCompat.checkSelfPermission(activity, PERMISSION) ==
+                    PackageManager.PERMISSION_GRANTED) {
+                    result.success(true)
+                } else {
+                    pendingPermissionResult = result
+                    ActivityCompat.requestPermissions(
+                        activity, arrayOf(PERMISSION), PERMISSION_REQUEST_CODE)
+                }
             }
 
             "addNote" -> {
