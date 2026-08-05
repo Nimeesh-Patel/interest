@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:people_tracker/shared/markdown/md_utils.dart';
+import 'package:people_tracker/shared/markdown/md_io.dart';
+import 'package:path/path.dart' as p;
+import 'dart:io';
 
 void main() {
   // ── splitFrontmatter ────────────────────────────────────────────────────────
@@ -246,6 +249,52 @@ void main() {
         generateUniqueId('!!!', {'untitled'}, fallback: 'untitled'),
         'untitled-2',
       );
+    });
+  });
+
+  group('patchFrontmatterField keeps the block valid', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('pfm'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    Future<String> patch(String content, String key, String value) async {
+      final f = File(p.join(tmp.path, 'n.md'))..writeAsStringSync(content);
+      await patchFrontmatterField(f.path, key, value);
+      return f.readAsStringSync();
+    }
+
+    test('replacing the last key does not glue the closing ---', () async {
+      // Regression: this produced `- gumption---` on the phone, 2026-08-04.
+      const before = '---\nup: null\naliases:\n  - gumption\n'
+          'anki_note_id: 111\n---\nproblem\n***\nidea\n';
+      final after = await patch(before, 'anki_note_id', '222');
+      expect(after.contains('111---'), isFalse);
+      expect(after.contains('anki_note_id: 222\n---\n'), isTrue);
+      expect(splitFrontmatter(after).frontmatter, isNotNull);
+    });
+
+    test('replacing a mid-block key leaves the block splittable', () async {
+      const before = '---\nanki_note_id: 111\ncategory: Optimism\n---\nbody\n';
+      final after = await patch(before, 'anki_note_id', '222');
+      final split = splitFrontmatter(after);
+      expect(split.frontmatter, contains('category: Optimism'));
+      expect(split.body.trim(), 'body');
+    });
+
+    test('appending a new key still terminates the block', () async {
+      const before = '---\ncategory: Default\n---\nbody\n';
+      final after = await patch(before, 'anki_note_id', '333');
+      expect(splitFrontmatter(after).frontmatter, contains('anki_note_id: 333'));
+      expect(splitFrontmatter(after).body.trim(), 'body');
+    });
+
+    test('refuses to patch a file whose frontmatter is already malformed',
+        () async {
+      // The 8 damaged notes look like this; patching would add a third block.
+      const broken =
+          '---\nup: null\nanki_note_id: 111---\nproblem\n***\nidea\n';
+      final after = await patch(broken, 'anki_note_id', '222');
+      expect(after, broken, reason: 'must be left untouched for repair');
     });
   });
 }
