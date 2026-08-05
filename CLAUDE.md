@@ -95,7 +95,7 @@ Each storage path co-owns specific files. Nothing rewrites a note body.
 |---|---|---|---|
 | Entity | `collection:` presence = membership; identity = note name (filename); `alias:` optional, used as `id` when present else filename slug | filename can change | Hard (delete the file) |
 | Problem note | `anki_note_id` (frontmatter) | Written on first sync; stable | Hard |
-| Book | an entity with `collection: Books` + `hardcover_id` (dedup key); title-slug fallback for linking | filename can change | Hard |
+| Book | an entity with `collection: Books`; identity is the note name. `hardcover_id` is a legacy dedup key carried by 2 of 183 book notes (verified 2026-08-05) and is no longer the anchor — the title-slug fallback is what actually links a pull | filename can change | Hard |
 | Task / Project file | None | — | Hard |
 
 ## Shared utilities — do not duplicate
@@ -130,7 +130,9 @@ Migration from SharedPreferences runs once on first load (idempotent: skipped if
 
 **Deep-link sync (Android)** — `interest://sync-anki` (fired by the Problem Notes plugin) is a VIEW intent on `MainActivity` (`launchMode=singleTop`): a cold start sets `pendingSyncAnki` (read once via the `getInitialSyncAnki` deeplink-channel call); a running app receives it through `onNewIntent`, which invokes `syncAnki` on the `com.nimeesh.interest/deeplink` channel. Either way the Flutter side (`HomeScreen._syncAnkiFromDeeplink`) runs `runAnkiDroidSync` → `AnkiSyncController.sync(AnkiDroidTransport())` and shows the result in a snackbar. **The app comes to the foreground — that is the intended, known-good behaviour; the sync is not headless.** `AnkiBridge` (the AnkiDroid ContentProvider bridge) is registered on `MainActivity`, which forwards `onRequestPermissionsResult` so the first-run `READ_WRITE_DATABASE` grant completes via the normal Activity flow. The same `runAnkiDroidSync` backs the Sources → AnkiDroid row (Android only), so plugin and in-app triggers behave identically. A prior iteration tried a headless foreground-service + transparent-activity trampoline; it never synced on-device and was reverted — do not reintroduce it.
 
-**Hardcover / Books** — a book is an ordinary entity: a vault-root note with `collection: Books` + `hardcover_id` (+ `authors`/`status`/`rating` frontmatter, title/authors body), visible in the Collections tab. There is no separate Books subsystem, no `Interesting/Books/` directory, no field-partition convergence. Sync is a **one-way pull** (HC → vault): `HardcoverSyncService` fetches the library and creates (`BookNoteStorage.createBookNote`) or frontmatter-patches (`BookNoteStorage.patchFields`, body preserved) one note per book; dedup on `hardcover_id` with a title-slug fallback. `HardcoverService` keeps fetch/auth/search + `insertUserBook` (search-and-add); there is no MD→HC push. `HardcoverScreen` is pushed from the Sources screen; `HardcoverScreenState` is public so the Sources page can drive sync/search via `GlobalKey`. Token in `integrations.md`.
+**Hardcover / Books** — Hardcover was dropped as a service on 2026-07-30 and `hardcover_id` was stripped from the vault during the book conversion, but the subsystem is still wired: 998 lines under `lib/features/hardcover/`, reachable from Settings and a live Sources row. A pull would re-link most notes through the title-slug fallback rather than duplicate them, so this is stale surface rather than a hazard — but it is surface that no longer has a user. Whether to retire it is a product decision, not a correction.
+
+A book is an ordinary entity: a vault-root note with `collection: Books` (+ `authors`/`status`/`rating` frontmatter, title/authors body), visible in the Collections tab. There is no separate Books subsystem, no `Interesting/Books/` directory, no field-partition convergence. Sync is a **one-way pull** (HC → vault): `HardcoverSyncService` fetches the library and creates (`BookNoteStorage.createBookNote`) or frontmatter-patches (`BookNoteStorage.patchFields`, body preserved) one note per book; dedup on `hardcover_id` with a title-slug fallback. `HardcoverService` keeps fetch/auth/search + `insertUserBook` (search-and-add); there is no MD→HC push. `HardcoverScreen` is pushed from the Sources screen; `HardcoverScreenState` is public so the Sources page can drive sync/search via `GlobalKey`. Token in `integrations.md`.
 
 **Projects** — unified workspaces replacing Lists + Todos. New files in `Interesting/Projects/`; on first `ProjectStorageService.loadAll()`, existing `Lists/` + `Tasks/` files migrate (best-effort, idempotent). Detail screen is `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 
@@ -195,3 +197,7 @@ keep the answers hard-to-vary and avoid redundancy and ramblings
 
 ## Background Knowledge
 I follow Karl Popper and David Deutsch in epistemology, physics, politics, and related things.
+
+## Targeted Anki CLI
+
+`tool/sync_anki_notes.dart` exists for file-bounded restructuring transactions. It must reuse `AnkiProblemNoteScanner`, `AnkiSyncService`, and `AnkiConnectTransport`; it must require explicit `--file` arguments, reject paths outside the vault, and never duplicate card rendering or imply a whole-vault sync.

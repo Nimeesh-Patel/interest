@@ -297,4 +297,43 @@ void main() {
       expect(after, broken, reason: 'must be left untouched for repair');
     });
   });
+
+  group('frontmatter round-trip preserves risky metadata', () {
+    // The vault stores authors as quoted wikilinks because a bare
+    // `- [[Name]]` parses as a nested list. EntityFileWriter rebuilds the whole
+    // block from a parsed map on every entity save, so an unquoted rewrite
+    // would corrupt all 183 book notes at once.
+    const bookNote = '---\n'
+        'collection: Books\n'
+        'authors:\n'
+        '- "[[Haruki Murakami]]"\n'
+        '- "[[Jay Rubin]]"\n'
+        'status: read\n'
+        '---\n'
+        '\n'
+        '# Norwegian Wood\n';
+
+    Map<String, dynamic> fieldsOf(String note) {
+      final fm = parseYamlMap(splitFrontmatter(note).frontmatter)!;
+      return {for (final e in fm.entries) e.key.toString(): e.value};
+    }
+
+    test('wikilink lists survive a rebuild still quoted', () {
+      final rebuilt = buildFrontmatterBlock(fieldsOf(bookNote), ['collection']);
+      expect(rebuilt, contains('- "[[Haruki Murakami]]"'));
+
+      final again = fieldsOf('$rebuilt\n\nbody');
+      expect(
+        (again['authors'] as List).map((a) => a.toString()).toList(),
+        ['[[Haruki Murakami]]', '[[Jay Rubin]]'],
+      );
+    });
+
+    test('an apostrophe in a value survives a rebuild', () {
+      final rebuilt =
+          buildFrontmatterBlock({'collection': "Nimeesh's Books"}, ['collection']);
+      final back = fieldsOf('$rebuilt\n\nbody');
+      expect(back['collection'], "Nimeesh's Books");
+    });
+  });
 }

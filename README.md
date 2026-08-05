@@ -31,7 +31,9 @@ The framing is deliberate: the front is a problem, the back is your current best
 
 Rendering, viewing, editing, backlinks, and `[[wikilink]]` traversal of `***` notes all live in **Obsidian** now — the **Problem Notes** Obsidian plugin renders a `***` note with tap-to-reveal directly in Obsidian, far better than an in-app viewer could. Interest no longer has a note viewer or traversal layer; it deleted that role entirely.
 
-The plugin and the app meet at one contract: the plugin's "sync to AnkiDroid" button fires the `interest://sync-anki` deep link. Interest receives it and pushes the whole vault's problem notes to AnkiDroid — **without bringing its own UI to the foreground**. A lightweight, transparent activity runs the sync on its own task and reports progress as an Android notification ("Syncing problem notes to AnkiDroid… → 99 synced (0 added, 99 updated)"); you tap the button in Obsidian and stay in Obsidian.
+The plugin and the app meet at one contract: the plugin's "sync to AnkiDroid" button fires the `interest://sync-anki` deep link. `MainActivity` (`launchMode=singleTop`) receives it — cold start through `pendingSyncAnki`, running app through `onNewIntent` — and **Interest comes to the foreground and runs the sync there**, reporting the result in a snackbar.
+
+That foreground behaviour is the intended design, not a limitation. An earlier iteration tried the opposite — a headless foreground service plus a transparent-activity trampoline, reporting progress as a notification so you never left Obsidian. It never synced on a real device and was reverted. **It must not be reintroduced.** This paragraph described that reverted design until 2026-08-05, which is worse than describing nothing: it reads as a specification to restore.
 
 ## The sync
 
