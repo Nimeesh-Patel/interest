@@ -180,6 +180,68 @@ String obsidianUriForName(String vaultPath, String noteName) {
       '&file=${Uri.encodeComponent(noteName)}';
 }
 
+/// Reads scalar or list-style Obsidian `alias:` / `aliases:` values out of a
+/// raw frontmatter block. Pure — no I/O, no YAML dependency.
+/// Handles `aliases: foo`, `aliases: [a, b]`, and a `- item` block.
+List<String> parseAliases(String? frontmatter) {
+  if (frontmatter == null || frontmatter.isEmpty) return const [];
+  final out = <String>[];
+  var collecting = false;
+  for (final line in frontmatter.split('\n')) {
+    final stripped = line.trim();
+    final topLevel = line.isNotEmpty &&
+        !line.startsWith(RegExp(r'\s')) &&
+        !stripped.startsWith('- ');
+    if (topLevel) {
+      final colon = line.indexOf(':');
+      if (colon < 0) {
+        collecting = false;
+        continue;
+      }
+      final key = line.substring(0, colon).trim();
+      collecting = key == 'alias' || key == 'aliases';
+      final value = line.substring(colon + 1).trim();
+      if (collecting && value.isNotEmpty) {
+        final items = value.startsWith('[') && value.endsWith(']')
+            ? value.substring(1, value.length - 1).split(',')
+            : [value];
+        out.addAll(items.map(_unquote));
+      }
+    } else if (collecting && stripped.startsWith('- ')) {
+      out.add(_unquote(stripped.substring(2)));
+    }
+  }
+  final seen = <String>{};
+  return [
+    for (final a in out)
+      if (a.isNotEmpty && seen.add(a)) a
+  ];
+}
+
+String _unquote(String value) {
+  final t = value.trim();
+  if (t.length >= 2 &&
+      ((t.startsWith("'") && t.endsWith("'")) ||
+          (t.startsWith('"') && t.endsWith('"')))) {
+    return t.substring(1, t.length - 1).trim();
+  }
+  return t;
+}
+
+/// Resolves a wikilink [target] to a canonical vault-relative path using a map
+/// built by `buildLinkTargets`. Returns [target] unchanged when it is unknown
+/// or ambiguous — a wrong link is worse than a link that simply does not
+/// resolve, so this never guesses. Pure — no I/O.
+String resolveLinkTarget(String target, Map<String, String>? canonical) {
+  if (canonical == null || canonical.isEmpty) return target;
+  final hash = target.indexOf('#');
+  final base = hash < 0 ? target : target.substring(0, hash);
+  final anchor = hash < 0 ? '' : target.substring(hash);
+  final key = base.replaceAll('\\', '/').trim().toLowerCase();
+  final hit = canonical[key];
+  return hit == null ? target : '$hit$anchor';
+}
+
 /// Lowercases [name], collapses whitespace to hyphens, strips non-alphanumeric.
 /// Returns empty string if [name] is whitespace-only.
 String slugify(String name) => name

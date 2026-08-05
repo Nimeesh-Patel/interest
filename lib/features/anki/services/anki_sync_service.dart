@@ -1,6 +1,7 @@
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
+import '../../../shared/markdown/link_targets.dart';
 import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
@@ -32,10 +33,13 @@ class AnkiSyncService {
     int updated = 0;
     int failed = 0;
     final errors = <String>[];
+    // Built once per sync: an alias like [[speed of progress]] must reach
+    // the note that declares it, not a note of that name that does not exist.
+    final linkTargets = await buildLinkTargets(vaultPath);
 
     for (final note in problemNotes) {
       try {
-        final (front, back) = _renderCard(note, vaultPath);
+        final (front, back) = _renderCard(note, vaultPath, linkTargets);
         final deckName = note.category ?? 'Default';
         final tags = note.tags;
         final ankiNoteId = note.ankiNoteId;
@@ -103,15 +107,17 @@ class AnkiSyncService {
 
   /// Renders a problem note's (front, back) card HTML. The front is
   /// prepended with the right-aligned Obsidian source link.
-  static (String, String) _renderCard(AnkiProblemNote note, String vaultPath) {
+  static (String, String) _renderCard(AnkiProblemNote note, String vaultPath,
+      [Map<String, String>? linkTargets]) {
     final noteDisplayName = p.basenameWithoutExtension(note.sourcePath);
     final obsUri = obsidianUri(vaultPath, note.sourcePath);
     final obsLinkHtml =
         '<div style="text-align:right;font-size:0.75em;margin-bottom:6px;opacity:0.6;">'
         '<a href="$obsUri">$noteDisplayName ↗</a>'
         '</div>';
-    final front = obsLinkHtml + _markdownToAnkiHtml(note.front ?? '', vaultPath);
-    final back = _markdownToAnkiHtml(note.back ?? '', vaultPath);
+    final front =
+        obsLinkHtml + _markdownToAnkiHtml(note.front ?? '', vaultPath, linkTargets);
+    final back = _markdownToAnkiHtml(note.back ?? '', vaultPath, linkTargets);
     return (front, back);
   }
 
@@ -120,12 +126,14 @@ class AnkiSyncService {
   /// renderer plugin shows the card with tap-to-reveal). Single newlines —
   /// collapsed to a space by standard Markdown — are promoted to hard breaks
   /// so the note's visual line structure survives into the card.
-  static String _markdownToAnkiHtml(String text, String vaultPath) {
+  static String _markdownToAnkiHtml(String text, String vaultPath,
+      [Map<String, String>? linkTargets]) {
     // Normalize line endings first so the lone-newline detection below is not
     // defeated by CRLF (where a paragraph break is "\r\n\r\n").
     final normalized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final rewritten = rewriteWikilinksToHtml(normalized, (target, display) {
-      final href = obsidianUriForName(vaultPath, target);
+      final href =
+          obsidianUriForName(vaultPath, resolveLinkTarget(target, linkTargets));
       return '<a href="$href">$display</a>';
     });
     final hardWrapped = rewritten.replaceAll(RegExp(r'(?<!\n)\n(?!\n)'), '  \n');

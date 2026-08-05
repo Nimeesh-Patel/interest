@@ -202,6 +202,23 @@ void main() {
       expect(front, isNot(contains('anki://')));
     });
 
+    test('a wikilink to an alias resolves to the canonical note', () async {
+      // Equivalent of the retired anki_sync.py alias test: [[speed of
+      // progress]] must reach the note that declares the alias, not a
+      // non-existent note of that name.
+      File(p.join(vault.path, 'rapid explanatory progress.md')).writeAsStringSync(
+          '---\naliases:\n  - speed of progress\n---\nq\n***\na\n');
+      final transport = FakeTransport();
+      final note =
+          await problemNote('Cites', front: 'See [[speed of progress]]');
+
+      await AnkiSyncService.syncVault(transport, [note], vault.path);
+
+      final front = transport.addCalls.single.$2;
+      expect(front, contains('file=rapid%20explanatory%20progress'));
+      expect(front, isNot(contains('file=speed%20of%20progress')));
+    });
+
     test('a single newline within a block becomes a hard break', () async {
       final transport = FakeTransport();
       final note = await problemNote('Corollaries',
