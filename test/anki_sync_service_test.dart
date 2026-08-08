@@ -12,11 +12,11 @@ import 'package:people_tracker/features/anki/services/anki_transport.dart';
 // single-newline → hard-break conversion must behave identically for any
 // AnkiTransport implementation.
 
-class FakeTransport implements AnkiTransport {
+class FakeTransport extends AnkiTransport {
   int _nextId;
   final Set<int> existingIds = {};
   final List<(String deck, String front, String back, List<String> tags)>
-      addCalls = [];
+  addCalls = [];
   final List<(int id, String front, String back)> updateCalls = [];
 
   /// Current deck per note id; seeded by tests and updated by [moveToDeck].
@@ -39,7 +39,11 @@ class FakeTransport implements AnkiTransport {
 
   @override
   Future<int> addNote(
-      String deckName, String front, String back, List<String> tags) async {
+    String deckName,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     if (addThrows != null) throw addThrows!;
     addCalls.add((deckName, front, back, tags));
     final id = _nextId++;
@@ -50,7 +54,11 @@ class FakeTransport implements AnkiTransport {
 
   @override
   Future<bool> updateNote(
-      int noteId, String front, String back, List<String> tags) async {
+    int noteId,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     updateCalls.add((noteId, front, back));
     return true;
   }
@@ -92,8 +100,7 @@ void main() {
     if (category != null) fm.writeln('category: $category');
     if (ankiNoteId != null) fm.writeln('anki_note_id: $ankiNoteId');
     fm.writeln('---');
-    await File(path)
-        .writeAsString('$fm$front\n\n***\n\n$back\n');
+    await File(path).writeAsString('$fm$front\n\n***\n\n$back\n');
     return AnkiProblemNote(
       sourcePath: path,
       sourceFile: '$name.md',
@@ -108,20 +115,31 @@ void main() {
   Future<String> fileContent(AnkiProblemNote note) =>
       File(note.sourcePath).readAsString();
 
+  test('Anki declares projection capabilities and correction limits', () {
+    final capabilities = FakeTransport().projectionCapabilities;
+    expect(capabilities.supports('read'), isTrue);
+    expect(capabilities.supports('verify'), isTrue);
+    expect(capabilities.supports('retire'), isFalse);
+    expect(capabilities.limitation('retire'), contains('no guarded delete'));
+  });
+
   group('add / update / re-add decision', () {
-    test('note without anki_note_id is added and the id written back',
-        () async {
-      final transport = FakeTransport();
-      final note = await problemNote('Zeno', category: 'Philosophy');
+    test(
+      'note without anki_note_id is added and the id written back',
+      () async {
+        final transport = FakeTransport();
+        final note = await problemNote('Zeno', category: 'Philosophy');
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [note], vault.path);
+        final result = await AnkiSyncService.syncVault(transport, [
+          note,
+        ], vault.path);
 
-      expect(result.added, 1);
-      expect(result.failed, 0);
-      expect(transport.addCalls.single.$1, 'Philosophy');
-      expect(await fileContent(note), contains('anki_note_id: 1000'));
-    });
+        expect(result.added, 1);
+        expect(result.failed, 0);
+        expect(transport.addCalls.single.$1, 'Philosophy');
+        expect(await fileContent(note), contains('anki_note_id: 1000'));
+      },
+    );
 
     test('missing category maps to the Default deck', () async {
       final transport = FakeTransport();
@@ -132,13 +150,32 @@ void main() {
       expect(transport.addCalls.single.$1, 'Default');
     });
 
+    test(
+      'external create plus failed local id patch is reported partial',
+      () async {
+        final transport = FakeTransport(firstId: 2100);
+        final note = await problemNote('Vanished');
+        await File(note.sourcePath).delete();
+
+        final result = await AnkiSyncService.syncVault(transport, [
+          note,
+        ], vault.path);
+
+        expect(result.added, 0);
+        expect(result.failed, 1);
+        expect(result.errors.single, contains('Anki note 2100 was created'));
+        expect(result.errors.single, contains('local identity patch failed'));
+      },
+    );
+
     test('existing note is updated, file untouched', () async {
       final transport = FakeTransport()..existingIds.add(555);
       final note = await problemNote('Known', ankiNoteId: '555');
       final before = await fileContent(note);
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
 
       expect(result.updated, 1);
       expect(transport.addCalls, isEmpty);
@@ -146,13 +183,13 @@ void main() {
       expect(await fileContent(note), before);
     });
 
-    test('note deleted from Anki is re-added and the id overwritten',
-        () async {
+    test('note deleted from Anki is re-added and the id overwritten', () async {
       final transport = FakeTransport(firstId: 2000);
       final note = await problemNote('Gone', ankiNoteId: '555');
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
 
       expect(result.added, 1);
       final content = await fileContent(note);
@@ -161,13 +198,16 @@ void main() {
     });
 
     test('AnkiSyncAbort stops the sync and records the message', () async {
-      final transport = FakeTransport()
-        ..addThrows = const AnkiSyncAbort('Basic note type not found');
+      final transport =
+          FakeTransport()
+            ..addThrows = const AnkiSyncAbort('Basic note type not found');
       final a = await problemNote('First');
       final b = await problemNote('Second');
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [a, b], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        a,
+        b,
+      ], vault.path);
 
       expect(result.errors, ['Basic note type not found']);
       expect(result.added, 0);
@@ -176,12 +216,14 @@ void main() {
     });
 
     test('AnkiNoteFailure fails that note and continues', () async {
-      final transport = FakeTransport()
-        ..addThrows = const AnkiNoteFailure('deck was not found: X');
+      final transport =
+          FakeTransport()
+            ..addThrows = const AnkiNoteFailure('deck was not found: X');
       final a = await problemNote('Bad');
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [a], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        a,
+      ], vault.path);
 
       expect(result.failed, 1);
       expect(result.errors.single, 'Bad.md: deck was not found: X');
@@ -206,11 +248,16 @@ void main() {
       // Equivalent of the retired anki_sync.py alias test: [[speed of
       // progress]] must reach the note that declares the alias, not a
       // non-existent note of that name.
-      File(p.join(vault.path, 'rapid explanatory progress.md')).writeAsStringSync(
-          '---\naliases:\n  - speed of progress\n---\nq\n***\na\n');
+      File(
+        p.join(vault.path, 'rapid explanatory progress.md'),
+      ).writeAsStringSync(
+        '---\naliases:\n  - speed of progress\n---\nq\n***\na\n',
+      );
       final transport = FakeTransport();
-      final note =
-          await problemNote('Cites', front: 'See [[speed of progress]]');
+      final note = await problemNote(
+        'Cites',
+        front: 'See [[speed of progress]]',
+      );
 
       await AnkiSyncService.syncVault(transport, [note], vault.path);
 
@@ -221,9 +268,11 @@ void main() {
 
     test('a single newline within a block becomes a hard break', () async {
       final transport = FakeTransport();
-      final note = await problemNote('Corollaries',
-          front:
-              'Corollary #1\nInherently insoluble problems are inherently boring.');
+      final note = await problemNote(
+        'Corollaries',
+        front:
+            'Corollary #1\nInherently insoluble problems are inherently boring.',
+      );
 
       await AnkiSyncService.syncVault(transport, [note], vault.path);
 
@@ -234,25 +283,34 @@ void main() {
 
   group('deck move on category change', () {
     test('card is moved when its deck no longer matches category', () async {
-      final transport = FakeTransport()
-        ..existingIds.add(555)
-        ..deckByNote[555] = 'Old';
-      final note =
-          await problemNote('Known', ankiNoteId: '555', category: 'New');
+      final transport =
+          FakeTransport()
+            ..existingIds.add(555)
+            ..deckByNote[555] = 'Old';
+      final note = await problemNote(
+        'Known',
+        ankiNoteId: '555',
+        category: 'New',
+      );
 
-      final result =
-          await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
 
       expect(result.updated, 1);
       expect(transport.moveCalls.single, (555, 'New'));
     });
 
     test('no move when the deck already matches the category', () async {
-      final transport = FakeTransport()
-        ..existingIds.add(555)
-        ..deckByNote[555] = 'Philosophy';
-      final note = await problemNote('Known',
-          ankiNoteId: '555', category: 'Philosophy');
+      final transport =
+          FakeTransport()
+            ..existingIds.add(555)
+            ..deckByNote[555] = 'Philosophy';
+      final note = await problemNote(
+        'Known',
+        ankiNoteId: '555',
+        category: 'Philosophy',
+      );
 
       await AnkiSyncService.syncVault(transport, [note], vault.path);
 
@@ -262,8 +320,11 @@ void main() {
     test('no move when the transport cannot report the current deck', () async {
       // deckByNote unseeded ⇒ currentDeck returns null ⇒ check is skipped.
       final transport = FakeTransport()..existingIds.add(555);
-      final note =
-          await problemNote('Known', ankiNoteId: '555', category: 'New');
+      final note = await problemNote(
+        'Known',
+        ankiNoteId: '555',
+        category: 'New',
+      );
 
       await AnkiSyncService.syncVault(transport, [note], vault.path);
 

@@ -1,8 +1,22 @@
+import '../../../shared/projection/external_projection.dart';
+
 /// Transport abstraction over an Anki backend. `AnkiSyncService` drives any
 /// implementation with identical sync semantics; implementations translate
 /// these calls into their wire protocol (AnkiDroid ContentProvider via
 /// MethodChannel, or Anki desktop via AnkiConnect HTTP) and nothing else.
-abstract class AnkiTransport {
+abstract class AnkiTransport implements ExternalProjectionTransport {
+  @override
+  ProjectionCapabilities
+  get projectionCapabilities => const ProjectionCapabilities({
+    'read': null,
+    'create': null,
+    'update': null,
+    'verify': null,
+    'retire': 'the current Anki transports expose no guarded delete',
+    'local-rollback':
+        'vault id patches can be reversed in-process; Anki mutations cannot',
+  });
+
   /// Shown in user-facing sync messages ("Synced 3 problem notes to …").
   String get displayName;
 
@@ -13,10 +27,18 @@ abstract class AnkiTransport {
   /// Creates a note in [deckName] (creating the deck only if absent).
   /// Returns the new note id, or -1 on failure.
   Future<int> addNote(
-      String deckName, String front, String back, List<String> tags);
+    String deckName,
+    String front,
+    String back,
+    List<String> tags,
+  );
 
   Future<bool> updateNote(
-      int noteId, String front, String back, List<String> tags);
+    int noteId,
+    String front,
+    String back,
+    List<String> tags,
+  );
 
   Future<bool> noteExists(int noteId);
 

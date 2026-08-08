@@ -3,6 +3,7 @@ import 'package:people_tracker/shared/markdown/md_utils.dart';
 import 'package:people_tracker/shared/markdown/md_io.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
+import 'dart:convert';
 
 void main() {
   // ── splitFrontmatter ────────────────────────────────────────────────────────
@@ -46,6 +47,47 @@ void main() {
   // ── splitFrontBack ──────────────────────────────────────────────────────────
 
   group('splitFrontBack', () {
+    test('conforms to the shared Problem Note fixture corpus', () {
+      final fixture =
+          jsonDecode(
+                File(
+                  'test/fixtures/problem_note_conformance.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      for (final raw in fixture['cases'] as List<dynamic>) {
+        final item = raw as Map<String, dynamic>;
+        final body = splitFrontmatter(item['text'] as String).body;
+        final parsed = splitFrontBack(body);
+        expect(
+          parsed != null || item['has_separator'] == true,
+          item['has_separator'],
+          reason: item['name'] as String,
+        );
+        if (item['has_separator'] == true) {
+          final lines = body.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+          final structural = splitFrontBackStructural(lines);
+          expect(
+            structural.front,
+            item['problem'],
+            reason: item['name'] as String,
+          );
+          expect(
+            structural.back,
+            item['conjecture'],
+            reason: item['name'] as String,
+          );
+          expect(
+            parsed != null,
+            item['reviewable'],
+            reason: item['name'] as String,
+          );
+        } else {
+          expect(parsed, isNull, reason: item['name'] as String);
+        }
+      }
+    });
+
     test('splits on *** separator', () {
       const body = 'Front text.\n\n***\n\nBack text.';
       final r = splitFrontBack(body);
@@ -83,7 +125,10 @@ void main() {
 
   group('extractWikilinks', () {
     test('extracts bare wikilinks', () {
-      expect(extractWikilinks('See [[Alpha]] and [[Beta]].'), ['Alpha', 'Beta']);
+      expect(extractWikilinks('See [[Alpha]] and [[Beta]].'), [
+        'Alpha',
+        'Beta',
+      ]);
     });
 
     test('extracts piped wikilinks — strips |alias, returns the target', () {
@@ -115,10 +160,7 @@ void main() {
     });
 
     test('handles multiple wikilinks in one string', () {
-      expect(
-        plainTextWikilinks('[[A|First]] and [[B]].'),
-        'First and B.',
-      );
+      expect(plainTextWikilinks('[[A|First]] and [[B]].'), 'First and B.');
     });
 
     test('no-op on plain text', () {
@@ -158,7 +200,9 @@ void main() {
     });
 
     test('list values produce YAML block sequence', () {
-      final fields = <String, dynamic>{'tags': ['a', 'b']};
+      final fields = <String, dynamic>{
+        'tags': ['a', 'b'],
+      };
       final result = buildFrontmatterBlock(fields, ['tags']);
       expect(result, contains('tags:\n'));
       expect(result, contains('  - a'));
@@ -265,7 +309,8 @@ void main() {
 
     test('replacing the last key does not glue the closing ---', () async {
       // Regression: this produced `- gumption---` on the phone, 2026-08-04.
-      const before = '---\nup: null\naliases:\n  - gumption\n'
+      const before =
+          '---\nup: null\naliases:\n  - gumption\n'
           'anki_note_id: 111\n---\nproblem\n***\nidea\n';
       final after = await patch(before, 'anki_note_id', '222');
       expect(after.contains('111---'), isFalse);
@@ -284,18 +329,64 @@ void main() {
     test('appending a new key still terminates the block', () async {
       const before = '---\ncategory: Default\n---\nbody\n';
       final after = await patch(before, 'anki_note_id', '333');
-      expect(splitFrontmatter(after).frontmatter, contains('anki_note_id: 333'));
+      expect(
+        splitFrontmatter(after).frontmatter,
+        contains('anki_note_id: 333'),
+      );
       expect(splitFrontmatter(after).body.trim(), 'body');
     });
 
-    test('refuses to patch a file whose frontmatter is already malformed',
-        () async {
-      // The 8 damaged notes look like this; patching would add a third block.
-      const broken =
-          '---\nup: null\nanki_note_id: 111---\nproblem\n***\nidea\n';
-      final after = await patch(broken, 'anki_note_id', '222');
-      expect(after, broken, reason: 'must be left untouched for repair');
-    });
+    test(
+      'refuses to patch a file whose frontmatter is already malformed',
+      () async {
+        // The 8 damaged notes look like this; patching would add a third block.
+        const broken =
+            '---\nup: null\nanki_note_id: 111---\nproblem\n***\nidea\n';
+        final file = File(p.join(tmp.path, 'broken.md'))
+          ..writeAsStringSync(broken);
+        final result = await patchFrontmatterField(
+          file.path,
+          'anki_note_id',
+          '222',
+        );
+        expect(result.applied, isFalse);
+        expect(result.error, contains('malformed'));
+        expect(
+          file.readAsStringSync(),
+          broken,
+          reason: 'must be left untouched for repair',
+        );
+      },
+    );
+
+    test(
+      'verified patch can roll back but refuses after later progress',
+      () async {
+        const before = '---\ncategory: Default\n---\nbody\n';
+        final file = File(p.join(tmp.path, 'rollback.md'))
+          ..writeAsStringSync(before);
+        final result = await patchFrontmatterField(
+          file.path,
+          'anki_note_id',
+          '333',
+        );
+        expect(result.applied, isTrue);
+        expect(await result.rollback(), isTrue);
+        expect(file.readAsStringSync(), before);
+
+        final second = await patchFrontmatterField(
+          file.path,
+          'anki_note_id',
+          '444',
+        );
+        file.writeAsStringSync('${file.readAsStringSync()}later progress\n');
+        expect(
+          await second.rollback(),
+          isFalse,
+          reason: 'rollback must not erase an intervening edit',
+        );
+      },
+    );
   });
 
   group('frontmatter round-trip preserves risky metadata', () {
@@ -303,7 +394,8 @@ void main() {
     // `- [[Name]]` parses as a nested list. EntityFileWriter rebuilds the whole
     // block from a parsed map on every entity save, so an unquoted rewrite
     // would corrupt all 183 book notes at once.
-    const bookNote = '---\n'
+    const bookNote =
+        '---\n'
         'collection: Books\n'
         'authors:\n'
         '- "[[Haruki Murakami]]"\n'
@@ -323,15 +415,17 @@ void main() {
       expect(rebuilt, contains('- "[[Haruki Murakami]]"'));
 
       final again = fieldsOf('$rebuilt\n\nbody');
-      expect(
-        (again['authors'] as List).map((a) => a.toString()).toList(),
-        ['[[Haruki Murakami]]', '[[Jay Rubin]]'],
-      );
+      expect((again['authors'] as List).map((a) => a.toString()).toList(), [
+        '[[Haruki Murakami]]',
+        '[[Jay Rubin]]',
+      ]);
     });
 
     test('an apostrophe in a value survives a rebuild', () {
-      final rebuilt =
-          buildFrontmatterBlock({'collection': "Nimeesh's Books"}, ['collection']);
+      final rebuilt = buildFrontmatterBlock(
+        {'collection': "Nimeesh's Books"},
+        ['collection'],
+      );
       final back = fieldsOf('$rebuilt\n\nbody');
       expect(back['collection'], "Nimeesh's Books");
     });

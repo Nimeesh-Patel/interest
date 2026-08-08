@@ -6,7 +6,7 @@ import 'anki_transport.dart';
 /// MainActivity), which talks to AnkiDroid's ContentProvider via AddContentApi.
 /// Android only — on other platforms every call fails closed (isAvailable
 /// returns false).
-class AnkiDroidTransport implements AnkiTransport {
+class AnkiDroidTransport extends AnkiTransport {
   static const _channel = MethodChannel('com.nimeesh.interest/ankidroid');
 
   @override
@@ -32,7 +32,11 @@ class AnkiDroidTransport implements AnkiTransport {
 
   @override
   Future<int> addNote(
-      String deckName, String front, String back, List<String> tags) async {
+    String deckName,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     try {
       final result = await _channel.invokeMethod<Object>('addNote', {
         'deckName': deckName,
@@ -56,7 +60,11 @@ class AnkiDroidTransport implements AnkiTransport {
 
   @override
   Future<bool> updateNote(
-      int noteId, String front, String back, List<String> tags) async {
+    int noteId,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     try {
       return await _channel.invokeMethod<bool>('updateNote', {
             'noteId': noteId,
@@ -85,8 +93,9 @@ class AnkiDroidTransport implements AnkiTransport {
   @override
   Future<String?> currentDeck(int noteId) async {
     try {
-      return await _channel
-          .invokeMethod<String>('getCardDeck', {'noteId': noteId});
+      return await _channel.invokeMethod<String>('getCardDeck', {
+        'noteId': noteId,
+      });
     } catch (_) {
       return null;
     }

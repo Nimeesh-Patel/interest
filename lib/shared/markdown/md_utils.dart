@@ -33,8 +33,25 @@ import 'package:yaml/yaml.dart';
 /// Splits [body] into front/back at the first `***` separator outside code fences.
 /// Returns null if no valid separator found or either side is empty after trim.
 ({String front, String back})? splitFrontBack(String body) {
-  final hrPattern = RegExp(r'^\*{3,}\s*$');
-  final lines = body.split('\n');
+  final structural = splitFrontBackStructural(body);
+  if (!structural.hasSeparator ||
+      structural.front.isEmpty ||
+      structural.back.isEmpty) {
+    return null;
+  }
+  return (front: structural.front, back: structural.back);
+}
+
+/// Structural form used by conformance checks. Empty sides remain observable;
+/// reviewability is the caller's separate decision.
+({bool hasSeparator, String front, String back}) splitFrontBackStructural(
+  String body,
+) {
+  final hrPattern = RegExp(r'^\*\*\*\s*$');
+  final lines = body
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
   bool inCodeFence = false;
   int? separatorIdx;
   for (int i = 0; i < lines.length; i++) {
@@ -48,11 +65,12 @@ import 'package:yaml/yaml.dart';
       break;
     }
   }
-  if (separatorIdx == null) return null;
+  if (separatorIdx == null) {
+    return (hasSeparator: false, front: '', back: '');
+  }
   final front = lines.sublist(0, separatorIdx).join('\n').trim();
   final back = lines.sublist(separatorIdx + 1).join('\n').trim();
-  if (front.isEmpty || back.isEmpty) return null;
-  return (front: front, back: back);
+  return (hasSeparator: true, front: front, back: back);
 }
 
 // ── Section parsers ───────────────────────────────────────────────────────────
@@ -109,22 +127,21 @@ List<String> extractWikilinks(String text) {
 
 /// Strips wikilinks to plain text: [[Target|display]] → display, [[Target]] → Target.
 String plainTextWikilinks(String text) => text.replaceAllMapped(
-      RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
-      (m) => m[2] ?? m[1]!,
-    );
+  RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
+  (m) => m[2] ?? m[1]!,
+);
 
 /// Rewrites [[Target]] and [[Target|Display]] as standard Markdown links
 /// using the `wikilink:` URI scheme so flutter_markdown can render and
 /// dispatch them via onTapLink.
 String substituteWikilinks(String text) {
-  return text.replaceAllMapped(
-    RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
-    (m) {
-      final target = m.group(1)!.trim();
-      final display = m.group(2)?.trim() ?? target;
-      return '[$display](wikilink:${Uri.encodeComponent(target)})';
-    },
-  );
+  return text.replaceAllMapped(RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'), (
+    m,
+  ) {
+    final target = m.group(1)!.trim();
+    final display = m.group(2)?.trim() ?? target;
+    return '[$display](wikilink:${Uri.encodeComponent(target)})';
+  });
 }
 
 /// Rewrites `[[wikilinks]]` to HTML anchors via [buildHref].
@@ -133,14 +150,13 @@ String rewriteWikilinksToHtml(
   String text,
   String Function(String target, String display) buildHref,
 ) {
-  return text.replaceAllMapped(
-    RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'),
-    (m) {
-      final target = m.group(1)!.trim();
-      final display = (m.group(2) ?? target).trim();
-      return buildHref(target, display);
-    },
-  );
+  return text.replaceAllMapped(RegExp(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]'), (
+    m,
+  ) {
+    final target = m.group(1)!.trim();
+    final display = (m.group(2) ?? target).trim();
+    return buildHref(target, display);
+  });
 }
 
 // ── Timestamp helpers ─────────────────────────────────────────────────────────
@@ -163,7 +179,8 @@ int? parseIsoToMs(String? iso) {
 
 /// Canonical note identity string derived from a file path or bare filename.
 /// Use this everywhere a note name is used as a map key or log entry.
-String noteKey(String filePath) => p.basenameWithoutExtension(filePath).toLowerCase();
+String noteKey(String filePath) =>
+    p.basenameWithoutExtension(filePath).toLowerCase();
 
 /// Returns an `obsidian://open` URI for [noteFilePath] inside [vaultPath].
 /// Pure — no I/O. Both vault name and note name are percent-encoded.
@@ -189,7 +206,8 @@ List<String> parseAliases(String? frontmatter) {
   var collecting = false;
   for (final line in frontmatter.split('\n')) {
     final stripped = line.trim();
-    final topLevel = line.isNotEmpty &&
+    final topLevel =
+        line.isNotEmpty &&
         !line.startsWith(RegExp(r'\s')) &&
         !stripped.startsWith('- ');
     if (topLevel) {
@@ -202,9 +220,10 @@ List<String> parseAliases(String? frontmatter) {
       collecting = key == 'alias' || key == 'aliases';
       final value = line.substring(colon + 1).trim();
       if (collecting && value.isNotEmpty) {
-        final items = value.startsWith('[') && value.endsWith(']')
-            ? value.substring(1, value.length - 1).split(',')
-            : [value];
+        final items =
+            value.startsWith('[') && value.endsWith(']')
+                ? value.substring(1, value.length - 1).split(',')
+                : [value];
         out.addAll(items.map(_unquote));
       }
     } else if (collecting && stripped.startsWith('- ')) {
@@ -214,7 +233,7 @@ List<String> parseAliases(String? frontmatter) {
   final seen = <String>{};
   return [
     for (final a in out)
-      if (a.isNotEmpty && seen.add(a)) a
+      if (a.isNotEmpty && seen.add(a)) a,
   ];
 }
 
@@ -251,16 +270,20 @@ String slugify(String name) => name
     .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
 
 /// Replaces filesystem-illegal characters with `_` and collapses internal whitespace.
-String sanitizeFilename(String name) => name
-    .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .trim();
+String sanitizeFilename(String name) =>
+    name
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
 
 /// Generates a unique ID by slugifying [name], then appending `-2`, `-3`, …
 /// if the base slug is already in [existing].
 /// Falls back to [fallback] if the slug is empty after slugification.
 String generateUniqueId(
-    String name, Set<String> existing, {required String fallback}) {
+  String name,
+  Set<String> existing, {
+  required String fallback,
+}) {
   var base = slugify(name);
   if (base.isEmpty) base = fallback;
   if (!existing.contains(base)) return base;
@@ -296,14 +319,18 @@ String stripHtml(String html) {
 /// List values are emitted as YAML block sequences; scalars are quoted when needed.
 /// Null values and empty strings are skipped silently.
 String buildFrontmatterBlock(
-    Map<String, dynamic> fields, List<String> knownOrder) {
+  Map<String, dynamic> fields,
+  List<String> knownOrder,
+) {
   final buf = StringBuffer('---\n');
   final knownSet = knownOrder.toSet();
   for (final key in knownOrder) {
     if (fields.containsKey(key)) _writeFmField(buf, key, fields[key]);
   }
   for (final entry in fields.entries) {
-    if (!knownSet.contains(entry.key)) _writeFmField(buf, entry.key, entry.value);
+    if (!knownSet.contains(entry.key)) {
+      _writeFmField(buf, entry.key, entry.value);
+    }
   }
   buf.write('---');
   return buf.toString();
@@ -328,7 +355,20 @@ void _writeFmField(StringBuffer buf, String key, dynamic val) {
 /// anchors, tags, etc.). A value starting with one of these must be quoted —
 /// e.g. `[[wikilink]]` would otherwise parse as a flow sequence.
 const _yamlLeadingIndicators = {
-  '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', '@', '%', '?', '`'
+  '[',
+  ']',
+  '{',
+  '}',
+  ',',
+  '&',
+  '*',
+  '!',
+  '|',
+  '>',
+  '@',
+  '%',
+  '?',
+  '`',
 };
 
 /// Quotes and escapes [s] for use as a YAML scalar value when needed.

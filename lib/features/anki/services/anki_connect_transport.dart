@@ -8,7 +8,7 @@ import 'anki_transport.dart';
 /// default `http://127.0.0.1:8765`. Pure Dart — no platform channel — so it
 /// runs from any build that can reach the URL; on a phone the localhost call
 /// simply fails closed unless a LAN URL is configured in integrations.md.
-class AnkiConnectTransport implements AnkiTransport {
+class AnkiConnectTransport extends AnkiTransport {
   static const defaultUrl = 'http://127.0.0.1:8765';
   static const _apiVersion = 6;
   static const _timeout = Duration(seconds: 10);
@@ -21,9 +21,10 @@ class AnkiConnectTransport implements AnkiTransport {
   bool _basicModelVerified = false;
 
   AnkiConnectTransport({String? url, http.Client? client})
-      : _endpoint = Uri.parse(
-            (url == null || url.trim().isEmpty) ? defaultUrl : url.trim()),
-        _client = client ?? http.Client();
+    : _endpoint = Uri.parse(
+        (url == null || url.trim().isEmpty) ? defaultUrl : url.trim(),
+      ),
+      _client = client ?? http.Client();
 
   @override
   String get displayName => 'Anki desktop';
@@ -37,10 +38,7 @@ class AnkiConnectTransport implements AnkiTransport {
           // AnkiConnect's server closes the socket after every response
           // without advertising it; a reused keep-alive connection makes
           // every second request fail. Forcing close disables reuse.
-          headers: {
-            'Content-Type': 'application/json',
-            'Connection': 'close',
-          },
+          headers: {'Content-Type': 'application/json', 'Connection': 'close'},
           body: jsonEncode({
             'action': action,
             'version': _apiVersion,
@@ -75,7 +73,11 @@ class AnkiConnectTransport implements AnkiTransport {
 
   @override
   Future<int> addNote(
-      String deckName, String front, String back, List<String> tags) async {
+    String deckName,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     await _ensureBasicModel();
     try {
       // Idempotent: returns the existing deck's id, never duplicates
@@ -112,14 +114,19 @@ class AnkiConnectTransport implements AnkiTransport {
     }
     if (!names.contains('Basic')) {
       throw const AnkiSyncAbort(
-          'Basic note type not found in Anki — it may have been renamed or deleted.');
+        'Basic note type not found in Anki — it may have been renamed or deleted.',
+      );
     }
     _basicModelVerified = true;
   }
 
   @override
   Future<bool> updateNote(
-      int noteId, String front, String back, List<String> tags) async {
+    int noteId,
+    String front,
+    String back,
+    List<String> tags,
+  ) async {
     try {
       await _invoke('updateNoteFields', {
         'note': {

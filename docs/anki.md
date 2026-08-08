@@ -41,6 +41,13 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← finds *** notes
 
 Both `currentDeck` and `moveToDeck` degrade gracefully: a transport that cannot read or change a card's deck returns `null` / no-ops rather than throwing.
 
+The transport also exposes the shared external-projection lifecycle as
+capabilities rather than pretending every backend supports every correction:
+`read`, `create`, `update`, and `verify` are supported; guarded `retire` is not;
+local vault-id patches can be rolled back in-process, but Anki mutations cannot.
+The operation names are open strings, so a future projection can add a
+capability without changing a closed enum in the core.
+
 Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFailure(message)` (recorded against the note, sync continues); collection-level fatal conditions throw `AnkiSyncAbort(message)` (recorded, sync stops). These two exceptions are consumed only by `AnkiSyncService.syncVault`.
 
 ## Triggers
@@ -52,6 +59,10 @@ Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFail
 | **Sources → Anki desktop** (manual) | `AnkiSyncController.sync(AnkiConnectTransport())` → result dialog/snackbar |
 
 The deep link and the Sources AnkiDroid row share `runAnkiDroidSync`, so they behave identically. No background scheduler.
+
+### Targeted desktop CLI
+
+`dart run tool/sync_anki_notes.dart --vault <path> --file <note.md> [--file ...]` uses the same scanner, renderer, sync core, and AnkiConnect transport as Interest. It deliberately requires exact file arguments and rejects paths outside the vault. This gives restructuring transactions a bounded sync without an ad-hoc renderer or an implicit whole-vault push. Whole-vault sync remains an Interest UI operation.
 
 ## The deep-link sync contract (Android)
 
@@ -77,7 +88,7 @@ The sync logic itself is unchanged from any other trigger; only *how it starts* 
 
 ## `anki_note_id` — the only vault write
 
-Only `anki_note_id` is ever written back to a vault file, via `AnkiSyncService._patchAnkiNoteId` → `patchFrontmatterField` (patches in place, never rebuilds frontmatter, **never touches the body**). This is the entire vault-write surface of the sync.
+Only `anki_note_id` is ever written back to a vault file, via `AnkiSyncService._patchAnkiNoteId` → `patchFrontmatterField` (patches in place, never rebuilds frontmatter, **never touches the body**). This is the entire vault-write surface of the sync. The patch returns an explicit verified result and a stale-safe in-process rollback; it no longer swallows write failures. If Anki creates a note but the local identity patch fails, sync reports that partial projection with the external note id rather than claiming success.
 
 ```yaml
 anki_note_id: 1234567890   # collection note id (epoch-millis Long)
