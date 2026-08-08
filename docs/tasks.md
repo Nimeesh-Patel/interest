@@ -4,7 +4,7 @@
 
 The Tasks subsystem is the **checkbox-outline layer used by Projects**. It owns the Markdown task syntax (`- [ ]` / `- [x]`, indentation, attached notes), the pure parser that turns file lines into a block tree, the line-level mutation methods, and `TaskFileScreen` — the outline editor that `ProjectsScreen` pushes for todo-style project files.
 
-It is no longer a standalone subsystem with its own file list: project files live in `Interesting/Projects/` (see [docs/projects.md](projects.md)), and `Interesting/Tasks/` survives only as a legacy migration source. WHY the limits below exist: task outlines are operational scratch space, not knowledge nodes. They carry no identity anchor, participate in no graph, and are hard-deleted when done. If a task becomes a durable idea, it should become a note.
+It is not a standalone storage subsystem: project files live only in `Interesting/Projects/` (see [docs/projects.md](projects.md)). WHY the limits below exist: task outlines are operational scratch space, not knowledge nodes. They carry no identity anchor, participate in no graph, and are hard-deleted when done. If a task becomes a durable idea, it should become a note.
 
 ## Non-goals
 

@@ -18,56 +18,16 @@ class ProjectStorageService {
   static final _taskRegex = RegExp(r'^\s*-\s+\[([ xX])\]\s+');
 
   static Future<List<ProjectFile>> loadAll(String vaultPath) async {
-    await _migrateIfNeeded(vaultPath);
     final results = <ProjectFile>[];
-    for (final dirPath in [
-      VaultService.projectsPath(vaultPath),
-      VaultService.listsPath(vaultPath),
-      VaultService.tasksPath(vaultPath),
-    ]) {
-      await for (final entry in VaultScanner.scan(dirPath, recursive: false)) {
-        try {
-          final content = await entry.readAsString();
-          results.add(_parse(entry.path, content));
-        } catch (_) {}
-      }
+    final dirPath = VaultService.projectsPath(vaultPath);
+    await for (final entry in VaultScanner.scan(dirPath, recursive: false)) {
+      try {
+        final content = await entry.readAsString();
+        results.add(_parse(entry.path, content));
+      } catch (_) {}
     }
     results.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return results;
-  }
-
-  // Moves all .md files from Lists/ and Tasks/ into Projects/.
-  // Best-effort: file-by-file; a failure on one does not abort others.
-  // Idempotent: if source dirs are empty or absent, this is a no-op.
-  static Future<void> _migrateIfNeeded(String vaultPath) async {
-    final projectsDir = VaultService.projectsPath(vaultPath);
-    for (final srcPath in [
-      VaultService.listsPath(vaultPath),
-      VaultService.tasksPath(vaultPath),
-    ]) {
-      try {
-        final files = await VaultScanner.scan(srcPath, recursive: false).toList();
-        for (final file in files) {
-          try {
-            final dest = _uniqueDestPath(projectsDir, p.basename(file.path));
-            await file.copy(dest);
-            await file.delete();
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
-  }
-
-  static String _uniqueDestPath(String projectsDir, String filename) {
-    var dest = p.join(projectsDir, filename);
-    if (!File(dest).existsSync()) return dest;
-    final base = p.basenameWithoutExtension(filename);
-    var i = 1;
-    while (File(dest).existsSync()) {
-      dest = p.join(projectsDir, '${base}_$i.md');
-      i++;
-    }
-    return dest;
   }
 
   static ProjectFile _parse(String filePath, String content) {

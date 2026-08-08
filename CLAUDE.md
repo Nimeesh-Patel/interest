@@ -84,8 +84,8 @@ Each storage path co-owns specific files. Nothing rewrites a note body.
 | `MarkdownStorageService` | vault-root entity notes (`collection:`); per-file frontmatter patch via `saveEntity`, body never rewritten |
 | `BookNoteStorage` | vault-root book notes (`collection: Books`); new note via `buildFrontmatterBlock`, updates via `patchFrontmatterField` (frontmatter only) ← `HardcoverSyncService`, `HardcoverScreen` write only via this |
 | `AnkiSyncService` | `anki_note_id` only, via `patchFrontmatterField` — the sole vault write of the sync (see safety invariant) |
-| `ProjectStorageService` | `Interesting/Projects/` (new files); also migrates from `Lists/` + `Tasks/` |
-| `TaskStorageService` | `Interesting/Tasks/` (legacy; new files no longer created here) |
+| `ProjectStorageService` | `Interesting/Projects/` |
+| `TaskStorageService` | checkbox-outline parsing and editing for files owned by `Interesting/Projects/`; no directory of its own |
 | `IntegrationsConfigService` | `Interesting/System/integrations.md` — vault-native integration config |
 | `TemplatesScreen` / `TemplateEditorScreen` | `Interesting/Templates/` — direct screen writes |
 

@@ -26,13 +26,9 @@ Projects are **not** a task-management industrial complex. They are:
 ```
 Interesting/
   Projects/   — canonical directory for new project files
-  Lists/      — legacy; scanned for backward compat; new files NOT created here
-  Tasks/      — legacy; scanned for backward compat; new files NOT created here
 ```
 
-On first `ProjectStorageService.loadAll()`, all `.md` files from `Lists/` and `Tasks/` are migrated into `Projects/` (best-effort, one file at a time). The source directories remain on disk (empty) and are still scanned — any files that fail to migrate remain accessible.
-
-**New project files are always created in `Projects/`.**
+Project files are created and scanned only in `Projects/`. The former `Lists/`, `Tasks/`, and `Boards/` migration surfaces were removed after the live vault had no remaining files in them; retaining a migration on every load would preserve a rival storage contract indefinitely.
 
 ---
 
@@ -115,21 +111,6 @@ Projects are ephemeral by design. When a project file is deleted, all its conten
 
 ---
 
-## Migration from Lists/ and Tasks/
-
-`_migrateIfNeeded()` runs at the start of every `loadAll()` call. It scans `Lists/` and `Tasks/` for `.md` files and moves them into `Projects/`:
-
-- **Best-effort**: one file at a time; a failure on any file does not abort the rest
-- **Idempotent**: if source directories are empty or absent, this is a no-op
-- **Collision-safe**: `_uniqueDestPath()` appends `_1`, `_2`, … if the destination filename already exists in `Projects/`
-- **Hard move**: copy to `Projects/`, then delete the original
-
-After migration, `loadAll()` still scans all three directories (Projects/ + Lists/ + Tasks/). Any files that failed to migrate remain readable from their source location.
-
-Migrated legacy files (originally from Lists/) have no `type: list` frontmatter, so they are treated as todo-style and open with `TaskFileScreen`. Within `TaskFileScreen`, `- item` lines (without checkboxes) render as prose nodes (grey italic text). New items added via the bottom text field become `- [ ] task` items — the distinction erodes naturally over time.
-
----
-
 ## ProjectStorageService
 
 `lib/features/projects/services/project_storage_service.dart`
@@ -138,7 +119,7 @@ All-static, all-catch-null, never throws.
 
 ```dart
 static Future<List<ProjectFile>> loadAll(String vaultPath) async
-  // Runs _migrateIfNeeded(), then scans Projects/ + Lists/ + Tasks/
+  // Scans Projects/
   // Returns List<ProjectFile> sorted A→Z (case-insensitive) by name
 
 static Future<ProjectFile?> createProject(
@@ -218,7 +199,7 @@ Flat list editor for list-style project files. Does not depend on `ListStorageSe
 
 ## Boundaries
 
-- `ProjectStorageService` writes only to `Interesting/Projects/` for new files. Migration writes from `Lists/` and `Tasks/` into `Projects/`, then deletes the originals.
+- `ProjectStorageService` reads and writes only `Interesting/Projects/`.
 - Never add scheduling, due dates, reminders, or recurring tasks.
 - Project files have no identity anchor — do not add one unless a genuine use case requires it.
 - The task parser (`TaskStorageService.parseNodes`) is shared with the Tasks subsystem; do not duplicate it.

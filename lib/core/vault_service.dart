@@ -24,35 +24,14 @@ class VaultService {
   static Future<void> ensureVaultDirectories(String vaultPath) async {
     final tdir = Directory(templatesPath(vaultPath));
     if (!await tdir.exists()) await tdir.create(recursive: true);
-    final tsdir = Directory(tasksPath(vaultPath));
-    if (!await tsdir.exists()) await tsdir.create(recursive: true);
-    await _migrateBoardsToLists(vaultPath);
-    final ldir = Directory(listsPath(vaultPath));
-    if (!await ldir.exists()) await ldir.create(recursive: true);
     final sysdir = Directory(systemPath(vaultPath));
     if (!await sysdir.exists()) await sysdir.create(recursive: true);
     final prdir = Directory(projectsPath(vaultPath));
     if (!await prdir.exists()) await prdir.create(recursive: true);
   }
 
-  static Future<void> _migrateBoardsToLists(String vaultPath) async {
-    try {
-      final oldDir = Directory(p.join(vaultPath, 'Interesting', 'Boards'));
-      final newDir = Directory(listsPath(vaultPath));
-      if (await oldDir.exists() && !await newDir.exists()) {
-        await oldDir.rename(newDir.path);
-      }
-    } catch (_) {}
-  }
-
-  static String listsPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Lists');
-
   static String templatesPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'Templates');
-
-  static String tasksPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Tasks');
 
   static String systemPath(String vaultPath) =>
       p.join(vaultPath, 'Interesting', 'System');
