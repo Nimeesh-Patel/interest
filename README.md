@@ -3,7 +3,7 @@
 Interest is a small Android (and Windows) companion to an Obsidian vault. It does four narrow things over your plain-Markdown files:
 
 1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
-2. **Inbox** — capture unfinished items and optional free prose in one persistent `Interesting/Inbox.md` outline.
+2. **Inbox** — capture loose Markdown, including unfinished items and tangents, in one persistent `Interesting/Inbox.md` document.
 3. **Projects** — a lightweight todo/project workspace.
 4. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion [**Problem Notes** Obsidian plugin](https://github.com/Nimeesh-Patel/Problem-Notes).
 

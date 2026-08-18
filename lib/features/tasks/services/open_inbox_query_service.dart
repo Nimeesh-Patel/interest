@@ -2,9 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../core/vault_paths.dart';
+import '../../../shared/markdown/md_utils.dart';
 import '../models/open_inbox_item.dart';
 import '../models/task_block.dart';
 import 'task_storage_service.dart';
+
+typedef OpenInboxHintParser =
+    List<OpenInboxItem> Function(List<String> lines, String locator);
 
 class OpenInboxFileStamp {
   final DateTime modifiedAt;
@@ -54,9 +58,12 @@ class _StableInboxObservation {
 /// files. UI creation belongs to `InboxStorageService`; querying a missing
 /// source therefore produces an explicit unavailable result.
 class OpenInboxQueryService {
+  static const _utf8Bom = [0xef, 0xbb, 0xbf];
+
   static Future<OpenInboxQueryResult> query(
     String vaultPath, {
     OpenInboxFileAccess fileAccess = const OpenInboxFileAccess(),
+    OpenInboxHintParser? hintParser,
   }) async {
     try {
       final vault = Directory(vaultPath);
@@ -81,20 +88,56 @@ class OpenInboxQueryService {
           'records were emitted from an incoherent read.',
         );
       }
-      final content = utf8.decode(observation.bytes, allowMalformed: false);
-      final lines = const LineSplitter().convert(content);
-      final items = parseOpenItems(lines);
+      final hasUtf8Bom = _startsWithUtf8Bom(observation.bytes);
+      final contentBytes =
+          hasUtf8Bom
+              ? observation.bytes.sublist(_utf8Bom.length)
+              : observation.bytes;
+      final content = utf8.decode(contentBytes, allowMalformed: false);
+      final locator = obsidianUriForName(vaultPath, 'Interesting/Inbox');
+      late OpenInboxDerivedHints derivedHints;
+      final limitations = <String>[
+        'Only Interesting/Inbox.md is queried; every other vault file is '
+            'outside scope and was not scanned.',
+        'derived_hints is a non-exhaustive projection of unchecked '
+            'checkboxes; records contains the complete authoritative '
+            'document evidence.',
+      ];
+      try {
+        final lines = const LineSplitter().convert(content);
+        final items = (hintParser ?? _parseHints)(lines, locator);
+        derivedHints = OpenInboxDerivedHints(
+          status: 'complete',
+          completeness: 'complete',
+          errors: const [],
+          records: items,
+        );
+      } catch (error) {
+        final message = 'Unchecked-checkbox hints could not be derived: $error';
+        derivedHints = OpenInboxDerivedHints(
+          status: 'unavailable',
+          completeness: 'unavailable',
+          errors: [message],
+          records: const [],
+        );
+        limitations.add(message);
+      }
       return OpenInboxQueryResult(
         status: 'complete',
         completeness: 'complete',
         observedAt: observation.observedAt.toIso8601String(),
         sourceModifiedAt: observation.stamp.modifiedAt.toIso8601String(),
         errors: const [],
-        limitations: const [
-          'Only Interesting/Inbox.md is queried; every other vault file is '
-              'outside scope and was not scanned.',
+        limitations: limitations,
+        records: [
+          OpenInboxDocument(
+            text: content,
+            hasUtf8Bom: hasUtf8Bom,
+            byteLength: observation.bytes.length,
+            locator: locator,
+          ),
         ],
-        records: items,
+        derivedHints: derivedHints,
       );
     } catch (error) {
       return _unavailable(
@@ -144,10 +187,24 @@ class OpenInboxQueryService {
     return true;
   }
 
+  static bool _startsWithUtf8Bom(List<int> bytes) =>
+      bytes.length >= _utf8Bom.length &&
+      bytes[0] == _utf8Bom[0] &&
+      bytes[1] == _utf8Bom[1] &&
+      bytes[2] == _utf8Bom[2];
+
   static String _now() => DateTime.now().toUtc().toIso8601String();
 
+  static List<OpenInboxItem> _parseHints(
+    List<String> lines,
+    String locator,
+  ) => parseOpenItems(lines, locator: locator);
+
   /// Pure query projection over the same parser used by the Inbox editor.
-  static List<OpenInboxItem> parseOpenItems(List<String> lines) {
+  static List<OpenInboxItem> parseOpenItems(
+    List<String> lines, {
+    required String locator,
+  }) {
     final nodes = TaskStorageService.parseNodes(lines);
     final items = <OpenInboxItem>[];
     final headingStack = <int, String>{};
@@ -168,6 +225,7 @@ class OpenInboxQueryService {
           ],
           parents: const [],
           ancestorCompleted: false,
+          locator: locator,
           output: items,
         );
       }
@@ -181,6 +239,7 @@ class OpenInboxQueryService {
     required List<String> headings,
     required List<String> parents,
     required bool ancestorCompleted,
+    required String locator,
     required List<OpenInboxItem> output,
   }) {
     if (!block.completed) {
@@ -202,6 +261,7 @@ class OpenInboxQueryService {
                   text: lines[index].trimLeft(),
                 ),
           ],
+          locator: locator,
         ),
       );
     }
@@ -213,6 +273,7 @@ class OpenInboxQueryService {
         headings: headings,
         parents: [...parents, block.text],
         ancestorCompleted: ancestorCompleted || block.completed,
+        locator: locator,
         output: output,
       );
     }
@@ -232,6 +293,12 @@ class OpenInboxQueryService {
           'outside scope and was not scanned.',
     ],
     records: const [],
+    derivedHints: const OpenInboxDerivedHints(
+      status: 'unavailable',
+      completeness: 'unavailable',
+      errors: ['The authoritative Inbox document was unavailable.'],
+      records: [],
+    ),
   );
 
   static OpenInboxQueryResult _indeterminate(
@@ -250,5 +317,11 @@ class OpenInboxQueryService {
           'filesystem stamps describe one coherent observation.',
     ],
     records: const [],
+    derivedHints: const OpenInboxDerivedHints(
+      status: 'unavailable',
+      completeness: 'unavailable',
+      errors: ['No coherent Inbox document was available for projection.'],
+      records: [],
+    ),
   );
 }

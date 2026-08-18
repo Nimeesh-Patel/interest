@@ -4,13 +4,13 @@ import 'dart:io';
 import 'package:people_tracker/features/tasks/services/open_inbox_query_service.dart';
 
 const _usage = '''
-Read unchecked items from Interest's single canonical Inbox.
+Read Interest's canonical Inbox Markdown and derived checkbox hints.
 
 Usage:
   dart run tool/query_open_inbox.dart --vault <path> [--pretty]
 
-Only Interesting/Inbox.md is in scope. Every other vault file is deliberately
-not scanned; the JSON provider result records that boundary explicitly.
+Only Interesting/Inbox.md is in scope. records contains its complete Markdown
+document; derived_hints contains non-exhaustive checkbox projections.
 ''';
 
 Future<void> main(List<String> args) async {
@@ -27,7 +27,8 @@ Future<void> main(List<String> args) async {
         break;
       case '--help':
       case '-h':
-        stdout.write(_usage);
+        stdout.add(utf8.encode(_usage));
+        await stdout.flush();
         return;
       default:
         _fail('Unknown argument: ${args[index]}');
@@ -41,8 +42,9 @@ Future<void> main(List<String> args) async {
       pretty
           ? const JsonEncoder.withIndent('  ').convert(result.toJson())
           : jsonEncode(result.toJson());
-  stdout.writeln(payload);
-  if (result.status != 'complete') exitCode = 1;
+  stdout.add(utf8.encode('$payload\n'));
+  await stdout.flush();
+  if (!result.isSuccessful) exitCode = 1;
 }
 
 String _valueAfter(List<String> args, int index, String option) {

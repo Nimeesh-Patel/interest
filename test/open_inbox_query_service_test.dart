@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:people_tracker/features/tasks/models/open_inbox_item.dart';
 import 'package:people_tracker/features/tasks/services/inbox_storage_service.dart';
 import 'package:people_tracker/features/tasks/services/open_inbox_query_service.dart';
 
@@ -197,13 +198,21 @@ void main() {
       expect(result.status, 'complete');
       expect(result.completeness, 'complete');
       expect(result.sourceModifiedAt, isNotNull);
-      expect(result.records.map((item) => item.text), [
+      expect(result.records, hasLength(1));
+      final document = result.records.single;
+      expect(document.text, inbox.readAsStringSync());
+      expect(document.hasUtf8Bom, isFalse);
+      final locator = Uri.parse(document.locator);
+      expect(locator.scheme, 'obsidian');
+      expect(locator.queryParameters['file'], 'Interesting/Inbox');
+      expect(result.derivedHints.records.map((item) => item.text), [
         'Read Wheeler',
         'Start chapter one',
         'Still unchecked below a completed parent',
       ]);
 
-      final first = result.records.first;
+      final first = result.derivedHints.records.first;
+      expect(first.locator, document.locator);
       expect(first.line, 4);
       expect(first.headings, ['Reading']);
       expect(first.parentItems, isEmpty);
@@ -212,10 +221,10 @@ void main() {
         'Manhattan Project and scientific culture.',
       );
 
-      final nested = result.records[1];
+      final nested = result.derivedHints.records[1];
       expect(nested.parentItems, ['Read Wheeler']);
       expect(nested.hasCompletedAncestor, isFalse);
-      expect(result.records.last.hasCompletedAncestor, isTrue);
+      expect(result.derivedHints.records.last.hasCompletedAncestor, isTrue);
 
       final json = result.toJson();
       expect(json['provider'], 'interest');
@@ -226,7 +235,17 @@ void main() {
         'not_scanned',
       );
       expect(json['freshness'], isA<Map>());
-      expect(json['records'], isA<List>());
+      final jsonDocument = (json['records'] as List).single as Map;
+      expect(jsonDocument['text'], inbox.readAsStringSync());
+      expect(jsonDocument['line_endings'], 'preserved');
+      final jsonHints = json['derived_hints'] as Map;
+      expect(jsonHints['status'], 'complete');
+      expect((jsonHints['projection'] as Map)['exhaustive'], isFalse);
+      expect(
+        (jsonHints['projection'] as Map)['authoritative_evidence'],
+        'records',
+      );
+      expect(jsonHints['records'], isA<List>());
       expect(json['errors'], isEmpty);
       expect(json['limitations'], isNotEmpty);
       expect(
@@ -245,6 +264,76 @@ void main() {
     },
   );
 
+  test(
+    'whole loose Markdown is lossless while checkbox records remain hints',
+    () async {
+      const markdown =
+          '# Inbox\r\n'
+          '\r\n'
+          'A thought with no checkbox.\r\n'
+          'A continuation whose boundary an agent can interpret.\r\n'
+          '- [x] Completed context remains evidence.\r\n'
+          '- [ ] One derived hint\r\n';
+      final inbox = File(p.join(vault.path, 'Interesting', 'Inbox.md'))
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([
+          0xef,
+          0xbb,
+          0xbf,
+          ...utf8.encode(markdown),
+        ]);
+
+      final result = await OpenInboxQueryService.query(vault.path);
+
+      expect(result.status, 'complete');
+      expect(result.completeness, 'complete');
+      final evidence = result.records.single;
+      expect(evidence.text, markdown);
+      expect(evidence.hasUtf8Bom, isTrue);
+      expect(evidence.byteLength, inbox.lengthSync());
+      expect(result.derivedHints.records.map((item) => item.text), [
+        'One derived hint',
+      ]);
+      expect(result.limitations, contains(contains('non-exhaustive')));
+
+      final json = result.toJson();
+      final document = (json['records'] as List).single as Map;
+      expect(document['text'], markdown);
+      expect(document['utf8_bom'], isTrue);
+      expect(document['byte_length'], inbox.lengthSync());
+      expect(document['locator'], result.derivedHints.records.single.locator);
+      expect(
+        Uri.parse(document['locator'] as String).queryParameters['file'],
+        'Interesting/Inbox',
+      );
+    },
+  );
+
+  test('hint failure cannot discard a coherent document record', () async {
+    const markdown = '# Inbox\n\nLoose authoritative evidence.\n';
+    File(p.join(vault.path, 'Interesting', 'Inbox.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(markdown);
+
+    final result = await OpenInboxQueryService.query(
+      vault.path,
+      hintParser: (_, _) => throw StateError('projection failed'),
+    );
+
+    expect(result.status, 'complete');
+    expect(result.completeness, 'complete');
+    expect(result.records.single.text, markdown);
+    expect(result.errors, isEmpty);
+    expect(result.derivedHints.status, 'unavailable');
+    expect(result.derivedHints.completeness, 'unavailable');
+    expect(result.derivedHints.records, isEmpty);
+    expect(result.derivedHints.errors.single, contains('projection failed'));
+
+    final json = result.toJson();
+    expect((json['records'] as List).single, containsPair('text', markdown));
+    expect((json['derived_hints'] as Map)['status'], 'unavailable');
+  });
+
   test('query does not scan or nominate checkboxes outside Inbox', () async {
     final interesting = Directory(p.join(vault.path, 'Interesting'))
       ..createSync(recursive: true);
@@ -260,7 +349,9 @@ void main() {
 
     final result = await OpenInboxQueryService.query(vault.path);
 
-    expect(result.records.map((item) => item.text), ['Inbox item']);
+    expect(result.derivedHints.records.map((item) => item.text), [
+      'Inbox item',
+    ]);
   });
 
   test('missing Inbox is explicit and query remains read-only', () async {
@@ -269,6 +360,8 @@ void main() {
     expect(result.status, 'unavailable');
     expect(result.completeness, 'unavailable');
     expect(result.records, isEmpty);
+    expect(result.derivedHints.status, 'unavailable');
+    expect(result.derivedHints.records, isEmpty);
     expect(result.errors.single, contains('does not exist'));
     expect(
       File(p.join(vault.path, 'Interesting', 'Inbox.md')).existsSync(),
@@ -293,6 +386,8 @@ void main() {
       expect(result.completeness, 'indeterminate');
       expect(result.sourceModifiedAt, isNull);
       expect(result.records, isEmpty);
+      expect(result.derivedHints.status, 'unavailable');
+      expect(result.derivedHints.records, isEmpty);
       expect(result.errors.single, contains('changed during'));
       expect(access.readCount, 4);
       expect(access.stampCount, 6);
@@ -320,7 +415,9 @@ void main() {
 
   test('standalone Dart CLI emits the provider result', () async {
     final ensured = await InboxStorageService.ensureInbox(vault.path);
-    File(ensured.path!).writeAsStringSync('# Inbox\n\n- [ ] CLI item\n');
+    const markdown =
+        '# Inbox\r\n\r\nA loose हिंदी thought 🧠.\r\n- [ ] Read café notes\r\n';
+    File(ensured.path!).writeAsBytesSync(utf8.encode(markdown));
 
     final flutterRoot = Platform.environment['FLUTTER_ROOT'];
     final dart =
@@ -331,18 +428,47 @@ void main() {
               'bin',
               Platform.isWindows ? 'dart.bat' : 'dart',
             );
-    final process = await Process.run(dart, [
-      'run',
-      'tool/query_open_inbox.dart',
-      '--vault',
-      vault.path,
-      '--pretty',
-    ], workingDirectory: Directory.current.path);
+    final process = await Process.run(
+      dart,
+      [
+        'run',
+        'tool/query_open_inbox.dart',
+        '--vault',
+        vault.path,
+        '--pretty',
+      ],
+      workingDirectory: Directory.current.path,
+      stdoutEncoding: null,
+      stderrEncoding: utf8,
+    );
 
     expect(process.exitCode, 0, reason: process.stderr.toString());
-    final json = jsonDecode(process.stdout.toString()) as Map<String, dynamic>;
+    final stdoutBytes = (process.stdout as List).cast<int>();
+    final json = jsonDecode(utf8.decode(stdoutBytes)) as Map<String, dynamic>;
     expect(json['status'], 'complete');
-    expect((json['records'] as List).single['text'], 'CLI item');
+    expect(((json['records'] as List).single as Map)['text'], markdown);
+    final hints = json['derived_hints'] as Map;
+    expect((hints['records'] as List).single['text'], 'Read café notes');
+  });
+
+  test('partial is a successful provider result for CLI callers', () {
+    const result = OpenInboxQueryResult(
+      status: 'partial',
+      completeness: 'partial',
+      observedAt: '2026-08-18T00:00:00Z',
+      sourceModifiedAt: null,
+      errors: [],
+      limitations: [],
+      records: [],
+      derivedHints: OpenInboxDerivedHints(
+        status: 'unavailable',
+        completeness: 'unavailable',
+        errors: [],
+        records: [],
+      ),
+    );
+
+    expect(result.isSuccessful, isTrue);
   });
 }
 

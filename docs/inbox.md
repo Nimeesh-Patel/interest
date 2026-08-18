@@ -2,13 +2,13 @@
 
 ## Contract
 
-Inbox is one persistent, deliberately low-structure file:
+Inbox is one persistent, deliberately loose Markdown file:
 
 ```
 Interesting/Inbox.md
 ```
 
-`InboxStorageService.ensureInbox()` creates it as `# Inbox` only when absent and never rebuilds, migrates, renames, or deletes an existing file. The Inbox tab embeds the existing `TaskFileScreen`, so capture, optional attached prose, nesting, completion, and editing all use `TaskStorageService` rather than another syntax.
+`InboxStorageService.ensureInbox()` creates it as `# Inbox` only when absent and never rebuilds, migrates, renames, or deletes an existing file. Any Markdown is valid capture. The Inbox tab embeds the existing `TaskFileScreen`, whose checkbox outline is an optional editing affordance rather than the definition of an Inbox item.
 
 An entry has only what was authored:
 
@@ -17,7 +17,7 @@ An entry has only what was authored:
   Manhattan Project, Oppenheimer, and scientific culture.
 ```
 
-The checkbox supplies open/closed state. Indented prose is free context. There are no action/open-thread types, priorities, dates, inferred classifications, or stable IDs.
+When used, a checkbox supplies open/closed state and indented prose supplies free context. Loose prose, headings, links, completed checkboxes, and formatting remain equally part of the document. There are no imposed item boundaries, action/open-thread types, priorities, dates, inferred classifications, or stable IDs.
 
 Inbox keeps authored position: completion toggles in place, there is no drag reordering or completed-section regrouping, and headings are never crossed mechanically. Nested completion also toggles only its checkbox, so a child cannot detach from its parent.
 
@@ -37,14 +37,16 @@ Run:
 dart run tool/query_open_inbox.dart --vault <vault-path> [--pretty]
 ```
 
-`OpenInboxQueryService` reads the exact Inbox file through `TaskStorageService.parseNodes()` and returns unchecked items as JSON. It adds transient retrieval context only: source line, indentation, headings, parent items, completed-ancestor state, attached prose, observation time, and source modification time.
+`OpenInboxQueryService` returns the complete coherently observed Inbox as the single primary entry in `records`, preserving authored text and line endings. An optional UTF-8 BOM is removed from that record's `text` so it cannot alter Markdown interpretation and is recorded separately as `utf8_bom`. The document record and every derived hint carry an `obsidian://` locator for the exact vault-relative note `Interesting/Inbox`.
 
-Provider scope is deliberately closed:
+`derived_hints` is an independent outcome containing `status`, `completeness`, `errors`, and a convenient, explicitly non-exhaustive `records` projection of unchecked checkboxes through `TaskStorageService.parseNodes()`. `completeness: complete` means that this narrowly named checkbox projection completed; `projection.exhaustive: false` means it is not a complete representation of the Inbox document. Its source line, indentation, headings, parent items, completed-ancestor state, and attached prose are transient hints. A projection failure makes only `derived_hints` unavailable; it cannot discard a coherent document or downgrade the primary provider result. Generic provider consumers therefore receive the full loose context through top-level `records` and may use or ignore `derived_hints` without losing evidence.
+
+This provider's target is deliberately bounded:
 
 - Included: `Interesting/Inbox.md`
 - Not scanned: Projects, `To Do List.md`, root notes, logs, and every other vault file or checkbox
 - Missing/unreadable Inbox: `status: unavailable`, with a limitation; the provider remains read-only and does not create it
-- File changes during observation: two bounded exact-byte/stat observations are attempted; if neither is coherent, `status: indeterminate`, no records, and no source modification timestamp are returned
-- Empty existing Inbox: `status: complete`, `records: []`
+- File changes during observation: two bounded exact-byte/stat observations are attempted; if neither is coherent, `status: indeterminate`, no document, no records, and no source modification timestamp are returned
+- Empty existing Inbox: `status: complete`, one document record with empty `text`, and `derived_hints.records: []`
 
-The JSON result records provider, capability, status, completeness, freshness, included scope, and outside-scope handling. A caller may relate or structure entries transiently, but must not write inferred semantics back to the Inbox.
+The JSON result records provider, capability, status, completeness, freshness, included scope, and outside-scope handling. CLI output bytes are UTF-8; `complete` and `partial` are successful process outcomes, while `unavailable` and `indeterminate` are not. A caller may relate or structure entries transiently, but must not write inferred semantics back to the Inbox.
