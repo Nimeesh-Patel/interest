@@ -7,6 +7,7 @@ import '../features/entities/models/entity.dart';
 import '../features/entities/screens/collections_screen.dart';
 import '../features/entities/screens/entity_screen.dart';
 import '../features/projects/screens/projects_screen.dart';
+import '../features/tasks/screens/inbox_screen.dart';
 import '../features/anki/services/anki_sync_runner.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/templates/screens/templates_screen.dart';
@@ -18,8 +19,9 @@ import '../shared/widgets/progress.dart';
 import '../shared/widgets/quick_add_sheet.dart';
 import '../shared/widgets/snack.dart';
 
-/// Two-tab shell: Collections (0, landing) and Projects (1). Note viewing,
-/// editing, and traversal live in Obsidian; Interest is a Collections + Projects
+/// Three-tab shell: Collections (0, landing), Inbox (1), and Projects (2).
+/// Note viewing, editing, and traversal live in Obsidian; Interest is a
+/// Collections + Inbox + Projects
 /// tool plus a one-way Anki sync triggered by the `interest://sync-anki` deep
 /// link from the Problem Notes Obsidian plugin. The deep link opens this app
 /// (foreground) and runs the sync here; result shows in a snackbar.
@@ -42,7 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 
   bool _isLoading = true;
-  // Tabs: 0=Collections, 1=Projects
+  // Tabs: 0=Collections, 1=Inbox, 2=Projects
   int _currentTab = 0;
 
   @override
@@ -119,7 +121,11 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Scaffold(body: LoadingState());
     }
 
-    final tabTitle = _currentTab == 0 ? 'Collections' : 'Projects';
+    final tabTitle = switch (_currentTab) {
+      0 => 'Collections',
+      1 => 'Inbox',
+      _ => 'Projects',
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -158,6 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
             controller: _controller,
             onOpenEntity: _openEntity,
           ),
+          const InboxScreen(),
           ProjectsScreen(key: _projectsKey),
         ],
       ),
@@ -175,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ),
+        1 => null,
         _ => AppFab(
             tooltip: 'New project',
             onTap: () => _projectsKey.currentState?.showCreateDialog(context),
@@ -192,6 +200,11 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.hub_outlined),
               activeIcon: Icon(Icons.hub),
               label: 'COLLECTIONS',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.inbox_outlined),
+              activeIcon: Icon(Icons.inbox),
+              label: 'INBOX',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.checklist_outlined),

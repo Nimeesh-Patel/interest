@@ -30,6 +30,8 @@ Interesting/
 
 Project files are created and scanned only in `Projects/`. The former `Lists/`, `Tasks/`, and `Boards/` migration surfaces were removed after the live vault had no remaining files in them; retaining a migration on every load would preserve a rival storage contract indefinitely.
 
+`Interesting/Inbox.md` is a separate persistent capture surface. Projects are not aggregated into its read-only provider, and existing Project checkboxes are not migrated or nominated as Inbox entries.
+
 ---
 
 ## File format

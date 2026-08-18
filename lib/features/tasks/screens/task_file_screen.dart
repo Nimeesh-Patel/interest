@@ -5,6 +5,7 @@ import '../services/task_storage_service.dart';
 import '../../../shared/widgets/bottom_sheet_menu.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_retry_state.dart';
 import '../../../shared/widgets/input_dialog.dart';
 import '../../../shared/widgets/progress.dart';
 import '../../../shared/widgets/snack.dart';
@@ -14,6 +15,10 @@ import '../../../shared/constants/app_theme.dart';
 class TaskFileScreen extends StatefulWidget {
   final String filePath;
   final String title;
+  final bool embedded;
+  final bool inboxMode;
+  final String emptyMessage;
+  final String addHint;
   // Called when the file is renamed so HomeScreen can reload.
   final void Function(String newPath, String newTitle)? onRenamed;
 
@@ -21,6 +26,10 @@ class TaskFileScreen extends StatefulWidget {
     super.key,
     required this.filePath,
     required this.title,
+    this.embedded = false,
+    this.inboxMode = false,
+    this.emptyMessage = 'No content yet.\nAdd a task below.',
+    this.addHint = 'New task…',
     this.onRenamed,
   });
 
@@ -33,6 +42,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   List<String> _lines = [];
   List<TaskNode> _nodes = [];
   bool _isLoading = true;
+  TaskFileSnapshot? _exactSnapshot;
+  String? _loadError;
   late String _currentTitle;
   late String _currentPath;
 
@@ -79,11 +90,28 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   }
 
   Future<void> _reload() async {
-    final lines = await TaskStorageService.loadLines(_currentPath);
+    List<String> lines;
+    TaskFileSnapshot? exactSnapshot;
+    String? loadError;
+    if (widget.inboxMode) {
+      final result = await TaskStorageService.loadSnapshot(_currentPath);
+      final snapshot = result.snapshot;
+      if (snapshot == null) {
+        lines = const [];
+        loadError = 'Inbox could not be loaded. ${result.error}';
+      } else {
+        lines = snapshot.lines;
+        exactSnapshot = snapshot;
+      }
+    } else {
+      lines = await TaskStorageService.loadLines(_currentPath);
+    }
     if (!mounted) return;
     setState(() {
       _lines = lines;
       _nodes = TaskStorageService.parseNodes(lines);
+      _exactSnapshot = exactSnapshot;
+      _loadError = loadError;
       _isLoading = false;
       // Clear transient edit state after reload
       _editingLine = null;
@@ -95,24 +123,75 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   // ── Root-level quick add ──────────────────────────────────────────────────
 
+  Future<bool> _applyInboxMutation(
+      Future<GuardedTaskMutationResult> Function(TaskFileSnapshot expected)
+          mutation) async {
+    final expected = _exactSnapshot;
+    if (expected == null) {
+      if (mounted) {
+        showSnack(context, 'Inbox is not ready. It was reloaded.');
+        await _reload();
+      }
+      return false;
+    }
+
+    final result = await mutation(expected);
+    if (!mounted) return false;
+    if (!result.applied) showSnack(context, result.message);
+    await _reload();
+    return result.applied;
+  }
+
   Future<void> _addRootTask() async {
     final text = _addController.text.trim();
     if (text.isEmpty) return;
-    _addController.clear();
-    await TaskStorageService.addTask(_currentPath, text);
-    await _reload();
+    if (widget.inboxMode) {
+      final applied = await _applyInboxMutation(
+        (expected) => TaskStorageService.guardedAddTask(
+          _currentPath,
+          expected,
+          text,
+        ),
+      );
+      if (applied) _addController.clear();
+    } else {
+      _addController.clear();
+      await TaskStorageService.addTask(_currentPath, text);
+      await _reload();
+    }
   }
 
   // ── Block mutations ───────────────────────────────────────────────────────
 
   Future<void> _toggle(TaskBlock block) async {
-    await TaskStorageService.toggleBlockAndReorder(_currentPath, block);
-    await _reload();
+    if (widget.inboxMode) {
+      await _applyInboxMutation(
+        (expected) => TaskStorageService.guardedToggleBlock(
+          _currentPath,
+          expected,
+          block,
+        ),
+      );
+    } else {
+      await TaskStorageService.toggleBlockAndReorder(_currentPath, block);
+      await _reload();
+    }
   }
 
   Future<void> _saveBlockEdit(TaskBlock block) async {
     final text = _editController.text.trim();
     if (text.isNotEmpty) {
+      if (widget.inboxMode) {
+        await _applyInboxMutation(
+          (expected) => TaskStorageService.guardedUpdateBlockText(
+            _currentPath,
+            expected,
+            block,
+            text,
+          ),
+        );
+        return;
+      }
       await TaskStorageService.updateBlockText(_currentPath, block, text);
     }
     await _reload();
@@ -124,23 +203,65 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final trimStart = original.length - original.trimLeft().length;
     final indent = original.substring(0, trimStart);
     final newContent = '$indent${_editNoteController.text}';
-    await TaskStorageService.updateLine(_currentPath, lineIndex, newContent);
-    await _reload();
+    if (widget.inboxMode) {
+      await _applyInboxMutation(
+        (expected) => TaskStorageService.guardedUpdateLine(
+          _currentPath,
+          expected,
+          lineIndex,
+          newContent,
+        ),
+      );
+    } else {
+      await TaskStorageService.updateLine(_currentPath, lineIndex, newContent);
+      await _reload();
+    }
   }
 
   Future<void> _deleteBlock(TaskBlock block) async {
-    await TaskStorageService.deleteBlock(_currentPath, block);
-    await _reload();
+    if (widget.inboxMode) {
+      await _applyInboxMutation(
+        (expected) => TaskStorageService.guardedDeleteBlock(
+          _currentPath,
+          expected,
+          block,
+        ),
+      );
+    } else {
+      await TaskStorageService.deleteBlock(_currentPath, block);
+      await _reload();
+    }
   }
 
   Future<void> _deleteNoteLine(int lineIndex) async {
-    await TaskStorageService.deleteTask(_currentPath, lineIndex);
-    await _reload();
+    if (widget.inboxMode) {
+      await _applyInboxMutation(
+        (expected) => TaskStorageService.guardedDeleteLine(
+          _currentPath,
+          expected,
+          lineIndex,
+        ),
+      );
+    } else {
+      await TaskStorageService.deleteTask(_currentPath, lineIndex);
+      await _reload();
+    }
   }
 
   Future<void> _addSubtask(TaskBlock parent) async {
     final text = _addChildController.text.trim();
     if (text.isNotEmpty) {
+      if (widget.inboxMode) {
+        await _applyInboxMutation(
+          (expected) => TaskStorageService.guardedAddSubtask(
+            _currentPath,
+            expected,
+            parent,
+            text,
+          ),
+        );
+        return;
+      }
       await TaskStorageService.addSubtask(_currentPath, parent, text);
     }
     setState(() => _addingChildOf = null);
@@ -150,6 +271,17 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   Future<void> _addNote(TaskBlock parent) async {
     final text = _addNoteController.text.trim();
     if (text.isNotEmpty) {
+      if (widget.inboxMode) {
+        await _applyInboxMutation(
+          (expected) => TaskStorageService.guardedAddNote(
+            _currentPath,
+            expected,
+            parent,
+            text,
+          ),
+        );
+        return;
+      }
       await TaskStorageService.addNote(_currentPath, parent, text);
     }
     setState(() => _addingNoteOf = null);
@@ -165,6 +297,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   }
 
   int? _firstCompleteRootNodeIdx() {
+    if (widget.inboxMode) return null;
     for (int i = 0; i < _nodes.length; i++) {
       final n = _nodes[i];
       if (n is TaskBlock && n.indentSpaces == 0 && n.completed) return i;
@@ -599,7 +732,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final int? dividerAt = _isLoading ? null : _firstCompleteRootNodeIdx();
     final int displayCount = _nodes.length + (dividerAt != null ? 1 : 0);
     return Scaffold(
-      appBar: AppBar(
+      appBar: widget.embedded ? null : AppBar(
         title: Text(_currentTitle),
         actions: [
           PopupMenuButton<String>(
@@ -614,13 +747,13 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
       ),
       body: _isLoading
           ? const LoadingState()
-          : Column(
+          : _loadError != null
+              ? ErrorRetryState(message: _loadError!, onRetry: _reload)
+              : Column(
               children: [
                 Expanded(
                   child: _nodes.isEmpty
-                      ? const EmptyState(
-                          message: 'No content yet.\nAdd a task below.',
-                        )
+                      ? EmptyState(message: widget.emptyMessage)
                       : ReorderableListView.builder(
                           buildDefaultDragHandles: false,
                           padding: const EdgeInsets.only(top: 8, bottom: 16),
@@ -651,7 +784,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                               return KeyedSubtree(
                                 key: ValueKey('blk-${node.startLine}'),
                                 child: _buildBlockWidget(node, 0,
-                                    reorderIndex: displayIdx),
+                                    reorderIndex:
+                                        widget.inboxMode ? null : displayIdx),
                               );
                             }
                             return KeyedSubtree(
@@ -660,6 +794,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                             );
                           },
                           onReorder: (oldDisplayIdx, newDisplayIdx) async {
+                            if (widget.inboxMode) return;
                             if (dividerAt != null &&
                                 oldDisplayIdx == dividerAt) {
                               return;
@@ -696,10 +831,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                           child: TextField(
                             controller: _addController,
                             focusNode: _addFocus,
-                            decoration: const InputDecoration(
-                              hintText: 'New task…',
+                            decoration: InputDecoration(
+                              hintText: widget.addHint,
                               border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
+                              contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 4, vertical: 10),
                             ),
                             onSubmitted: (_) => _addRootTask(),

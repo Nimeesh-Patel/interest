@@ -73,12 +73,13 @@ AppBar title: 17px w600 IBM Plex Sans.
 
 ## Navigation
 
-**Bottom nav bar** — 2 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
+**Bottom nav bar** — 3 tabs, labeled, no elevation, `border-top: 1px AppColors.border`. Background: `surfaceElevated` (#161616).
 
 | Index | Label | Icon (inactive / active) | Screen |
 |---|---|---|---|
 | 0 | COLLECTIONS | `hub_outlined` / `hub` | `CollectionsScreen` (landing) |
-| 1 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
+| 1 | INBOX | `inbox_outlined` / `inbox` | `InboxScreen` |
+| 2 | PROJECTS | `checklist_outlined` / `checklist` | `ProjectsScreen` |
 
 Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `navLabel` (9px w600, uppercase, letterSpacing 0.5).
 

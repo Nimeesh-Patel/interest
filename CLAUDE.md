@@ -2,7 +2,7 @@ Focus on creating progressively better abstractions: implementation should becom
 
 # Project
 
-Filesystem-native companion to an Obsidian vault. All data lives as Markdown files in a user-chosen vault. The app does three narrow things: **Collections** (notes grouped by `collection:`), **Projects** (todo workspaces), and a **one-way Anki sync** (push `***` problem notes to Anki, triggered by the `interest://sync-anki` deep link from the companion *Problem Notes* Obsidian plugin). Note viewing, editing, backlinks, and `[[wikilink]]` traversal live in **Obsidian**, not here. The app patches frontmatter on files it co-owns; it does not rebuild or replace bodies. Architectural rationale: [README.md](README.md). This file states constraints and their enforcement points.
+Filesystem-native companion to an Obsidian vault. All data lives as Markdown files in a user-chosen vault. The app does four narrow things: **Collections**, one persistent **Inbox**, **Projects**, and a **one-way Anki sync**. Note viewing, editing, backlinks, and `[[wikilink]]` traversal live in **Obsidian**, not here. Vault-root integrations patch frontmatter only; Inbox and Projects are Interest-owned Markdown bodies under `Interesting/`. Architectural rationale: [README.md](README.md). This file states constraints and their enforcement points.
 
 ## Documentation philosophy
 
@@ -29,6 +29,7 @@ Start here based on task class:
 | Modifying entity files or collections | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
 | Modifying Hardcover sync / book notes | README § Books, then `HardcoverSyncService` + `BookNoteStorage` (`lib/features/hardcover/`) |
 | Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
+| Modifying Inbox capture or query scope | [docs/inbox.md](docs/inbox.md), then `InboxStorageService` + `OpenInboxQueryService` |
 | Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
 | Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
 | Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
@@ -50,8 +51,8 @@ No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth c
 **2. An entity is a note with `collection:`.**
 Discovery keys on the `collection:` frontmatter key alone (`EntityFileParser.isEntityFrontmatter`). `alias`, `category`, and body shape are orthogonal to entity-ness. WHY: `category:` is a Problem-Note property (the Anki deck); keying entity discovery on it conflated the two sets and caused the June 2026 corruption. Enforcement: `isEntityFrontmatter` in `entity_file_parser.dart`, used by every scan in `markdown_storage_service.dart`.
 
-**3. The app patches frontmatter, never the body.**
-Entity writes go through `EntityFileWriter.patchFrontmatter` (owned keys only: `collection`, `tags`, `score`) or `buildNewEntity`; book-note writes go through `BookNoteStorage` (`buildFrontmatterBlock` for new notes, `patchFrontmatterField` for updates); the Anki sync writes only `anki_note_id` via `patchFrontmatterField`. In every case the existing body is preserved byte-for-byte. **No code path rewrites a note body.** WHY: rebuilding bodies destroyed user content (including a Problem Note's `***` front/back). Enforcement: `entity_file_writer.dart`, `book_note_storage.dart`, `md_io.dart`.
+**3. Vault-root integrations patch frontmatter, never the body.**
+Entity writes go through `EntityFileWriter.patchFrontmatter` (owned keys only: `collection`, `tags`, `score`) or `buildNewEntity`; book-note writes go through `BookNoteStorage`; the Anki sync writes only `anki_note_id` via `patchFrontmatterField`. In every case an existing vault-root note body is preserved byte-for-byte. Interest-owned Inbox and Project files under `Interesting/` are the explicit body-write boundary. WHY: rebuilding user-authored vault-root bodies destroyed content (including a Problem Note's `***` front/back).
 
 **4. Problem Note and Entity are orthogonal sets.**
 Problem Note ⟺ `***` in body (Anki-syncable; deck = `category:`, default `Default`). Entity ⟺ `collection:` in frontmatter. A note may be both. WHY: conflating them is exactly what corrupted notes in June 2026. Enforcement: `splitFrontBack` (`AnkiProblemNoteScanner`) and `isEntityFrontmatter` (`EntityFileParser`) are independent predicates — never gate one on the other.
@@ -65,19 +66,19 @@ The Anki sync's **only** vault write is `AnkiSyncService._patchAnkiNoteId` → `
 
 ## Service standard
 
-All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, a result object's `error`, or `null`) — never exceptions. This applies to: `MarkdownStorageService`, `TaskStorageService`, `ProjectStorageService`, `IntegrationsConfigService`, `AnkiProblemNoteScanner`, `AnkiSyncService`, `AnkiSyncController`, `HardcoverService`, `HardcoverSyncService`, `BookNoteStorage`. Sole sanctioned exception: `AnkiTransport` implementations may throw `AnkiSyncAbort` / `AnkiNoteFailure`, consumed only by `AnkiSyncService.syncVault` — they never escape it.
+All services are **all-static, all-catch-null, never throw**. Errors surface via return values (`String?` error, a result object's `error`, or `null`) — never exceptions. This applies to: `MarkdownStorageService`, `TaskStorageService`, `InboxStorageService`, `OpenInboxQueryService`, `ProjectStorageService`, `IntegrationsConfigService`, `AnkiProblemNoteScanner`, `AnkiSyncService`, `AnkiSyncController`, `HardcoverService`, `HardcoverSyncService`, `BookNoteStorage`. Sole sanctioned exception: `AnkiTransport` implementations may throw `AnkiSyncAbort` / `AnkiNoteFailure`, consumed only by `AnkiSyncService.syncVault` — they never escape it.
 
 ## Save semantics
 
 - **Per-file writes only.** Each mutation touches exactly one file; there is no bulk "save all" path (that pattern caused the June 2026 corruption).
 - **Frontmatter edit** (collection, tags, score) in `EntityScreen` edit mode → `_saveEdit()` → `MarkdownStorageService.saveEntity(entity)`, which patches that one file's frontmatter and preserves its body. `Cancel` restores the pre-edit snapshot in memory (no I/O).
-- **There is no in-app note-body editor.** Body editing lives in Obsidian. `EntityScreen` renders the body read-only and offers "Open in Obsidian"; wikilink taps open Obsidian.
+- **There is no in-app vault-root note-body editor.** Body editing for user-authored vault-root notes lives in Obsidian. The explicit exceptions are Interest-owned Inbox and Project files under `Interesting/`.
 - **New entity**: `saveEntity` creates a file with **only `collection:` frontmatter** and an **empty body** — no imposed `# Name`, no timestamps — at vault root, then sets `Entity.sourcePath`. **Delete**: `deleteEntity` removes that one file. **Collection rename**: `renameCollection` patches each member file, then reloads.
 - The app neither requires nor stamps `created_at`/`updated_at`; if a note already has them they are preserved, never added.
 
 ## Write paths
 
-Each storage path co-owns specific files. Nothing rewrites a note body.
+Each storage path co-owns specific files. Vault-root integrations preserve note bodies; Inbox and Project editing is bounded to Interest-owned files under `Interesting/`.
 
 | Storage layer | Writes |
 |---|---|
@@ -85,7 +86,8 @@ Each storage path co-owns specific files. Nothing rewrites a note body.
 | `BookNoteStorage` | vault-root book notes (`collection: Books`); new note via `buildFrontmatterBlock`, updates via `patchFrontmatterField` (frontmatter only) ← `HardcoverSyncService`, `HardcoverScreen` write only via this |
 | `AnkiSyncService` | `anki_note_id` only, via `patchFrontmatterField` — the sole vault write of the sync (see safety invariant) |
 | `ProjectStorageService` | `Interesting/Projects/` |
-| `TaskStorageService` | checkbox-outline parsing and editing for files owned by `Interesting/Projects/`; no directory of its own |
+| `InboxStorageService` | Creates `Interesting/Inbox.md` once; never rebuilds or migrates an existing Inbox |
+| `TaskStorageService` | Shared checkbox-outline parser/editor for `Interesting/Inbox.md` and todo-style files in `Interesting/Projects/`; no path of its own |
 | `IntegrationsConfigService` | `Interesting/System/integrations.md` — vault-native integration config |
 | `TemplatesScreen` / `TemplateEditorScreen` | `Interesting/Templates/` — direct screen writes |
 
@@ -96,7 +98,7 @@ Each storage path co-owns specific files. Nothing rewrites a note body.
 | Entity | `collection:` presence = membership; identity = note name (filename); `alias:` optional, used as `id` when present else filename slug | filename can change | Hard (delete the file) |
 | Problem note | `anki_note_id` (frontmatter) | Written on first sync; stable | Hard |
 | Book | an entity with `collection: Books`; identity is the note name. `hardcover_id` is a legacy dedup key carried by 2 of 183 book notes (verified 2026-08-05) and is no longer the anchor — the title-slug fallback is what actually links a pull | filename can change | Hard |
-| Task / Project file | None | — | Hard |
+| Inbox item / Task / Project file | None | — | Items hard-delete; the Inbox file itself has a fixed path and no delete/rename UI |
 
 ## Shared utilities — do not duplicate
 
@@ -136,11 +138,13 @@ A book is an ordinary entity: a vault-root note with `collection: Books` (+ `aut
 
 **Projects** — unified workspaces replacing Lists + Todos. Files live only in `Interesting/Projects/`; the empty legacy `Lists/` + `Tasks/` stores and their migration path were removed. Detail screen is `TaskFileScreen`. No due dates, priorities, or scheduling. Full details: [docs/projects.md](docs/projects.md).
 
-**Tasks (parser)** — `TaskStorageService.parseNodes()` powers `TaskFileScreen`. No YAML frontmatter; `parseNodes()` is pure (call only after `loadLines()`); `_collapsed` is session-only; `deleteBlock` hard-deletes; completing a root block calls `toggleBlockAndReorder` (moves to end-of-file); root blocks drag-reorderable via `reorderRootBlocks`. No due dates, reminders, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
+**Inbox** — the deliberately low-structure, persistent `Interesting/Inbox.md`. Entries have only the existing checkbox open/closed semantics plus optional attached prose. Completion toggles in place; drag/completed regrouping is disabled. Every UI write requires the exact strict-UTF-8 byte snapshot still to match and uses same-ID staged/backup siblings for a flushed, verified replacement with recovery; stale or ambiguous outcomes reload without retrying. This is recoverable but not an atomic cross-process CAS. First creation writes a verified sibling marker before exclusively creating/appending the canonical bytes; a leftover marker accepts the canonical only on an exact match. On restart, owned recovery artifacts block empty creation and their exact paths surface for inspection; mutation recovery never replaces an existing canonical. Missing/unreadable/invalid UTF-8 is an error, not an empty Inbox. `OpenInboxQueryService` is read-only and scans this exact file only; it emits no records from a changing/incoherent observation. Every Project and every other vault checkbox is explicitly outside scope. Full details: [docs/inbox.md](docs/inbox.md).
+
+**Tasks (parser)** — `TaskStorageService.parseNodes()` powers both Inbox and Project outline editing. No YAML frontmatter; `parseNodes()` is pure; `_collapsed` is session-only; `deleteBlock` hard-deletes. Project root completion/reordering remains available, but nested completion always toggles in place. Inbox uses the guarded snapshot mutations and disables every reorder surface. No due dates, reminders, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
 
 **Grokipedia** — never writes to vault; no caching; state lives only in `_EntityScreenState`.
 
-**Navigation shell** — `home_screen.dart` is a 2-tab `BottomNavigationBar`: 0=Collections (landing), 1=Projects. `MainActivity` only hosts this UI. FAB shows on tab 0 (Collections → Quick Add Sheet) and tab 1 (Projects → new project). AppBar actions: Sources (`sensors`), and a popup (Settings, Templates, Open Obsidian).
+**Navigation shell** — `home_screen.dart` is a 3-tab `BottomNavigationBar`: 0=Collections (landing), 1=Inbox, 2=Projects. Inbox has its persistent bottom capture field rather than a FAB. FAB shows on Collections and Projects. AppBar actions: Sources (`sensors`), and a popup (Settings, Templates, Open Obsidian).
 
 **Sources screen** — `sources_screen.dart`, pushed from the `sensors` AppBar icon. Rows: Hardcover (pull), Obsidian (launch `obsidian://`), AnkiDroid (manual push, Android only), Anki desktop (manual AnkiConnect sync). The two Anki rows are mutually exclusive (`_ankiBusy`) — both write `anki_note_id` to the same files. The AnkiDroid row and the `interest://sync-anki` deep link share `runAnkiDroidSync`.
 

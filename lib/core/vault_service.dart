@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'vault_paths.dart';
 
 class VaultService {
   static const _key = 'vault_path';
@@ -31,11 +32,12 @@ class VaultService {
   }
 
   static String templatesPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Templates');
+      VaultPaths.templates(vaultPath);
 
-  static String systemPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'System');
+  static String systemPath(String vaultPath) => VaultPaths.system(vaultPath);
 
   static String projectsPath(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Projects');
+      VaultPaths.projects(vaultPath);
+
+  static String inboxPath(String vaultPath) => VaultPaths.inbox(vaultPath);
 }

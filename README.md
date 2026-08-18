@@ -1,12 +1,13 @@
 # Interest
 
-Interest is a small Android (and Windows) companion to an Obsidian vault. It does three narrow things over your plain-Markdown files:
+Interest is a small Android (and Windows) companion to an Obsidian vault. It does four narrow things over your plain-Markdown files:
 
 1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
-2. **Projects** — a lightweight todo/project workspace.
-3. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion [**Problem Notes** Obsidian plugin](https://github.com/Nimeesh-Patel/Problem-Notes).
+2. **Inbox** — capture unfinished items and optional free prose in one persistent `Interesting/Inbox.md` outline.
+3. **Projects** — a lightweight todo/project workspace.
+4. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion [**Problem Notes** Obsidian plugin](https://github.com/Nimeesh-Patel/Problem-Notes).
 
-It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Interest only ever *patches frontmatter* — it never rewrites a note body.
+It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Vault-root note integrations only patch frontmatter; Interest owns the Markdown bodies under `Interesting/` that back Inbox and Projects.
 
 ## The Problem Note
 
@@ -53,7 +54,7 @@ What you give up: one note is one card (no multi-card extraction); cards use Ank
 | System | Owns |
 |---|---|
 | **Obsidian** (+ Problem Notes plugin) | Editing, viewing, `***` rendering, backlinks, wikilink traversal. The vault's Markdown files are the only canonical data. |
-| **Interest** | Collections, Projects, and the one-way Anki sync engine. |
+| **Interest** | Collections, Inbox, Projects, and the one-way Anki sync engine. |
 | **AnkiDroid / Anki desktop** | Retention. FSRS scheduling and drilling, fed by the one-way push. |
 
 ## Books (Hardcover)
@@ -75,9 +76,9 @@ For the Anki bridge: add `***` to a note, then either tap the Problem Notes plug
 
 ## Architecture in brief
 
-Flutter, `setState` only. Storage is a set of all-static services that never throw, each owning exactly one vault directory; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Two invariants matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, `***` makes it a card — a note can be both), and the app patches frontmatter but never note bodies, so no operation can destroy prose.
+Flutter, `setState` only. Storage uses all-static services that never throw; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Two invariants matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, `***` makes it a card — a note can be both), and vault-root integrations patch frontmatter without replacing user prose. Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
 
-Subsystem detail: [docs/](docs/) — [Anki sync & the deep-link contract](docs/anki.md), [entities & collections](docs/entities.md), [projects](docs/projects.md), [tasks parser](docs/tasks.md), [UI](docs/ui.md), [mobile UX](docs/mobile_ux.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
+Subsystem detail: [docs/](docs/) — [Inbox and its provider](docs/inbox.md), [Anki sync & the deep-link contract](docs/anki.md), [entities & collections](docs/entities.md), [projects](docs/projects.md), [tasks parser](docs/tasks.md), [UI](docs/ui.md), [mobile UX](docs/mobile_ux.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
 
 ## License
 

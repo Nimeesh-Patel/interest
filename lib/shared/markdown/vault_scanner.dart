@@ -3,6 +3,25 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 class VaultScanner {
+  /// Lists direct filesystem children without filtering.
+  ///
+  /// This keeps directory enumeration in one owner while allowing exact-file
+  /// transaction recovery to distinguish an empty directory from an
+  /// unreadable one. `null` means the observation could not be completed.
+  static Future<List<FileSystemEntity>?> listDirect(String directoryPath) async {
+    try {
+      final entries = <FileSystemEntity>[];
+      await for (final entry in Directory(
+        directoryPath,
+      ).list(recursive: false, followLinks: false)) {
+        entries.add(entry);
+      }
+      return entries;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Yields all .md files under [basePath].
   ///
   /// When [recursive] is true (default), any path segment matching
