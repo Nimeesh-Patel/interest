@@ -96,6 +96,17 @@ void main() {
       expect(r.back, 'Back text.');
     });
 
+    test('separator comparison trims leading and trailing whitespace', () {
+      final r = splitFrontBack('Front\n  ***  \nBack');
+      expect(r, isNotNull);
+      expect(r!.front, 'Front');
+      expect(r.back, 'Back');
+    });
+
+    test('trimmed separator must still be exactly three stars', () {
+      expect(splitFrontBack('Front\n  ****  \nBack'), isNull);
+    });
+
     test('returns null when no separator', () {
       expect(splitFrontBack('No separator here.'), isNull);
     });
@@ -423,11 +434,11 @@ void main() {
 
     test('an apostrophe in a value survives a rebuild', () {
       final rebuilt = buildFrontmatterBlock(
-        {'collection': "Nimeesh's Books"},
+        {'collection': "Reader's Books"},
         ['collection'],
       );
       final back = fieldsOf('$rebuilt\n\nbody');
-      expect(back['collection'], "Nimeesh's Books");
+      expect(back['collection'], "Reader's Books");
     });
   });
 }

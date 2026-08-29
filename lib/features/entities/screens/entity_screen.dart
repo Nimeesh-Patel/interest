@@ -20,8 +20,8 @@ import '../../../shared/widgets/snack.dart';
 /// An entity is a plain note that belongs to a collection. This screen is the
 /// Collections detail surface: it shows the note (read-only body render +
 /// Grokipedia) and edits the structured frontmatter the app owns (collection,
-/// tags, score). Note viewing/editing, backlinks, and wikilink traversal live
-/// in Obsidian — wikilink taps and "Open in Obsidian" hand off there. The app
+/// tags, score). Body editing, backlinks, and full graph traversal live in
+/// Obsidian — wikilink taps and "Open in Obsidian" hand off there. The app
 /// never rewrites an entity's body.
 class EntityScreen extends StatefulWidget {
   final Entity entity;
@@ -170,8 +170,10 @@ class _EntityScreenState extends State<EntityScreen> {
   Future<void> _openNoteInObsidian(String name) async {
     final vaultPath = await VaultService.getVaultPath();
     if (vaultPath == null) return;
-    final ok = await launchUrl(Uri.parse(obsidianUriForName(vaultPath, name)),
-        mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(
+      Uri.parse(obsidianUriForName(vaultPath, name)),
+      mode: LaunchMode.externalApplication,
+    );
     if (!ok && mounted) {
       showSnack(context, 'Obsidian is not installed');
     }
@@ -182,8 +184,10 @@ class _EntityScreenState extends State<EntityScreen> {
     if (path == null) return;
     final vaultPath = await VaultService.getVaultPath();
     if (vaultPath == null) return;
-    final ok = await launchUrl(Uri.parse(obsidianUri(vaultPath, path)),
-        mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(
+      Uri.parse(obsidianUri(vaultPath, path)),
+      mode: LaunchMode.externalApplication,
+    );
     if (!ok && mounted) {
       showSnack(context, 'Obsidian is not installed');
     }
@@ -208,7 +212,9 @@ class _EntityScreenState extends State<EntityScreen> {
           _grokFetchedSummary == null &&
           !_grokSummaryFetching) {
         setState(() => _grokSummaryFetching = true);
-        final summary = await GrokipediaService.fetchPageSummary(_grokArticle!.slug);
+        final summary = await GrokipediaService.fetchPageSummary(
+          _grokArticle!.slug,
+        );
         if (mounted) {
           setState(() {
             _grokFetchedSummary = summary;
@@ -249,14 +255,14 @@ class _EntityScreenState extends State<EntityScreen> {
             _grokSummaryFetching
                 ? const InlineSpinner(size: 14)
                 : Text(
-                    _grokArticle!.snippet ??
-                        _grokFetchedSummary ??
-                        'No summary available.',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: AppColors.textSecondary,
-                      height: 1.65,
-                    ),
+                  _grokArticle!.snippet ??
+                      _grokFetchedSummary ??
+                      'No summary available.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.65,
                   ),
+                ),
             const SizedBox(height: 10),
           ],
           Row(
@@ -266,12 +272,18 @@ class _EntityScreenState extends State<EntityScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.open_in_new,
-                        size: 13, color: AppColors.accent),
+                    const Icon(
+                      Icons.open_in_new,
+                      size: 13,
+                      color: AppColors.accent,
+                    ),
                     const SizedBox(width: 6),
-                    Text('Read full article',
-                        style: AppTextStyles.meta
-                            .copyWith(color: AppColors.accent)),
+                    Text(
+                      'Read full article',
+                      style: AppTextStyles.meta.copyWith(
+                        color: AppColors.accent,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -280,8 +292,9 @@ class _EntityScreenState extends State<EntityScreen> {
                 onTap: _toggleGrokSummary,
                 child: Text(
                   _grokSummaryExpanded ? 'Hide summary' : 'Show summary',
-                  style: AppTextStyles.meta
-                      .copyWith(color: AppColors.textSecondary),
+                  style: AppTextStyles.meta.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ),
             ],
@@ -321,14 +334,18 @@ class _EntityScreenState extends State<EntityScreen> {
                     if (_entity.collection.isNotEmpty)
                       Text(_entity.collection, style: AppTextStyles.bodySmall),
                     for (final tag in _entity.tags)
-                      Text('#$tag',
-                          style: AppTextStyles.bodySmall
-                              .copyWith(color: AppColors.accent)),
+                      Text(
+                        '#$tag',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.accent,
+                        ),
+                      ),
                     if (_entity.score != null)
                       Text(
                         '★${_entity.score!.toStringAsFixed(_entity.score! % 1 == 0 ? 0 : 1)}',
-                        style: AppTextStyles.bodySmall
-                            .copyWith(color: AppColors.score),
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.score,
+                        ),
                       ),
                   ],
                 ),
@@ -340,20 +357,24 @@ class _EntityScreenState extends State<EntityScreen> {
           // ── Note body ──────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: kScreenHPad),
-            child: _loadingBody
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: InlineSpinner(),
-                  )
-                : (_bodyText == null || _bodyText!.trim().isEmpty)
-                    ? Text('Empty note. Tap edit to write.',
-                        style: AppTextStyles.bodySmall)
+            child:
+                _loadingBody
+                    ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: InlineSpinner(),
+                    )
+                    : (_bodyText == null || _bodyText!.trim().isEmpty)
+                    ? Text(
+                      'Empty note. Tap edit to write.',
+                      style: AppTextStyles.bodySmall,
+                    )
                     : noteMarkdownBody(
-                        context,
-                        _bodyText!,
-                        onTapLink: (text, href, title) =>
-                            onNoteLinkTap(href, _openNoteInObsidian),
-                      ),
+                      context,
+                      _bodyText!,
+                      onTapLink:
+                          (text, href, title) =>
+                              onNoteLinkTap(href, _openNoteInObsidian),
+                    ),
           ),
           const Divider(height: 32),
 
@@ -377,9 +398,11 @@ class _EntityScreenState extends State<EntityScreen> {
   Widget _buildEditBody() {
     final currentCollection = widget.allCollections.firstWhere(
       (c) => c.id == _entity.collectionId,
-      orElse: () => widget.allCollections.isNotEmpty
-          ? widget.allCollections.first
-          : Collection(id: '', name: ''),
+      orElse:
+          () =>
+              widget.allCollections.isNotEmpty
+                  ? widget.allCollections.first
+                  : Collection(id: '', name: ''),
     );
 
     return SafeArea(
@@ -388,9 +411,13 @@ class _EntityScreenState extends State<EntityScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Text(_entity.name,
-                style: AppTextStyles.bodyLarge.copyWith(
-                    fontSize: 20, fontWeight: FontWeight.w600)),
+            child: Text(
+              _entity.name,
+              style: AppTextStyles.bodyLarge.copyWith(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           // Collection
           Padding(
@@ -399,17 +426,29 @@ class _EntityScreenState extends State<EntityScreen> {
               decoration: const InputDecoration(
                 labelText: 'Collection',
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
               ),
               child: DropdownButton<String>(
-                value: currentCollection.id.isNotEmpty ? currentCollection.id : null,
+                value:
+                    currentCollection.id.isNotEmpty
+                        ? currentCollection.id
+                        : null,
                 isExpanded: true,
                 underline: const SizedBox.shrink(),
                 isDense: true,
                 dropdownColor: AppColors.surfaceElevated,
-                items: widget.allCollections
-                    .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
-                    .toList(),
+                items:
+                    widget.allCollections
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        )
+                        .toList(),
                 onChanged: _changeCollection,
               ),
             ),
@@ -424,16 +463,22 @@ class _EntityScreenState extends State<EntityScreen> {
   }
 
   Widget _buildTagsSection() {
-    final suggestions = _allTags.where((t) => !_entity.tags.contains(t)).toList();
+    final suggestions =
+        _allTags.where((t) => !_entity.tags.contains(t)).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('Tags',
-              style: TextStyle(
-                  fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary)),
+          child: Text(
+            'Tags',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -462,41 +507,54 @@ class _EntityScreenState extends State<EntityScreen> {
                       return suggestions.where((t) => t.contains(q));
                     },
                     onSelected: _addTag,
-                    fieldViewBuilder: (ctx, ctrl, fn, onSubmit) => TextField(
-                      controller: ctrl,
-                      focusNode: fn,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'tag…',
-                        isDense: true,
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      ),
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: _addTag,
-                    ),
-                    optionsViewBuilder: (ctx, onSelected, options) => Align(
-                      alignment: Alignment.topLeft,
-                      child: Material(
-                        color: AppColors.surfaceElevated,
-                        elevation: 4,
-                        child: ConstrainedBox(
-                          constraints:
-                              const BoxConstraints(maxHeight: 160, maxWidth: 180),
-                          child: ListView(
-                            shrinkWrap: true,
-                            children: options
-                                .map((t) => ListTile(
-                                      dense: true,
-                                      title: Text(t,
-                                          style: const TextStyle(fontSize: 13)),
-                                      onTap: () => onSelected(t),
-                                    ))
-                                .toList(),
+                    fieldViewBuilder:
+                        (ctx, ctrl, fn, onSubmit) => TextField(
+                          controller: ctrl,
+                          focusNode: fn,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            hintText: 'tag…',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: _addTag,
+                        ),
+                    optionsViewBuilder:
+                        (ctx, onSelected, options) => Align(
+                          alignment: Alignment.topLeft,
+                          child: Material(
+                            color: AppColors.surfaceElevated,
+                            elevation: 4,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxHeight: 160,
+                                maxWidth: 180,
+                              ),
+                              child: ListView(
+                                shrinkWrap: true,
+                                children:
+                                    options
+                                        .map(
+                                          (t) => ListTile(
+                                            dense: true,
+                                            title: Text(
+                                              t,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            onTap: () => onSelected(t),
+                                          ),
+                                        )
+                                        .toList(),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
                   ),
                 )
               else
@@ -522,20 +580,28 @@ class _EntityScreenState extends State<EntityScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Row(
             children: [
-              const Text('Score',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              const Text(
+                'Score',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              ),
               const SizedBox(width: 12),
               if (_entity.score != null)
                 Text(
                   _entity.score!.toStringAsFixed(1),
                   style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.score),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.score,
+                  ),
                 )
               else
-                const Text('Not set',
-                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                const Text(
+                  'Not set',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
               const Spacer(),
               if (_entity.score == null)
                 TextButton.icon(
@@ -549,7 +615,11 @@ class _EntityScreenState extends State<EntityScreen> {
                 )
               else
                 IconButton(
-                  icon: const Icon(Icons.close, size: 18, color: AppColors.textTertiary),
+                  icon: const Icon(
+                    Icons.close,
+                    size: 18,
+                    color: AppColors.textTertiary,
+                  ),
                   onPressed: () => setState(() => _entity.score = null),
                   tooltip: 'Remove score',
                 ),
@@ -579,31 +649,36 @@ class _EntityScreenState extends State<EntityScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_entity.name),
-        actions: _isEditMode
-            ? [
-                TextButton(
-                  onPressed: _cancelEdit,
-                  child: const Text('Cancel',
-                      style: TextStyle(color: AppColors.textSecondary)),
-                ),
-                TextButton(
-                  onPressed: _saveEdit,
-                  child: const Text('Save',
-                      style: TextStyle(color: AppColors.accent)),
-                ),
-              ]
-            : [
-                IconButton(
-                  icon: const Icon(Icons.open_in_new),
-                  onPressed: _openInObsidian,
-                  tooltip: 'Open in Obsidian',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.tune),
-                  onPressed: _enterEditMode,
-                  tooltip: 'Edit details',
-                ),
-              ],
+        actions:
+            _isEditMode
+                ? [
+                  TextButton(
+                    onPressed: _cancelEdit,
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _saveEdit,
+                    child: const Text(
+                      'Save',
+                      style: TextStyle(color: AppColors.accent),
+                    ),
+                  ),
+                ]
+                : [
+                  IconButton(
+                    icon: const Icon(Icons.open_in_new),
+                    onPressed: _openInObsidian,
+                    tooltip: 'Open in Obsidian',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.tune),
+                    onPressed: _enterEditMode,
+                    tooltip: 'Edit details',
+                  ),
+                ],
       ),
       body: _isEditMode ? _buildEditBody() : _buildDisplayBody(),
     );

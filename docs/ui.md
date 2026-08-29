@@ -85,7 +85,7 @@ Active tab: label + icon in `accent`. Inactive: `textTertiary`. Label style: `na
 
 **AppBar** (owned by `HomeScreen`): the title is the tab name; the `sensors` icon pushes the Sources screen; the overflow menu holds Settings, Templates, and Open Obsidian.
 
-**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Three rows: Hardcover, Obsidian, Anki desktop — icon / name+description / meta / chevron. (AnkiDroid sync is deep-link triggered, not a row.)
+**Sources screen** — not a tab. Pushed from the `sensors` AppBar icon. Rows: Obsidian, AnkiDroid (Android only), and Anki desktop — icon / name+description / meta / chevron. AnkiDroid also has the Problem Notes deep-link trigger; both entry points share one runner.
 
 ---
 
@@ -155,7 +155,7 @@ Layout per entity row:
 
 ## Sources screen layout
 
-Inbox-style list. AppBar: "Sources" title + "Sync all" outlined button (border `border`, `sync` icon + text, 12px `textSecondary`).
+Inbox-style list. AppBar: "Sources" title. Each Anki transport has its own explicit row and trigger.
 
 Row layout: icon (22px `textSecondary`) | name (500 15px) + description+meta below (13px/11px `textSecondary`/`textTertiary`) | `arrow_forward_ios` right (14px `textTertiary`). Rows with a sync in flight dim and show an `InlineSpinner`.
 

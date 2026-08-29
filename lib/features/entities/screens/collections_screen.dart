@@ -35,7 +35,8 @@ class CollectionsScreenState extends State<CollectionsScreen> {
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addController = TextEditingController();
-  final TextEditingController _newCollectionController = TextEditingController();
+  final TextEditingController _newCollectionController =
+      TextEditingController();
   final FocusNode _addFocus = FocusNode();
 
   EntityListController get _ctrl => widget.controller;
@@ -67,26 +68,31 @@ class CollectionsScreenState extends State<CollectionsScreen> {
   }
 
   void _showCollectionOptions(Collection category) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.edit,
-        label: 'Rename',
-        onTap: () => _showRenameCollection(category),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _deleteCollection(category),
-      ),
-    ]);
+    showBottomSheetMenu(
+      context,
+      items: [
+        BottomSheetMenuItem(
+          icon: Icons.edit,
+          label: 'Rename',
+          onTap: () => _showRenameCollection(category),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.delete,
+          label: 'Delete',
+          isDestructive: true,
+          onTap: () => _deleteCollection(category),
+        ),
+      ],
+    );
   }
 
   void _showRenameCollection(Collection category) async {
-    final name = await showInputDialog(context,
-        title: 'Rename collection',
-        initialValue: category.name,
-        confirmLabel: 'Rename');
+    final name = await showInputDialog(
+      context,
+      title: 'Rename collection',
+      initialValue: category.name,
+      confirmLabel: 'Rename',
+    );
     if (name != null) _ctrl.renameCollection(category, name);
   }
 
@@ -126,8 +132,10 @@ class CollectionsScreenState extends State<CollectionsScreen> {
                 decoration: const InputDecoration(
                   hintText: 'Collection name',
                   isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
                 ),
                 textInputAction: TextInputAction.done,
                 onSubmitted: _addCollection,
@@ -139,14 +147,19 @@ class CollectionsScreenState extends State<CollectionsScreen> {
               onTap: () => setState(() => _isAddingCollection = true),
               child: Container(
                 margin: const EdgeInsets.only(left: 4),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 2,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(color: AppColors.border),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.add,
-                    size: 16, color: AppColors.textTertiary),
+                child: const Icon(
+                  Icons.add,
+                  size: 16,
+                  color: AppColors.textTertiary,
+                ),
               ),
             ),
         ],
@@ -155,12 +168,13 @@ class CollectionsScreenState extends State<CollectionsScreen> {
   }
 
   Widget _buildAddBar() {
-    final catName = _ctrl.collections
-        .firstWhere(
-          (c) => c.id == _ctrl.selectedCollectionId,
-          orElse: () => Collection(id: '', name: 'collection'),
-        )
-        .name;
+    final catName =
+        _ctrl.collections
+            .firstWhere(
+              (c) => c.id == _ctrl.selectedCollectionId,
+              orElse: () => Collection(id: '', name: 'collection'),
+            )
+            .name;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -169,7 +183,10 @@ class CollectionsScreenState extends State<CollectionsScreen> {
             child: TextField(
               controller: _addController,
               focusNode: _addFocus,
-              decoration: InputDecoration(hintText: 'Add to $catName…', isDense: true),
+              decoration: InputDecoration(
+                hintText: 'Add to $catName…',
+                isDense: true,
+              ),
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.done,
               onSubmitted: _addEntity,
@@ -194,17 +211,17 @@ class CollectionsScreenState extends State<CollectionsScreen> {
         controller: _searchController,
         decoration: InputDecoration(
           hintText: 'Search…',
-          prefixIcon:
-              const Icon(Icons.search, color: AppColors.textTertiary),
-          suffixIcon: _ctrl.searchQuery.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _ctrl.searchQuery = '');
-                  },
-                )
-              : null,
+          prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary),
+          suffixIcon:
+              _ctrl.searchQuery.isNotEmpty
+                  ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _ctrl.searchQuery = '');
+                    },
+                  )
+                  : null,
           isDense: true,
         ),
         textInputAction: TextInputAction.search,
@@ -230,21 +247,32 @@ class CollectionsScreenState extends State<CollectionsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: kScreenHPad, vertical: 8),
       child: Row(
         children: [
-          Text('$count ${count == 1 ? "note" : "notes"}',
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textSecondary)),
+          Text(
+            '$count ${count == 1 ? "note" : "notes"}',
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
           const Spacer(),
           GestureDetector(
             onTap: _showSortSheet,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(sortLabel,
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.textSecondary)),
+                Text(
+                  sortLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
                 const SizedBox(width: 2),
-                const Icon(Icons.unfold_more,
-                    size: 16, color: AppColors.textSecondary),
+                const Icon(
+                  Icons.unfold_more,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
               ],
             ),
           ),
@@ -254,21 +282,25 @@ class CollectionsScreenState extends State<CollectionsScreen> {
   }
 
   void _showSortSheet() {
-    showBottomSheetMenu(context, items: [
-      for (final entry in _sortLabels.entries)
-        BottomSheetMenuItem(
-          icon: _ctrl.sortOrder == entry.key ? Icons.check : Icons.sort,
-          label: entry.value,
-          onTap: () => setState(() => _ctrl.sortOrder = entry.key),
-        ),
-    ]);
+    showBottomSheetMenu(
+      context,
+      items: [
+        for (final entry in _sortLabels.entries)
+          BottomSheetMenuItem(
+            icon: _ctrl.sortOrder == entry.key ? Icons.check : Icons.sort,
+            label: entry.value,
+            onTap: () => setState(() => _ctrl.sortOrder = entry.key),
+          ),
+      ],
+    );
   }
 
   Widget _buildEntityList() {
     final items = _ctrl.filtered;
     if (items.isEmpty) {
       return EmptyState(
-        message: _ctrl.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
+        message:
+            _ctrl.searchQuery.isEmpty ? 'Nothing here yet.' : 'No results.',
       );
     }
     return ListView.builder(
@@ -276,15 +308,20 @@ class CollectionsScreenState extends State<CollectionsScreen> {
       itemCount: items.length,
       itemBuilder: (ctx, i) {
         final entity = items[i];
-        final catName = _ctrl.collections
-            .firstWhere((c) => c.id == entity.collectionId,
-                orElse: () => Collection(id: '', name: ''))
-            .name;
+        final catName =
+            _ctrl.collections
+                .firstWhere(
+                  (c) => c.id == entity.collectionId,
+                  orElse: () => Collection(id: '', name: ''),
+                )
+                .name;
         return ListRow(
           onTap: () => widget.onOpenEntity(entity),
           onLongPress: () => _showEntityOptions(entity),
           padding: const EdgeInsets.symmetric(
-              horizontal: kScreenHPad, vertical: 13),
+            horizontal: kScreenHPad,
+            vertical: 13,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -292,11 +329,14 @@ class CollectionsScreenState extends State<CollectionsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entity.name,
-                        style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary)),
+                    Text(
+                      entity.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                     const SizedBox(height: 3),
                     Wrap(
                       spacing: 6,
@@ -305,17 +345,26 @@ class CollectionsScreenState extends State<CollectionsScreen> {
                           Text(
                             '★${entity.score!.toStringAsFixed(entity.score! % 1 == 0 ? 0 : 1)}',
                             style: const TextStyle(
-                                fontSize: 12, color: AppColors.score),
+                              fontSize: 12,
+                              color: AppColors.score,
+                            ),
                           ),
                         if (catName.isNotEmpty)
-                          Text(catName,
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.textSecondary)),
+                          Text(
+                            catName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
                         for (final tag in entity.tags.take(2))
-                          Text('#$tag',
-                              style: const TextStyle(
-                                  fontSize: 13, color: AppColors.accent)),
+                          Text(
+                            '#$tag',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.accent,
+                            ),
+                          ),
                       ],
                     ),
                   ],
@@ -325,7 +374,9 @@ class CollectionsScreenState extends State<CollectionsScreen> {
               Text(
                 formatRelative(entity.updatedAt),
                 style: const TextStyle(
-                    fontSize: 11, color: AppColors.textTertiary),
+                  fontSize: 11,
+                  color: AppColors.textTertiary,
+                ),
               ),
             ],
           ),
@@ -334,15 +385,38 @@ class CollectionsScreenState extends State<CollectionsScreen> {
     );
   }
 
-  void _showEntityOptions(Entity entity) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _deleteEntity(entity),
+  Widget _buildDiscoveryWarning() {
+    final count = _ctrl.discoveryErrors.length;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceElevated,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(8),
       ),
-    ]);
+      child: Text(
+        '$count collection discovery ${count == 1 ? "problem" : "problems"}. '
+        'Ambiguous or unreadable notes were not loaded.\n'
+        '${_ctrl.discoveryErrors.join('\n')}',
+        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+      ),
+    );
+  }
+
+  void _showEntityOptions(Entity entity) {
+    showBottomSheetMenu(
+      context,
+      items: [
+        BottomSheetMenuItem(
+          icon: Icons.delete_outline,
+          label: 'Delete',
+          isDestructive: true,
+          onTap: () => _deleteEntity(entity),
+        ),
+      ],
+    );
   }
 
   @override
@@ -362,6 +436,7 @@ class CollectionsScreenState extends State<CollectionsScreen> {
           _buildCollectionFilter(),
           if (_ctrl.selectedCollectionId != null) _buildAddBar(),
           _buildSearchBar(),
+          if (_ctrl.discoveryErrors.isNotEmpty) _buildDiscoveryWarning(),
           _buildSortBar(),
           Expanded(child: _buildEntityList()),
         ],
@@ -369,4 +444,3 @@ class CollectionsScreenState extends State<CollectionsScreen> {
     );
   }
 }
-

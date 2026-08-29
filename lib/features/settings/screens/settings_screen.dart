@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
-import '../../hardcover/services/hardcover_service.dart';
 import '../../../shared/constants/app_theme.dart';
 import '../../../shared/widgets/busy_button.dart';
 
@@ -16,18 +15,11 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _vaultPath;
 
-  // Hardcover
-  final _hardcoverTokenController = TextEditingController();
-  bool _hardcoverSaving = false;
-  String? _hardcoverSaveStatus;
-  bool _hardcoverTesting = false;
-  String? _hardcoverTestStatus;
-  bool _hardcoverTestOk = false;
-
   // Anki scan scope
   final _excludedController = TextEditingController();
   bool _excludedSaving = false;
   String? _excludedSaveStatus;
+  bool _excludedSaveFailed = false;
 
   @override
   void initState() {
@@ -37,7 +29,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _hardcoverTokenController.dispose();
     _excludedController.dispose();
     super.dispose();
   }
@@ -46,73 +37,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted || vaultPath == null) return;
     setState(() => _vaultPath = vaultPath);
-    final hardcoverToken = await HardcoverService.getToken(vaultPath);
-    if (mounted) {
-      setState(() => _hardcoverTokenController.text = hardcoverToken ?? '');
-    }
     final config = await IntegrationsConfigService.load(vaultPath);
     if (mounted) {
-      setState(() =>
-          _excludedController.text = config.excludedFolders.join(', '));
+      setState(
+        () => _excludedController.text = config.excludedFolders.join(', '),
+      );
     }
   }
 
   Future<void> _saveExcluded() async {
     final vaultPath = _vaultPath;
     if (vaultPath == null) return;
-    final folders = _excludedController.text
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
+    final folders =
+        _excludedController.text
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
     setState(() {
       _excludedSaving = true;
       _excludedSaveStatus = null;
+      _excludedSaveFailed = false;
     });
-    await IntegrationsConfigService.setExcludedFolders(vaultPath, folders);
+    final saved = await IntegrationsConfigService.setExcludedFolders(
+      vaultPath,
+      folders,
+    );
     if (mounted) {
       setState(() {
         _excludedSaving = false;
-        _excludedSaveStatus = 'Saved.';
+        _excludedSaveFailed = !saved;
+        _excludedSaveStatus = saved ? 'Saved.' : 'Save failed.';
       });
     }
   }
 
-  Future<void> _saveHardcoverToken() async {
-    final vaultPath = _vaultPath;
-    if (vaultPath == null) return;
-    final token = _hardcoverTokenController.text.trim();
-    setState(() {
-      _hardcoverSaving = true;
-      _hardcoverSaveStatus = null;
-    });
-    await HardcoverService.setToken(vaultPath, token);
-    if (mounted) {
-      setState(() {
-        _hardcoverSaving = false;
-        _hardcoverSaveStatus = token.isEmpty ? 'Token cleared.' : 'Token saved.';
-      });
-    }
-  }
-
-  Future<void> _testHardcoverConnection() async {
-    await _saveHardcoverToken();
-    setState(() {
-      _hardcoverTesting = true;
-      _hardcoverTestStatus = null;
-    });
-    final token = _hardcoverTokenController.text.trim();
-    final error = await HardcoverService.testConnection(token);
-    if (mounted) {
-      setState(() {
-        _hardcoverTesting = false;
-        _hardcoverTestOk = error == null;
-        _hardcoverTestStatus = error == null ? 'Connected' : 'Failed — $error';
-      });
-    }
-  }
-
-  InputDecoration _tokenDecoration(String label, String hint) =>
+  InputDecoration _fieldDecoration(String label, String hint) =>
       InputDecoration(
         labelText: label,
         hintText: hint,
@@ -131,43 +91,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // ── Hardcover ────────────────────────────────────────────────────
-            const _SettingsSection(
-              title: 'Hardcover',
-              description:
-                  'Import your Hardcover reading library into the Books '
-                  'collection. Find your API token at hardcover.app/account/api. '
-                  'Token expires annually on January 1st.',
-            ),
-            TextField(
-              controller: _hardcoverTokenController,
-              obscureText: true,
-              decoration: _tokenDecoration(
-                  'API Token', 'Paste your Hardcover API token'),
-              autocorrect: false,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _saveHardcoverToken(),
-            ),
-            const SizedBox(height: 12),
-            BusyButton(
-              label: 'Save Token',
-              busy: _hardcoverSaving,
-              onPressed: _saveHardcoverToken,
-            ),
-            _StatusLine(_hardcoverSaveStatus),
-            const SizedBox(height: 12),
-            BusyButton(
-              label: 'Test Connection',
-              busy: _hardcoverTesting,
-              onPressed: _testHardcoverConnection,
-            ),
-            _StatusLine(
-              _hardcoverTestStatus,
-              color: _hardcoverTestOk
-                  ? Colors.green.shade700
-                  : AppColors.destructive,
-            ),
-
             // ── Anki sync scope ──────────────────────────────────────────────
             const _SettingsSection(
               title: 'Anki sync',
@@ -177,8 +100,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             TextField(
               controller: _excludedController,
-              decoration: _tokenDecoration('Excluded folders',
-                  'Interesting, .obsidian, Templates, Attachments'),
+              decoration: _fieldDecoration(
+                'Excluded folders',
+                'Interesting, .obsidian, Templates, Attachments',
+              ),
               autocorrect: false,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _saveExcluded(),
@@ -189,7 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               busy: _excludedSaving,
               onPressed: _saveExcluded,
             ),
-            _StatusLine(_excludedSaveStatus),
+            _StatusLine(_excludedSaveStatus, isError: _excludedSaveFailed),
           ],
         ),
       ),
@@ -231,16 +156,22 @@ class _SettingsSection extends StatelessWidget {
 /// while the status is null.
 class _StatusLine extends StatelessWidget {
   final String? status;
-  final Color color;
+  final bool isError;
 
-  const _StatusLine(this.status, {this.color = AppColors.textSecondary});
+  const _StatusLine(this.status, {required this.isError});
 
   @override
   Widget build(BuildContext context) {
     if (status == null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: Text(status!, style: TextStyle(color: color, fontSize: 13)),
+      child: Text(
+        status!,
+        style: TextStyle(
+          color: isError ? AppColors.destructive : AppColors.textSecondary,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 }

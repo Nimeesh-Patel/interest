@@ -7,7 +7,7 @@ import 'anki_transport.dart';
 /// Android only — on other platforms every call fails closed (isAvailable
 /// returns false).
 class AnkiDroidTransport extends AnkiTransport {
-  static const _channel = MethodChannel('com.nimeesh.interest/ankidroid');
+  static const _channel = MethodChannel('dev.interest.app/ankidroid');
 
   @override
   String get displayName => 'AnkiDroid';
@@ -79,35 +79,27 @@ class AnkiDroidTransport extends AnkiTransport {
   }
 
   @override
-  Future<bool> noteExists(int noteId) async {
+  Future<bool?> noteExists(int noteId) async {
     try {
       return await _channel.invokeMethod<bool>('noteExists', {
             'noteId': noteId,
           }) ??
           false;
     } catch (_) {
-      return false;
-    }
-  }
-
-  @override
-  Future<String?> currentDeck(int noteId) async {
-    try {
-      return await _channel.invokeMethod<String>('getCardDeck', {
-        'noteId': noteId,
-      });
-    } catch (_) {
       return null;
     }
   }
 
   @override
-  Future<void> moveToDeck(int noteId, String deckName) async {
+  Future<bool> moveToDeck(int noteId, String deckName) async {
     try {
-      await _channel.invokeMethod<bool>('moveNoteToDeck', {
-        'noteId': noteId,
-        'deckName': deckName,
-      });
-    } catch (_) {}
+      return await _channel.invokeMethod<bool>('moveNoteToDeck', {
+            'noteId': noteId,
+            'deckName': deckName,
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 }

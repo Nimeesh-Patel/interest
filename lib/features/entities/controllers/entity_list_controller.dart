@@ -16,6 +16,7 @@ class EntityListController {
   List<Entity> entities = [];
   List<Collection> collections = [];
   List<String> tags = [];
+  List<String> discoveryErrors = [];
 
   String? selectedCollectionId;
   String searchQuery = '';
@@ -53,6 +54,7 @@ class EntityListController {
     entities = data.entities;
     collections = data.collections;
     tags = data.tags;
+    discoveryErrors = data.errors;
   }
 
   /// Initial load; caller is responsible for triggering setState after this.
@@ -99,7 +101,10 @@ class EntityListController {
   void addCollection(String name) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final id = MarkdownStorageService.generateCollectionId(trimmed, collections);
+    final id = MarkdownStorageService.generateCollectionId(
+      trimmed,
+      collections,
+    );
     collections.add(Collection(id: id, name: trimmed));
     onDataChanged();
   }

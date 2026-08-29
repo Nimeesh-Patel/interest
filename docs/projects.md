@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Unified semantic workspace layer. Projects are flexible Markdown files that can hold task outlines, reading queues, scratchpads, structured plans, or any other working list — without imposing a productivity ontology on the user.
+Unified workspace shell for two explicit Markdown projections: flexible todo outlines and constrained flat lists. It does not impose scheduling or productivity metadata.
 
 Projects replace the former separate Lists and Todos subsystems. That distinction was artificial; both were Markdown files with list-like content. The unified Projects subsystem presents them in a single projection.
 
@@ -12,10 +12,10 @@ Projects replace the former separate Lists and Todos subsystems. That distinctio
 
 Projects are **not** a task-management industrial complex. They are:
 
-- Flexible semantic canvases — no required structure beyond an optional H1 heading
+- Todo-style semantic canvases with no required structure beyond an optional H1 heading
 - Markdown-native — editable directly in Obsidian or any editor
 - Ephemeral working spaces — hard-deleted when no longer needed, no trash
-- Structurally open-ended — a project file can contain anything a Markdown file can
+- Explicitly constrained list-style files containing only an H1 and flat `- item` rows
 
 **Do not add** due dates, reminders, scheduling, Kanban boards, priorities, time tracking, or recurring tasks. The system intentionally does not model these to avoid second-order productivity overhead.
 
@@ -78,7 +78,7 @@ type: list
 - YAML frontmatter with `type: list` is the only frontmatter field used
 - H1 is the list name
 - `- text` lines are list items (no checkboxes, no nesting)
-- File is rebuilt on every save (safe — list files have no user prose sections)
+- File is rebuilt on every save; content outside the declared H1/flat-item format is not part of this projection and is discarded
 
 List-style files are opened with `ProjectListDetailScreen`.
 
@@ -174,13 +174,13 @@ After type selection, `showInputDialog` prompts for a name. On success, the proj
 
 `lib/features/projects/screens/project_list_detail_screen.dart`
 
-Flat list editor for list-style project files. Does not depend on `ListStorageService` — reads and writes the file directly.
+Flat list editor for list-style project files. It delegates file writes and renames to `ProjectStorageService`; the screen owns only the constrained item projection.
 
 **Load**: `splitFrontmatter()` strips YAML, then parses lines: the first `# ` line sets the title; `- ` lines become items. Lines that are neither H1 nor `- ` prefixed (H2+, blank, prose) are silently skipped on load and lost on the next save.
 
-**Save**: rebuilds the full file as `---\ntype: list\n---\n# $title\n\n- item1\n- item2\n`. Rebuild-on-save is safe because list files have no user prose sections.
+**Save**: asks `ProjectStorageService.saveProjectContent` to rebuild the full file as `---\ntype: list\n---\n# $title\n\n- item1\n- item2\n`. Any content outside this constrained format is lost.
 
-**Rename**: patches H1 and renames the file directly (does not call `ProjectStorageService.renameProject` — `vaultPath` is not available in the screen). Calls `widget.onRenamed` on completion so `ProjectsScreen` reloads.
+**Rename**: calls `ProjectStorageService.renameProjectByPath`, then calls `widget.onRenamed` so `ProjectsScreen` reloads.
 
 **UI**: `ReorderableListView.builder` — tap to edit inline, delete icon, drag handle. FAB adds item via `showInputDialog`. AppBar trailing (`Icons.more_vert`) opens a bottom sheet with a Rename option.
 

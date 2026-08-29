@@ -5,13 +5,13 @@ Interest is a small Android (and Windows) companion to an Obsidian vault. It doe
 1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
 2. **Inbox** — capture loose Markdown, including unfinished items and tangents, in one persistent `Interesting/Inbox.md` document.
 3. **Projects** — a lightweight todo/project workspace.
-4. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion [**Problem Notes** Obsidian plugin](https://github.com/Nimeesh-Patel/Problem-Notes).
+4. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion **Problem Notes** Obsidian plugin.
 
 It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Vault-root note integrations only patch frontmatter; Interest owns the Markdown bodies under `Interesting/` that back Inbox and Projects.
 
 ## The Problem Note
 
-A Problem Note is any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below.
+A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card only when both sides are non-empty; a blank template or unfinished capture remains a Problem Note without becoming a review card yet.
 
 ```markdown
 What makes Interest a good Obsidian-to-Anki bridge?
@@ -30,15 +30,13 @@ The framing is deliberate: the front is a problem, the back is your current best
 
 ## The companion plugin
 
-Rendering, viewing, editing, backlinks, and `[[wikilink]]` traversal of `***` notes all live in **Obsidian** now — the **Problem Notes** Obsidian plugin renders a `***` note with tap-to-reveal directly in Obsidian, far better than an in-app viewer could. Interest no longer has a note viewer or traversal layer; it deleted that role entirely.
+Editing, backlinks, and tap-to-reveal review of `***` notes live in **Obsidian**. The **Problem Notes** plugin owns that review surface. Interest's Collections screen separately renders an entity note body read-only and sends its wikilinks to Obsidian; it is not a Problem Note reviewer.
 
 The plugin and the app meet at one contract: the plugin's "sync to AnkiDroid" button fires the `interest://sync-anki` deep link. `MainActivity` (`launchMode=singleTop`) receives it — cold start through `pendingSyncAnki`, running app through `onNewIntent` — and **Interest comes to the foreground and runs the sync there**, reporting the result in a snackbar.
 
-That foreground behaviour is the intended design, not a limitation. An earlier iteration tried the opposite — a headless foreground service plus a transparent-activity trampoline, reporting progress as a notification so you never left Obsidian. It never synced on a real device and was reverted. **It must not be reintroduced.** This paragraph described that reverted design until 2026-08-05, which is worse than describing nothing: it reads as a specification to restore.
-
 ## The sync
 
-**One-way: vault → Anki.** The Markdown files are always the source of truth. Anki never writes into the vault; review history, intervals, and FSRS state stay on Anki's side and Interest never sees them. The single thing written back to a note is an `anki_note_id` frontmatter key (a surgical frontmatter patch), so re-syncs update the existing card instead of duplicating it. This is structural, not a setting — **no code path in the sync touches a note body**, so it cannot alter what you wrote.
+**One-way: vault → Anki.** The Markdown files are always the source of truth. Anki never writes into the vault; review history, intervals, and FSRS state stay on Anki's side and Interest never sees them. The single thing written back to a note is an `anki_note_id` frontmatter key (a surgical frontmatter patch), so re-syncs update the existing card instead of duplicating it. This is structural, not a setting — **no code path in the sync touches a note body**, so it cannot alter what you wrote. Discovery refuses rollback/history, trash, templates, attachments, Basic Memory, Interest system files, unreadable scans, and duplicate active IDs before changing cards.
 
 Two transports share one sync core and one `anki_note_id`:
 
@@ -53,13 +51,9 @@ What you give up: one note is one card (no multi-card extraction); cards use Ank
 
 | System | Owns |
 |---|---|
-| **Obsidian** (+ Problem Notes plugin) | Editing, viewing, `***` rendering, backlinks, wikilink traversal. The vault's Markdown files are the only canonical data. |
-| **Interest** | Collections, Inbox, Projects, and the one-way Anki sync engine. |
+| **Obsidian** (+ Problem Notes plugin) | Canonical editing, `***` review rendering, backlinks, and full wikilink traversal. The vault's Markdown files are the only canonical data. |
+| **Interest** | Collections (including a read-only entity-body view), Inbox, Projects, and the one-way Anki sync engine. |
 | **AnkiDroid / Anki desktop** | Retention. FSRS scheduling and drilling, fed by the one-way push. |
-
-## Books (Hardcover)
-
-A Hardcover book is just an ordinary entity: a vault-root note with `collection: Books` and a `hardcover_id`, browsable in the Collections tab like any other note. Syncing from Hardcover (Sources → Hardcover) pulls your reading library in, creating or frontmatter-patching one note per book — never rewriting a body. There is no separate Books subsystem.
 
 ## Running it
 
@@ -76,7 +70,7 @@ For the Anki bridge: add `***` to a note, then either tap the Problem Notes plug
 
 ## Architecture in brief
 
-Flutter, `setState` only. Storage uses all-static services that never throw; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Two invariants matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, `***` makes it a card — a note can be both), and vault-root integrations patch frontmatter without replacing user prose. Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
+Flutter, `setState` only. Expected failures cross service boundaries as explicit results; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Two invariants matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, a non-empty `***` split makes it card-ready — a note can be both), and vault-root integrations patch frontmatter without replacing user prose. Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
 
 Subsystem detail: [docs/](docs/) — [Inbox and its provider](docs/inbox.md), [Anki sync & the deep-link contract](docs/anki.md), [entities & collections](docs/entities.md), [projects](docs/projects.md), [tasks parser](docs/tasks.md), [UI](docs/ui.md), [mobile UX](docs/mobile_ux.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
 

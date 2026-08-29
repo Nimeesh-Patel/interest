@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/integrations_config_service.dart';
-import '../core/vault_service.dart';
 import '../features/entities/controllers/entity_list_controller.dart';
 import '../features/entities/models/entity.dart';
 import '../features/entities/screens/collections_screen.dart';
@@ -20,11 +18,11 @@ import '../shared/widgets/quick_add_sheet.dart';
 import '../shared/widgets/snack.dart';
 
 /// Three-tab shell: Collections (0, landing), Inbox (1), and Projects (2).
-/// Note viewing, editing, and traversal live in Obsidian; Interest is a
-/// Collections + Inbox + Projects
-/// tool plus a one-way Anki sync triggered by the `interest://sync-anki` deep
-/// link from the Problem Notes Obsidian plugin. The deep link opens this app
-/// (foreground) and runs the sync here; result shows in a snackbar.
+/// Collections + Inbox + Projects tool plus a one-way Anki sync triggered by
+/// the `interest://sync-anki` deep link from the Problem Notes Obsidian plugin.
+/// Problem Note review/editing lives in Obsidian; Collections has a read-only
+/// entity-body view. The deep link opens this app in the foreground and runs
+/// the sync here.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -33,7 +31,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static final _deeplinkChannel = MethodChannel('com.nimeesh.interest/deeplink');
+  static final _deeplinkChannel = MethodChannel('dev.interest.app/deeplink');
 
   final _projectsKey = GlobalKey<ProjectsScreenState>();
 
@@ -55,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final syncAnki =
           await _deeplinkChannel.invokeMethod<bool>('getInitialSyncAnki') ??
-              false;
+          false;
       if (syncAnki && mounted) _syncAnkiFromDeeplink();
     });
   }
@@ -63,10 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     await _controller.loadData();
     if (mounted) setState(() => _isLoading = false);
-    final vault = await VaultService.getVaultPath();
-    if (vault != null) {
-      await IntegrationsConfigService.migrateFromPrefs(vault);
-    }
   }
 
   Future<void> _onDeeplinkMethod(MethodCall call) async {
@@ -86,13 +80,14 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => EntityScreen(
-          entity: entity,
-          storage: _controller.storage,
-          allEntities: _controller.entities,
-          allCollections: _controller.collections,
-          allTags: _controller.tags,
-        ),
+        builder:
+            (_) => EntityScreen(
+              entity: entity,
+              storage: _controller.storage,
+              allEntities: _controller.entities,
+              allCollections: _controller.collections,
+              allTags: _controller.tags,
+            ),
       ),
     );
     await _controller.reloadData();
@@ -134,10 +129,11 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.sensors),
             tooltip: 'Sources',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SourcesScreen()),
-            ),
+            onPressed:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SourcesScreen()),
+                ),
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
@@ -149,44 +145,46 @@ class _HomeScreenState extends State<HomeScreen> {
                 launchObsidianApp(context);
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'settings', child: Text('Settings')),
-              PopupMenuItem(value: 'templates', child: Text('Templates')),
-              PopupMenuItem(value: 'obsidian', child: Text('Open Obsidian')),
-            ],
+            itemBuilder:
+                (_) => const [
+                  PopupMenuItem(value: 'settings', child: Text('Settings')),
+                  PopupMenuItem(value: 'templates', child: Text('Templates')),
+                  PopupMenuItem(
+                    value: 'obsidian',
+                    child: Text('Open Obsidian'),
+                  ),
+                ],
           ),
         ],
       ),
       body: IndexedStack(
         index: _currentTab,
         children: [
-          CollectionsScreen(
-            controller: _controller,
-            onOpenEntity: _openEntity,
-          ),
+          CollectionsScreen(controller: _controller, onOpenEntity: _openEntity),
           const InboxScreen(),
           ProjectsScreen(key: _projectsKey),
         ],
       ),
       floatingActionButton: switch (_currentTab) {
         0 => AppFab(
-            tooltip: 'Add to collection',
-            onTap: () => showQuickAddSheet(
-              context,
-              entities: _controller.entities,
-              collections: _controller.collections,
-              storage: _controller.storage,
-              onCreated: (entity) async {
-                await _controller.reloadData();
-                if (mounted) await _openEntity(entity);
-              },
-            ),
-          ),
+          tooltip: 'Add to collection',
+          onTap:
+              () => showQuickAddSheet(
+                context,
+                entities: _controller.entities,
+                collections: _controller.collections,
+                storage: _controller.storage,
+                onCreated: (entity) async {
+                  await _controller.reloadData();
+                  if (mounted) await _openEntity(entity);
+                },
+              ),
+        ),
         1 => null,
         _ => AppFab(
-            tooltip: 'New project',
-            onTap: () => _projectsKey.currentState?.showCreateDialog(context),
-          ),
+          tooltip: 'New project',
+          onTap: () => _projectsKey.currentState?.showCreateDialog(context),
+        ),
       },
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(

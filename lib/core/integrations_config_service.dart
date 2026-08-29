@@ -1,33 +1,24 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yaml/yaml.dart';
 
 import '../shared/markdown/md_utils.dart';
 
 class IntegrationsConfig {
-  static const _defaultExcluded = [
-    'Interesting', '.obsidian', 'Templates', 'Attachments'
-  ];
-
-  final String? hardcoverToken;
-
   /// AnkiConnect endpoint override; null means the transport default
   /// (http://127.0.0.1:8765). Set by hand-editing the `## AnkiConnect`
   /// section in integrations.md — there is no in-app editor.
   final String? ankiConnectUrl;
 
-  /// Folders the Anki sync skips when scanning the vault for `***` problem
-  /// notes. (Section name `## Resurface` is preserved in integrations.md for
-  /// backward compatibility with existing vaults.)
+  /// Additional authored folders the Anki sync skips. The non-current/system
+  /// boundary is enforced centrally by CurrentVaultContent and cannot be
+  /// weakened through configuration. (The `## Resurface` section name remains
+  /// for compatibility with existing vaults.)
   final List<String> excludedFolders;
 
-  const IntegrationsConfig({
-    this.hardcoverToken,
-    this.ankiConnectUrl,
-    List<String>? excludedFolders,
-  }) : excludedFolders = excludedFolders ?? _defaultExcluded;
+  const IntegrationsConfig({this.ankiConnectUrl, List<String>? excludedFolders})
+    : excludedFolders = excludedFolders ?? const [];
 }
 
 class IntegrationsConfigService {
@@ -44,8 +35,10 @@ class IntegrationsConfigService {
       final split = splitFrontmatter(content);
       final sections = parseSectionsH2(split.body);
       return IntegrationsConfig(
-        hardcoverToken: _parseScalarSection(sections['Hardcover'] ?? '', 'token'),
-        ankiConnectUrl: _parseScalarSection(sections['AnkiConnect'] ?? '', 'url'),
+        ankiConnectUrl: _parseScalarSection(
+          sections['AnkiConnect'] ?? '',
+          'url',
+        ),
         excludedFolders: _parseExcludedSection(sections['Resurface'] ?? ''),
       );
     } catch (_) {
@@ -55,48 +48,29 @@ class IntegrationsConfigService {
 
   // ── Save ──────────────────────────────────────────────────────────────────
 
-  static Future<void> save(String vaultPath, IntegrationsConfig config) async {
+  static Future<bool> save(String vaultPath, IntegrationsConfig config) async {
     try {
       final file = File(configPath(vaultPath));
       await file.parent.create(recursive: true);
       await file.writeAsString(_buildContent(config));
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
-  // ── Token convenience methods ─────────────────────────────────────────────
-
-  static Future<String?> getHardcoverToken(String vaultPath) async =>
-      (await load(vaultPath)).hardcoverToken;
-
-  static Future<void> setHardcoverToken(String vaultPath, String? token) async {
+  static Future<bool> setExcludedFolders(
+    String vaultPath,
+    List<String> folders,
+  ) async {
     final c = await load(vaultPath);
-    await save(vaultPath, IntegrationsConfig(
-      hardcoverToken: token,
-      ankiConnectUrl: c.ankiConnectUrl,
-      excludedFolders: c.excludedFolders,
-    ));
-  }
-
-  static Future<void> setExcludedFolders(
-      String vaultPath, List<String> folders) async {
-    final c = await load(vaultPath);
-    await save(vaultPath, IntegrationsConfig(
-      hardcoverToken: c.hardcoverToken,
-      ankiConnectUrl: c.ankiConnectUrl,
-      excludedFolders: folders,
-    ));
-  }
-
-  // ── Migration from SharedPreferences (idempotent) ─────────────────────────
-
-  static Future<void> migrateFromPrefs(String vaultPath) async {
-    try {
-      if (await File(configPath(vaultPath)).exists()) return;
-      final prefs = await SharedPreferences.getInstance();
-      final hardcoverToken = prefs.getString('hardcover_api_token');
-      if (hardcoverToken == null) return;
-      await save(vaultPath, IntegrationsConfig(hardcoverToken: hardcoverToken));
-    } catch (_) {}
+    return save(
+      vaultPath,
+      IntegrationsConfig(
+        ankiConnectUrl: c.ankiConnectUrl,
+        excludedFolders: folders,
+      ),
+    );
   }
 
   // ── Private: parsing ──────────────────────────────────────────────────────
@@ -114,16 +88,16 @@ class IntegrationsConfigService {
   }
 
   static List<String> _parseExcludedSection(String sectionContent) {
-    if (sectionContent.trim().isEmpty) return IntegrationsConfig._defaultExcluded;
+    if (sectionContent.trim().isEmpty) return const [];
     try {
       final yaml = loadYaml(sectionContent.trim());
-      if (yaml is! YamlMap) return IntegrationsConfig._defaultExcluded;
+      if (yaml is! YamlMap) return const [];
       final raw = yaml['excluded_folders'];
-      if (raw is! YamlList) return IntegrationsConfig._defaultExcluded;
+      if (raw is! YamlList) return const [];
       final result = raw.map((e) => e.toString()).toList();
-      return result.isEmpty ? IntegrationsConfig._defaultExcluded : result;
+      return result;
     } catch (_) {
-      return IntegrationsConfig._defaultExcluded;
+      return const [];
     }
   }
 
@@ -136,13 +110,6 @@ class IntegrationsConfigService {
     buf.writeln('type: system_config');
     buf.writeln('updated_at: $now');
     buf.writeln('---');
-
-    buf.writeln();
-    buf.writeln('## Hardcover');
-    buf.writeln();
-    if (config.hardcoverToken != null && config.hardcoverToken!.isNotEmpty) {
-      buf.writeln('token: ${yamlScalar(config.hardcoverToken!)}');
-    }
 
     buf.writeln();
     buf.writeln('## AnkiConnect');

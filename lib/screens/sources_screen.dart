@@ -6,7 +6,6 @@ import '../core/integrations_config_service.dart';
 import '../core/vault_service.dart';
 import '../shared/utils/obsidian_launcher.dart';
 
-import '../features/hardcover/screens/hardcover_screen.dart';
 import '../features/anki/services/anki_connect_transport.dart';
 import '../features/anki/services/anki_sync_controller.dart';
 import '../features/anki/services/anki_sync_runner.dart';
@@ -41,16 +40,6 @@ class _SourcesScreenState extends State<SourcesScreen> {
         child: ListView(
           children: [
             _SourceRow(
-              icon: Icons.auto_stories,
-              name: 'Hardcover',
-              description: 'Import your reading list into Books',
-              meta: 'Books',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const _HardcoverPage()),
-              ),
-            ),
-            _SourceRow(
               icon: Icons.folder_open,
               name: 'Obsidian',
               description: 'Open the vault',
@@ -63,9 +52,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
               _SourceRow(
                 icon: Icons.style,
                 name: 'AnkiDroid',
-                description: _syncingAnkiDroid
-                    ? 'Syncing problem notes…'
-                    : 'Push problem notes to AnkiDroid',
+                description:
+                    _syncingAnkiDroid
+                        ? 'Syncing problem notes…'
+                        : 'Push problem notes to AnkiDroid',
                 meta: 'Flashcard sync',
                 busy: _syncingAnkiDroid,
                 onTap: _syncAnkiDroid,
@@ -73,9 +63,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
             _SourceRow(
               icon: Icons.desktop_windows,
               name: 'Anki desktop',
-              description: _syncingAnkiConnect
-                  ? 'Syncing problem notes…'
-                  : 'Push problem notes via AnkiConnect',
+              description:
+                  _syncingAnkiConnect
+                      ? 'Syncing problem notes…'
+                      : 'Push problem notes via AnkiConnect',
               meta: 'Flashcard sync',
               busy: _syncingAnkiConnect,
               onTap: _syncAnkiConnect,
@@ -88,8 +79,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
 
   Future<void> _syncAnkiDroid() async {
     if (_ankiBusy) return;
-    await runAnkiDroidSync(context,
-        onBusy: (busy) => setState(() => _syncingAnkiDroid = busy));
+    await runAnkiDroidSync(
+      context,
+      onBusy: (busy) => setState(() => _syncingAnkiDroid = busy),
+    );
   }
 
   Future<void> _syncAnkiConnect() async {
@@ -107,8 +100,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
     final available = await transport.isAvailable();
     if (!mounted) return;
     if (!available) {
-      showSnack(context,
-          'Anki desktop not reachable — is Anki running with AnkiConnect installed?');
+      showSnack(
+        context,
+        'Anki desktop not reachable — is Anki running with AnkiConnect installed?',
+      );
       return;
     }
 
@@ -120,18 +115,21 @@ class _SourcesScreenState extends State<SourcesScreen> {
     }
 
     await _runAnkiSync(
-        transport, (busy) => setState(() => _syncingAnkiConnect = busy));
+      transport,
+      (busy) => setState(() => _syncingAnkiConnect = busy),
+    );
   }
 
   Future<void> _runAnkiSync(
-      AnkiTransport transport, void Function(bool) setBusy) async {
+    AnkiTransport transport,
+    void Function(bool) setBusy,
+  ) async {
     setBusy(true);
     final result = await AnkiSyncController.sync(transport);
     if (!mounted) return;
     setBusy(false);
     showAnkiSyncResult(context, transport, result);
   }
-
 }
 
 class _SourceRow extends StatelessWidget {
@@ -160,11 +158,11 @@ class _SourceRow extends StatelessWidget {
       onTap: tappable ? onTap : null,
       child: Row(
         children: [
-          Icon(icon,
-              size: 22,
-              color: tappable
-                  ? AppColors.textSecondary
-                  : AppColors.textTertiary),
+          Icon(
+            icon,
+            size: 22,
+            color: tappable ? AppColors.textSecondary : AppColors.textTertiary,
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -174,20 +172,19 @@ class _SourceRow extends StatelessWidget {
                 Text(
                   name,
                   style: AppTextStyles.entityName.copyWith(
-                    color: tappable
-                        ? AppColors.textPrimary
-                        : AppColors.textTertiary,
+                    color:
+                        tappable
+                            ? AppColors.textPrimary
+                            : AppColors.textTertiary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Row(
                   children: [
                     Expanded(
-                      child: Text(description,
-                          style: AppTextStyles.bodySmall),
+                      child: Text(description, style: AppTextStyles.bodySmall),
                     ),
-                    Text(meta,
-                        style: AppTextStyles.metaMuted),
+                    Text(meta, style: AppTextStyles.metaMuted),
                   ],
                 ),
               ],
@@ -197,44 +194,13 @@ class _SourceRow extends StatelessWidget {
           if (busy)
             const InlineSpinner(size: 14)
           else if (tappable)
-            const Icon(Icons.arrow_forward_ios,
-                size: 14, color: AppColors.textTertiary),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 14,
+              color: AppColors.textTertiary,
+            ),
         ],
       ),
-    );
-  }
-}
-
-// Wraps HardcoverScreen (body-only) with a full Scaffold, AppBar, and actions.
-class _HardcoverPage extends StatefulWidget {
-  const _HardcoverPage();
-
-  @override
-  State<_HardcoverPage> createState() => _HardcoverPageState();
-}
-
-class _HardcoverPageState extends State<_HardcoverPage> {
-  final _key = GlobalKey<HardcoverScreenState>();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hardcover'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search Hardcover',
-            onPressed: () => _key.currentState?.openSearchSheet(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.sync),
-            tooltip: 'Sync with Hardcover',
-            onPressed: () => _key.currentState?.sync(),
-          ),
-        ],
-      ),
-      body: HardcoverScreen(key: _key),
     );
   }
 }

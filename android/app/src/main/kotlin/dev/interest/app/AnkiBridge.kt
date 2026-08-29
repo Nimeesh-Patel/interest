@@ -1,4 +1,4 @@
-package com.nimee.people_tracker
+package dev.interest.app
 
 import android.app.Activity
 import android.content.ContentValues
@@ -22,7 +22,7 @@ class AnkiBridge(private val activity: Activity) {
     private val ctx get() = activity.applicationContext
 
     companion object {
-        const val CHANNEL = "com.nimeesh.interest/ankidroid"
+        const val CHANNEL = "dev.interest.app/ankidroid"
         const val PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
         const val PERMISSION_REQUEST_CODE = 1001
     }
@@ -131,12 +131,6 @@ class AnkiBridge(private val activity: Activity) {
                 result.success(api.getNote(noteId) != null)
             }
 
-            "getCardDeck" -> {
-                val noteId = call.argument<Long>("noteId") ?: -1L
-                val api = AddContentApi(ctx)
-                result.success(getCardDeckName(api, noteId))
-            }
-
             "moveNoteToDeck" -> {
                 val noteId = call.argument<Long>("noteId") ?: -1L
                 val deckName = call.argument<String>("deckName") ?: ""
@@ -167,19 +161,6 @@ class AnkiBridge(private val activity: Activity) {
 
     private fun cardsUriFor(noteId: Long): Uri =
         Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, "$noteId/cards")
-
-    private fun getCardDeckName(api: AddContentApi, noteId: Long): String? {
-        return try {
-            ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
-                if (!c.moveToFirst()) return null
-                val idx = c.getColumnIndex(FlashCardsContract.Card.DECK_ID)
-                if (idx < 0) return null
-                api.getDeckList()?.get(c.getLong(idx))
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
 
     private fun moveCardsToDeck(noteId: Long, deckId: Long): Boolean {
         return try {

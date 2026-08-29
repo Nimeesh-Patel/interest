@@ -85,8 +85,7 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
     await _save();
   }
 
-  void _onReorder(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex--;
+  void _onReorderItem(int oldIndex, int newIndex) async {
     setState(() {
       final item = _items.removeAt(oldIndex);
       _items.insert(newIndex, item);
@@ -156,7 +155,7 @@ class _ProjectListDetailScreenState extends State<ProjectListDetailScreen> {
                 : ReorderableListView.builder(
                     padding: const EdgeInsets.only(bottom: kFabListBottomPad),
                     itemCount: _items.length,
-                    onReorder: _onReorder,
+                    onReorderItem: _onReorderItem,
                     itemBuilder: (ctx, i) {
                       final item = _items[i];
                       if (_editingIndex == i) {

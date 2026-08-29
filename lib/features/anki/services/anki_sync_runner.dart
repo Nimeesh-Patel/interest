@@ -11,8 +11,10 @@ import 'anki_transport.dart';
 /// reports the outcome through [showAnkiSyncResult]. Shared by the Sources
 /// screen's AnkiDroid row and the `interest://sync-anki` deep link so both
 /// behave identically. [onBusy] lets a caller reflect progress in its own UI.
-Future<void> runAnkiDroidSync(BuildContext context,
-    {void Function(bool busy)? onBusy}) async {
+Future<void> runAnkiDroidSync(
+  BuildContext context, {
+  void Function(bool busy)? onBusy,
+}) async {
   final transport = AnkiDroidTransport();
 
   final available = await transport.isAvailable();
@@ -40,7 +42,10 @@ Future<void> runAnkiDroidSync(BuildContext context,
 /// with messages, otherwise a one-line summary snackbar. A null result means
 /// no vault was configured.
 void showAnkiSyncResult(
-    BuildContext context, AnkiTransport transport, AnkiSyncResult? result) {
+  BuildContext context,
+  AnkiTransport transport,
+  AnkiSyncResult? result,
+) {
   if (result == null) {
     showSnack(context, 'No vault configured');
     return;
@@ -48,28 +53,37 @@ void showAnkiSyncResult(
 
   final total = result.added + result.updated;
 
-  if (result.failed > 0 && result.errors.isNotEmpty) {
+  if (!result.isSuccessful) {
+    final summary = StringBuffer(
+      '${result.added + result.updated} changed, ${result.failed} failed',
+    );
+    if (result.skipped > 0) summary.write(', ${result.skipped} not attempted');
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title:
-            Text('${result.failed} note${result.failed == 1 ? '' : 's'} failed'),
-        content: SingleChildScrollView(
-          child:
-              Text(result.errors.join('\n\n'), style: AppTextStyles.bodySmall),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+      builder:
+          (_) => AlertDialog(
+            title: Text(
+              result.completed
+                  ? 'Sync finished with errors'
+                  : 'Sync did not complete',
+            ),
+            content: SingleChildScrollView(
+              child: Text(
+                '$summary\n\n${result.errors.join('\n\n')}',
+                style: AppTextStyles.bodySmall,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   } else {
-    final msg = result.failed == 0
-        ? 'Synced $total problem notes to ${transport.displayName} (${result.added} added, ${result.updated} updated)'
-        : '${result.failed} notes failed';
+    final msg =
+        'Synced $total problem notes to ${transport.displayName} (${result.added} added, ${result.updated} updated)';
     showSnack(context, msg);
   }
 }

@@ -61,8 +61,13 @@ Future<void> main(List<String> args) async {
   }
 
   final scanned = await AnkiProblemNoteScanner.scan(vault.path);
+  if (!scanned.isComplete) {
+    _fail(
+      'Problem Note discovery did not complete: ${scanned.errors.join('; ')}',
+    );
+  }
   final selected =
-      scanned
+      scanned.notes
           .where((note) => wanted.contains(p.canonicalize(note.sourcePath)))
           .toList();
   final found = selected.map((note) => p.canonicalize(note.sourcePath)).toSet();
@@ -97,7 +102,7 @@ Future<void> main(List<String> args) async {
   for (final error in result.errors) {
     stderr.writeln(error);
   }
-  if (result.failed > 0 || result.errors.isNotEmpty) exitCode = 1;
+  if (!result.isSuccessful) exitCode = 1;
 }
 
 String _valueAfter(List<String> args, int index, String option) {

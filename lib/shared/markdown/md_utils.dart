@@ -47,7 +47,6 @@ import 'package:yaml/yaml.dart';
 ({bool hasSeparator, String front, String back}) splitFrontBackStructural(
   String body,
 ) {
-  final hrPattern = RegExp(r'^\*\*\*\s*$');
   final lines = body
       .replaceAll('\r\n', '\n')
       .replaceAll('\r', '\n')
@@ -60,7 +59,7 @@ import 'package:yaml/yaml.dart';
       inCodeFence = !inCodeFence;
       continue;
     }
-    if (!inCodeFence && hrPattern.hasMatch(line)) {
+    if (!inCodeFence && line.trim() == '***') {
       separatorIdx = i;
       break;
     }

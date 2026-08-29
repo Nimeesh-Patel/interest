@@ -68,10 +68,6 @@ showModalBottomSheet(
 
 Use screen-fraction height (not fixed pixels) so the sheet scales across device sizes:
 
-| Sheet content | Height fraction |
-|---------------|----------------|
-| Hardcover search + result list | `* 0.85` |
-
 (The Quick Add Sheet is `isScrollControlled` but sizes to its content; it needs only the keyboard-inset padding.)
 
 ---
@@ -89,7 +85,7 @@ ListView.builder(
 
 `kFabListBottomPad = 88.0` from `lib/shared/constants/app_spacing.dart` (FAB 56 + margin 16 + safe area buffer 16).
 
-Screens requiring this: `CollectionsScreen` (entity list), `ProjectsScreen`, `ProjectListDetailScreen`, `TemplatesScreen`, `RssScreen`, `HardcoverScreen`.
+Screens requiring this: `CollectionsScreen` (entity list), `ProjectsScreen`, `ProjectListDetailScreen`, `TemplatesScreen`.
 
 ---
 

@@ -6,7 +6,7 @@ An **entity is a plain Markdown note that belongs to a collection.** The subsyst
 
 This is the evolved model. The original "entity is a structured document with `Why Interesting` / `Related` / `Sources` sections" view was retired in June 2026; enforcing a body shape both corrupted notes and added no value once entities became collection members. **No body structure is imposed at all** — a new note is created with frontmatter only and an empty body (not even an `# Name`).
 
-The user-facing screen is called **Collections** (tab 0, the landing tab). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid. **Books are entities too**: a Hardcover import is just a vault-root note with `collection: Books` and a `hardcover_id` (see [books-as-entities in the Hardcover sync](../README.md#books-hardcover)).
+The user-facing screen is called **Collections** (tab 0, the landing tab). Internally the in-memory model for a collection member is still `Entity`; "entity" and "collection member" are the same thing. A Collection here is an app-first concept, independent of (and orthogonal to) the `category:`/deck a Problem Note uses for AnkiDroid.
 
 ## Ontology
 
@@ -85,6 +85,10 @@ Three lists load on startup (`MarkdownStorageService.loadData`):
 | `collections` | distinct `entity.collection` values |
 | `tags` | all entity tag values, deduplicated |
 
+The same result carries discovery errors. Duplicate active entity IDs are
+withheld rather than guessed, and unreadable/incomplete discovery is not an
+ordinary empty result.
+
 There is no in-memory link/graph list, and no in-app backlinks — incoming links and traversal are an Obsidian concern.
 
 ---
@@ -95,7 +99,7 @@ The sole I/O layer for entities. Writes are **per-file** — there is no bulk sa
 
 | Method | Description |
 |--------|-------------|
-| `loadData()` | Vault-wide scan (excl. `.obsidian`, `Templates`); entity iff frontmatter has `collection:`; returns the four lists |
+| `loadData()` | Current authored scan through `CurrentVaultContent`; root and `Clippings/` remain eligible, while rollback/history, trash, templates, attachments, Basic Memory, and Interest system config are excluded. Entity iff frontmatter has `collection:`; duplicate IDs are withheld and reported |
 | `saveEntity(entity)` | Creates the file if `sourcePath` is null (**only `collection:` frontmatter**, empty body — no `# Name`, no timestamps), else patches that file's frontmatter in place; body preserved. Sets `sourcePath` |
 | `deleteEntity(entity)` | Deletes the one backing file |
 | `renameCollection(members, newName)` | Patches each member file's `collection:` value |

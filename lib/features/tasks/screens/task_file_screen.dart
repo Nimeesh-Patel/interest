@@ -793,7 +793,7 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                               child: _buildNodeWidget(node),
                             );
                           },
-                          onReorder: (oldDisplayIdx, newDisplayIdx) async {
+                          onReorderItem: (oldDisplayIdx, newDisplayIdx) async {
                             if (widget.inboxMode) return;
                             if (dividerAt != null &&
                                 oldDisplayIdx == dividerAt) {

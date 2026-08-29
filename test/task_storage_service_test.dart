@@ -88,6 +88,35 @@ void main() {
     );
 
     test(
+      'root reorder uses indices after removal in both directions',
+      () async {
+        file.writeAsStringSync('''- [ ] First
+  first context
+- [ ] Second
+- [ ] Third
+''');
+        var nodes = TaskStorageService.parseNodes(await file.readAsLines());
+
+        await TaskStorageService.reorderRootBlocks(file.path, nodes, 0, 2);
+        expect(await file.readAsLines(), [
+          '- [ ] Second',
+          '- [ ] Third',
+          '- [ ] First',
+          '  first context',
+        ]);
+
+        nodes = TaskStorageService.parseNodes(await file.readAsLines());
+        await TaskStorageService.reorderRootBlocks(file.path, nodes, 2, 0);
+        expect(await file.readAsLines(), [
+          '- [ ] First',
+          '  first context',
+          '- [ ] Second',
+          '- [ ] Third',
+        ]);
+      },
+    );
+
+    test(
       'guarded Inbox completion stays inside its authored section',
       () async {
         const before = '''# Inbox

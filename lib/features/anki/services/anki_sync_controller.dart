@@ -12,13 +12,29 @@ class AnkiSyncController {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return null;
       final config = await IntegrationsConfigService.load(vaultPath);
-      final problemNotes = await AnkiProblemNoteScanner.scan(
+      final scanned = await AnkiProblemNoteScanner.scan(
         vaultPath,
         excludedFolders: config.excludedFolders,
       );
-      return await AnkiSyncService.syncVault(transport, problemNotes, vaultPath);
-    } catch (_) {
-      return null;
+      if (!scanned.isComplete) {
+        return AnkiSyncResult.incomplete(
+          failed: scanned.conflictedRecords,
+          skipped: scanned.candidateCount - scanned.conflictedRecords,
+          errors: [
+            'Problem Note discovery did not complete; no cards were changed.',
+            ...scanned.errors,
+          ],
+        );
+      }
+      return await AnkiSyncService.syncVault(
+        transport,
+        scanned.notes,
+        vaultPath,
+      );
+    } catch (error) {
+      return AnkiSyncResult.incomplete(
+        errors: ['Anki sync could not start: $error'],
+      );
     }
   }
 }

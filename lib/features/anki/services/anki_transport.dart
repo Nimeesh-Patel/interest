@@ -40,16 +40,16 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
     List<String> tags,
   );
 
-  Future<bool> noteExists(int noteId);
+  /// Whether [noteId] exists, or null when the transport could not establish
+  /// the fact. Treating an unavailable observation as "missing" would create a
+  /// duplicate note.
+  Future<bool?> noteExists(int noteId);
 
-  /// The deck the note's card(s) currently belong to, or null when it cannot
-  /// be determined (the sync core then skips the deck-move check). Used to
-  /// detect a `category:` change since the last sync.
-  Future<String?> currentDeck(int noteId);
-
-  /// Moves the note's card(s) into [deckName], creating the deck if absent.
-  /// A transport that cannot move decks must no-op — never throw.
-  Future<void> moveToDeck(int noteId, String deckName);
+  /// Idempotently places the note's card(s) in [deckName], creating the deck if
+  /// absent. Returns whether the requested projection was applied. Never
+  /// throws: an unavailable deck operation is a reported note failure, not a
+  /// reason to silently leave category and deck out of sync.
+  Future<bool> moveToDeck(int noteId, String deckName);
 }
 
 /// Collection-level fatal condition (e.g. no "Basic" model). Thrown by

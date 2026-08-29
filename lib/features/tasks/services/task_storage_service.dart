@@ -1142,8 +1142,8 @@ class TaskStorageService {
   }
 
   // Reorder root-level task blocks in the file.
-  // [nodes] is the current parsed node list; [oldIndex] and [newIndex] follow
-  // Flutter's ReorderableListView.onReorder convention.
+  // [nodes] is the current parsed node list; [newIndex] addresses the sequence
+  // after removing [oldIndex], matching ReorderableListView.onReorderItem.
   static Future<void> reorderRootBlocks(
       String filePath, List<TaskNode> nodes, int oldIndex, int newIndex) async {
     try {
@@ -1161,19 +1161,13 @@ class TaskStorageService {
       final blockLines = lines.sublist(start, end + 1);
       lines.removeRange(start, end + 1);
 
-      // Flutter convention: adjust newIndex when moving down
-      if (newIndex > oldIndex) newIndex -= 1;
-
-      // Find the reference node in the remaining sequence.
-      // remaining[i] = nodes[i] for i < oldIndex, nodes[i+1] for i >= oldIndex.
-      // We insert BEFORE remaining[newIndex].
-      final refIdx = newIndex < oldIndex ? newIndex : newIndex + 1;
+      final remaining = List<TaskNode>.from(nodes)..removeAt(oldIndex);
 
       int insertLine;
-      if (refIdx >= nodes.length) {
+      if (newIndex >= remaining.length) {
         insertLine = lines.length;
       } else {
-        final refNode = nodes[refIdx];
+        final refNode = remaining[newIndex];
         int refLine;
         if (refNode is TaskBlock) {
           refLine = refNode.startLine;

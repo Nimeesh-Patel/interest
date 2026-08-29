@@ -1,4 +1,4 @@
-package com.nimee.people_tracker
+package dev.interest.app
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

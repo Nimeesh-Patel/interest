@@ -19,9 +19,9 @@ class FakeTransport extends AnkiTransport {
   addCalls = [];
   final List<(int id, String front, String back)> updateCalls = [];
 
-  /// Current deck per note id; seeded by tests and updated by [moveToDeck].
-  final Map<int, String> deckByNote = {};
   final List<(int id, String deck)> moveCalls = [];
+  bool noteExistsUnavailable = false;
+  bool moveSucceeds = true;
 
   /// When set, addNote throws this instead of adding.
   Exception? addThrows;
@@ -48,7 +48,6 @@ class FakeTransport extends AnkiTransport {
     addCalls.add((deckName, front, back, tags));
     final id = _nextId++;
     existingIds.add(id);
-    deckByNote[id] = deckName;
     return id;
   }
 
@@ -64,15 +63,13 @@ class FakeTransport extends AnkiTransport {
   }
 
   @override
-  Future<bool> noteExists(int noteId) async => existingIds.contains(noteId);
+  Future<bool?> noteExists(int noteId) async =>
+      noteExistsUnavailable ? null : existingIds.contains(noteId);
 
   @override
-  Future<String?> currentDeck(int noteId) async => deckByNote[noteId];
-
-  @override
-  Future<void> moveToDeck(int noteId, String deckName) async {
+  Future<bool> moveToDeck(int noteId, String deckName) async {
     moveCalls.add((noteId, deckName));
-    deckByNote[noteId] = deckName;
+    return moveSucceeds;
   }
 }
 
@@ -209,8 +206,11 @@ void main() {
         b,
       ], vault.path);
 
-      expect(result.errors, ['Basic note type not found']);
+      expect(result.errors, ['First.md: Basic note type not found']);
       expect(result.added, 0);
+      expect(result.failed, 1);
+      expect(result.skipped, 1);
+      expect(result.completed, isFalse);
       // The abort on the first note prevented any attempt on the second.
       expect(await fileContent(b), isNot(contains('anki_note_id')));
     });
@@ -227,6 +227,20 @@ void main() {
 
       expect(result.failed, 1);
       expect(result.errors.single, 'Bad.md: deck was not found: X');
+    });
+
+    test('unavailable identity observation does not re-add the note', () async {
+      final transport = FakeTransport()..noteExistsUnavailable = true;
+      final note = await problemNote('Unknown', ankiNoteId: '555');
+
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
+
+      expect(result.failed, 1);
+      expect(result.errors.single, contains('could not verify whether'));
+      expect(transport.addCalls, isEmpty);
+      expect(transport.updateCalls, isEmpty);
     });
   });
 
@@ -282,11 +296,8 @@ void main() {
   });
 
   group('deck move on category change', () {
-    test('card is moved when its deck no longer matches category', () async {
-      final transport =
-          FakeTransport()
-            ..existingIds.add(555)
-            ..deckByNote[555] = 'Old';
+    test('category deck is projected for every existing note', () async {
+      final transport = FakeTransport()..existingIds.add(555);
       final note = await problemNote(
         'Known',
         ankiNoteId: '555',
@@ -301,34 +312,36 @@ void main() {
       expect(transport.moveCalls.single, (555, 'New'));
     });
 
-    test('no move when the deck already matches the category', () async {
-      final transport =
-          FakeTransport()
-            ..existingIds.add(555)
-            ..deckByNote[555] = 'Philosophy';
-      final note = await problemNote(
-        'Known',
-        ankiNoteId: '555',
-        category: 'Philosophy',
-      );
+    test('default deck is projected when category is absent', () async {
+      final transport = FakeTransport()..existingIds.add(555);
+      final note = await problemNote('Known', ankiNoteId: '555');
 
       await AnkiSyncService.syncVault(transport, [note], vault.path);
 
-      expect(transport.moveCalls, isEmpty);
+      expect(transport.moveCalls.single, (555, 'Default'));
     });
 
-    test('no move when the transport cannot report the current deck', () async {
-      // deckByNote unseeded ⇒ currentDeck returns null ⇒ check is skipped.
-      final transport = FakeTransport()..existingIds.add(555);
+    test('a failed requested deck move is not counted as an update', () async {
+      final transport =
+          FakeTransport()
+            ..existingIds.add(555)
+            ..moveSucceeds = false;
       final note = await problemNote(
         'Known',
         ankiNoteId: '555',
         category: 'New',
       );
 
-      await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
 
-      expect(transport.moveCalls, isEmpty);
+      expect(result.updated, 0);
+      expect(result.failed, 1);
+      expect(
+        result.errors.single,
+        'Known.md: content updated, but deck projection to "New" failed',
+      );
     });
   });
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Problem notes (vault `.md` files containing a `***` separator) are pushed to Anki as Basic cards. Sync is **one-way: vault → Anki**, over either of two transports:
+Problem notes whose `***` split has non-empty problem and conjecture sides are pushed to Anki as Basic cards. Blank templates and unfinished structural notes are not review-ready. Sync is **one-way: vault → Anki**, over either of two transports:
 
 | Transport | Backend | Wire protocol | Platform |
 |---|---|---|---|
@@ -11,13 +11,13 @@ Problem notes (vault `.md` files containing a `***` separator) are pushed to Ank
 
 Anki never originates data; the vault remains the source of truth. Review history, scheduling state, ease factors, and due dates are never read or written — on either transport.
 
-The whole sync stack lives self-contained under `lib/features/anki/`, with **zero dependency on any note viewer** (there is none — Obsidian + the Problem Notes plugin own viewing/editing).
+The whole sync stack lives self-contained under `lib/features/anki/`, with zero dependency on the Collections entity-body viewer. Obsidian + the Problem Notes plugin own Problem Note editing and review.
 
 ## Architecture
 
 ```
-AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← finds *** notes
-  → List<AnkiProblemNote>                                  ← slim sync-only model
+AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state discovery
+  → AnkiProblemNoteScanResult                              ← notes + completeness/errors
   → AnkiSyncController.sync(transport)
   → AnkiSyncService.syncVault(transport, problemNotes, vaultPath)   ← shared core
        → AnkiTransport                                              ← per-backend
@@ -25,9 +25,9 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← finds *** notes
             AnkiConnectTransport → HTTP POST     → AnkiConnect → Anki desktop
 ```
 
-`AnkiProblemNoteScanner` is the sync's vault discovery: it scans every `.md` (via `VaultScanner`, honouring the excluded-folders config and `exclude_resurface: true`) and keeps only notes whose body has a `***` separator (`splitFrontBack`). It produces `AnkiProblemNote` — exactly the fields the sync needs (`sourcePath`, `sourceFile`, `front`, `back`, `category`, `tags`, `anki_note_id`) and nothing about rendering or viewing.
+`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. It also honours `exclude_resurface: true`, requires a non-empty `splitFrontBack`, and rejects duplicate active `anki_note_id` values. Traversal/read/identity errors make discovery incomplete, and the controller changes no cards.
 
-`AnkiSyncService` owns everything both transports must agree on — front/back rendering, `category:`→deck mapping (including the deck move on a category change), the `obsidian://` wikilink rewrite, the `anki_note_id` round-trip — so the same note yields the same card whichever transport carries it. Transports translate seven operations into their wire protocol and nothing else:
+`AnkiSyncService` owns everything both transports must agree on — front/back rendering, `category:`→deck mapping, the `obsidian://` wikilink rewrite, the `anki_note_id` round-trip — so the same note yields the same card whichever transport carries it. Transports translate six operations into their wire protocol and nothing else:
 
 | `AnkiTransport` method | AnkiDroid (MethodChannel) | AnkiConnect (HTTP action) |
 |---|---|---|
@@ -36,10 +36,9 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← finds *** notes
 | `addNote` | `addNote` (creates deck if absent) | `createDeck` (idempotent) then `addNote` |
 | `updateNote` | `updateNoteFields` + `updateNoteTags` | `updateNoteFields` + `updateNoteTags` |
 | `noteExists` | `getNote(noteId) != null` | `notesInfo` → non-empty object |
-| `currentDeck` | `getCardDeck` (ContentProvider card → `DECK_ID` → name) | `notesInfo` → `cards` → `getDecks` |
 | `moveToDeck` | `moveNoteToDeck` (ContentProvider card `DECK_ID` update) | `createDeck` then `changeDeck` |
 
-Both `currentDeck` and `moveToDeck` degrade gracefully: a transport that cannot read or change a card's deck returns `null` / no-ops rather than throwing.
+`moveToDeck` is applied idempotently after every existing-note update. A failed placement is reported as a partial note outcome; an unavailable deck observation can no longer silently skip the category projection.
 
 The transport also exposes the shared external-projection lifecycle as
 capabilities rather than pretending every backend supports every correction:
@@ -48,7 +47,7 @@ local vault-id patches can be rolled back in-process, but Anki mutations cannot.
 The operation names are open strings, so a future projection can add a
 capability without changing a closed enum in the core.
 
-Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFailure(message)` (recorded against the note, sync continues); collection-level fatal conditions throw `AnkiSyncAbort(message)` (recorded, sync stops). These two exceptions are consumed only by `AnkiSyncService.syncVault`.
+Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFailure(message)` (recorded against the note, sync continues); collection-level fatal conditions throw `AnkiSyncAbort(message)` (recorded as a failure, remaining notes counted unattempted, sync incomplete). `noteExists` is tri-state: `false` is a confirmed absence, while `null` is an unavailable observation and never triggers re-addition. These exceptions are consumed only by `AnkiSyncService.syncVault`.
 
 ## Triggers
 
@@ -78,13 +77,11 @@ interest://sync-anki  (VIEW intent on MainActivity, launchMode=singleTop)
       runAnkiDroidSync(context)  (lib/features/anki/services/anki_sync_runner.dart)
         AnkiDroidTransport.isAvailable / requestPermission
         AnkiSyncController.sync(AnkiDroidTransport())
-        showAnkiSyncResult → snackbar "Synced N… (A added, U updated)"
-                             (or a failures dialog)
+        showAnkiSyncResult → snackbar on complete success
+                             or an explicit incomplete/failures dialog
 ```
 
 The sync logic itself is unchanged from any other trigger; only *how it starts* differs. `AnkiBridge` (the AnkiDroid ContentProvider bridge) is registered on `MainActivity`; `MainActivity.onRequestPermissionsResult` forwards into `AnkiBridge.onRequestPermissionsResult`, so the first-run `READ_WRITE_DATABASE` grant completes through the normal Activity permission flow. `MainActivity` uses `launchMode=singleTop`, so a deep link to a running app arrives via `onNewIntent` rather than relaunching.
-
-> **History.** An earlier iteration tried to run this headlessly — a transparent trampoline `Activity` plus a foreground `Service` on its own Flutter engine (`ankiSyncMain`), reporting via a notification — so the app never surfaced. On-device it froze Obsidian (the transparent activity captured all touch) and, once that was fixed, still never executed the Dart entrypoint (the service's `FlutterLoader` was never initialised). It was reverted to this foreground flow, which is the known-good behaviour. Do not reintroduce the headless path.
 
 ## `anki_note_id` — the only vault write
 
@@ -94,7 +91,7 @@ Only `anki_note_id` is ever written back to a vault file, via `AnkiSyncService._
 anki_note_id: 1234567890   # collection note id (epoch-millis Long)
 ```
 
-**The id means the same thing on both transports**: it is the Anki *collection's* note id, which AnkiWeb preserves when syncing the collection between AnkiDroid and Anki desktop. A note first pushed via AnkiDroid updates cleanly via AnkiConnect later (and vice versa) **provided the user syncs their Anki collection via AnkiWeb in between**. If they don't, `noteExists` returns false in the other collection, the sync re-adds the note there and overwrites the frontmatter id — the same self-healing path as "deleted from Anki".
+The id is an Anki *collection's* note id, which AnkiWeb preserves when syncing a collection between AnkiDroid and Anki desktop. A note first pushed through one transport updates through the other only after the two Anki collections share that identity. A confirmed absence in the active collection follows the same re-add path as deletion; an unavailable identity observation stops that note without mutation. If two eligible vault notes claim one ID, discovery stops before any card mutation.
 
 ### Update vs. first push
 
@@ -102,13 +99,14 @@ anki_note_id: 1234567890   # collection note id (epoch-millis Long)
 |---|---|---|
 | No | — | `addNote` → write ID back to frontmatter |
 | Yes | Yes | `updateNote` (fields + tags), then move the card if its deck changed |
-| Yes | No (deleted / collection never synced) | `addNote` → overwrite ID in frontmatter |
+| Yes | Confirmed no (deleted / collection never synced) | `addNote` → overwrite ID in frontmatter |
+| Yes | Unknown / unavailable | Fail that note without adding or updating |
 
 ## Deck mapping
 
 The `category:` frontmatter field is the deck name; absent means `"Default"`. Both transports look-up-or-create (AnkiDroid `getOrCreateDeck` in `AnkiBridge.kt`; AnkiConnect idempotent `createDeck`).
 
-**Deck move on category change.** A new note is added straight into its `category:` deck. For an existing note, `updateNote` only rewrites fields/tags, so after a successful update the core asks `transport.currentDeck(noteId)` and, if it differs from the `category:`-derived deck, calls `transport.moveToDeck`. If the transport can't report the current deck (`null`), the move is skipped.
+**Deck projection.** A new note is added straight into its `category:` deck. For an existing note, `updateNote` rewrites fields/tags and the core then idempotently applies the `category:`-derived deck through `transport.moveToDeck`. A failed placement is explicit even though the field/tag update has already happened.
 
 ## Note model
 
@@ -142,13 +140,13 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 - Endpoint default `http://127.0.0.1:8765`, overridable via an `## AnkiConnect` section in `Interesting/System/integrations.md` (`url: http://…`) — hand-edited; no in-app editor. A LAN URL lets an Android build push to a desktop Anki.
 - Request shape: `POST {action, version: 6, params}` → `{result, error}`; HTTP status is always 200, failures arrive in `error`.
 - `addNote` uses `options.allowDuplicate: true` — duplicate policy stays Interest's (one card per vault note via `anki_note_id`).
-- `noteExists` reads `notesInfo`: a missing id comes back as an **empty object**, not an error.
+- `noteExists` reads `notesInfo`: a missing id comes back as an **empty object** (`false`); transport/protocol failure returns `null`.
 - `Connection: close` is forced — AnkiConnect closes the socket after each response without advertising it, so a reused keep-alive connection breaks every second request.
 - The wire contract is pinned by `test/anki_connect_transport_test.dart` against a fake server; the sync core by `test/anki_sync_service_test.dart`.
 
 ## MethodChannel contracts (Android)
 
-**`com.nimeesh.interest/ankidroid`** (`AnkiBridge`, registered on `MainActivity`):
+**`dev.interest.app/ankidroid`** (`AnkiBridge`, registered on `MainActivity`):
 
 | Method | Args | Returns |
 |---|---|---|
@@ -157,9 +155,8 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 | `addNote` | `deckName, front, back, tags` | `Long` (noteId, or -1) |
 | `updateNote` | `noteId, front, back, tags` | `bool` |
 | `noteExists` | `noteId` | `bool` |
-| `getCardDeck` | `noteId` | `String?` |
 | `moveNoteToDeck` | `noteId, deckName` | `bool` |
 
-**`com.nimeesh.interest/deeplink`** (`MainActivity`): `getInitialSyncAnki` → `bool` (Flutter pulls a cold-start `interest://sync-anki` once); native→Flutter `syncAnki` invoked from `onNewIntent` when a running app receives the deep link.
+**`dev.interest.app/deeplink`** (`MainActivity`): `getInitialSyncAnki` → `bool` (Flutter pulls a cold-start `interest://sync-anki` once); native→Flutter `syncAnki` invoked from `onNewIntent` when a running app receives the deep link.
 
 Android implementation uses `AddContentApi` and `FlashCardsContract` from `com.github.ankidroid:Anki-Android:api-2.0.0:api@aar`.

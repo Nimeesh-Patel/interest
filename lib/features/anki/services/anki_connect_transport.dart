@@ -142,7 +142,7 @@ class AnkiConnectTransport extends AnkiTransport {
   }
 
   @override
-  Future<bool> noteExists(int noteId) async {
+  Future<bool?> noteExists(int noteId) async {
     try {
       final result = await _invoke('notesInfo', {
         'notes': [noteId],
@@ -152,34 +152,22 @@ class AnkiConnectTransport extends AnkiTransport {
       final info = result.first;
       return info is Map && info.isNotEmpty;
     } catch (_) {
-      return false;
-    }
-  }
-
-  @override
-  Future<String?> currentDeck(int noteId) async {
-    try {
-      final cards = await _cardIds(noteId);
-      if (cards.isEmpty) return null;
-      // getDecks maps deck name → the card ids it contains; a note's cards
-      // normally share one deck, so the first key is that deck.
-      final decks = await _invoke('getDecks', {'cards': cards});
-      if (decks is Map && decks.isNotEmpty) return decks.keys.first.toString();
-      return null;
-    } catch (_) {
       return null;
     }
   }
 
   @override
-  Future<void> moveToDeck(int noteId, String deckName) async {
+  Future<bool> moveToDeck(int noteId, String deckName) async {
     try {
       final cards = await _cardIds(noteId);
-      if (cards.isEmpty) return;
+      if (cards.isEmpty) return false;
       // changeDeck errors on a missing deck; createDeck is idempotent.
       await _invoke('createDeck', {'deck': deckName});
       await _invoke('changeDeck', {'cards': cards, 'deck': deckName});
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// The card ids of [noteId] via `notesInfo`, or empty on any failure.

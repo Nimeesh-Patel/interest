@@ -1,6 +1,7 @@
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
+import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/link_targets.dart';
 import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
@@ -11,14 +12,33 @@ class AnkiSyncResult {
   final int added;
   final int updated;
   final int failed;
+  final int skipped;
   final List<String> errors;
+  final bool completed;
 
   const AnkiSyncResult({
     required this.added,
     required this.updated,
     required this.failed,
+    this.skipped = 0,
     required this.errors,
+    this.completed = true,
   });
+
+  bool get isSuccessful => completed && failed == 0 && errors.isEmpty;
+
+  factory AnkiSyncResult.incomplete({
+    required List<String> errors,
+    int failed = 0,
+    int skipped = 0,
+  }) => AnkiSyncResult(
+    added: 0,
+    updated: 0,
+    failed: failed,
+    skipped: skipped,
+    errors: errors,
+    completed: false,
+  );
 }
 
 /// Transport-agnostic sync core: problem notes → Anki cards, one-way.
@@ -35,12 +55,49 @@ class AnkiSyncService {
     int added = 0;
     int updated = 0;
     int failed = 0;
+    int skipped = 0;
+    bool completed = true;
     final errors = <String>[];
+
+    final ineligible =
+        problemNotes
+            .where(
+              (note) =>
+                  !CurrentVaultContent.isEligible(
+                    vaultPath,
+                    note.sourcePath,
+                    use: CurrentVaultUse.ankiProblemNote,
+                  ),
+            )
+            .toList();
+    if (ineligible.isNotEmpty) {
+      final paths =
+          ineligible
+              .map((note) => p.relative(note.sourcePath, from: vaultPath))
+              .toList()
+            ..sort();
+      return AnkiSyncResult.incomplete(
+        failed: ineligible.length,
+        skipped: problemNotes.length - ineligible.length,
+        errors: ['Refused non-current Problem Notes: ${paths.join(', ')}'],
+      );
+    }
     // Built once per sync: an alias like [[speed of progress]] must reach
     // the note that declares it, not a note of that name that does not exist.
-    final linkTargets = await buildLinkTargets(vaultPath);
+    final builtLinkTargets = await buildLinkTargets(vaultPath);
+    if (!builtLinkTargets.isComplete) {
+      return AnkiSyncResult.incomplete(
+        skipped: problemNotes.length,
+        errors: [
+          'Wikilink-target discovery did not complete; no cards were changed.',
+          ...builtLinkTargets.errors,
+        ],
+      );
+    }
+    final linkTargets = builtLinkTargets.targets;
 
-    for (final note in problemNotes) {
+    for (var index = 0; index < problemNotes.length; index++) {
+      final note = problemNotes[index];
       try {
         final (front, back) = _renderCard(note, vaultPath, linkTargets);
         final deckName = note.category ?? 'Default';
@@ -57,6 +114,14 @@ class AnkiSyncService {
             continue;
           }
           final exists = await transport.noteExists(noteIdLong);
+          if (exists == null) {
+            failed++;
+            errors.add(
+              '${note.sourceFile}: could not verify whether Anki note '
+              '$noteIdLong exists',
+            );
+            continue;
+          }
           if (exists) {
             final ok = await transport.updateNote(
               noteIdLong,
@@ -65,12 +130,17 @@ class AnkiSyncService {
               tags,
             );
             if (ok) {
-              // The card's deck tracks `category:`; if the user changed it
-              // since the last sync, move the card. Transports that can't
-              // report or move decks no-op (currentDeck == null skips it).
-              final deck = await transport.currentDeck(noteIdLong);
-              if (deck != null && deck != deckName) {
-                await transport.moveToDeck(noteIdLong, deckName);
+              // `category:` owns the projected deck. Applying the requested
+              // deck idempotently avoids a read-before-write race and prevents
+              // an unavailable deck observation from silently skipping it.
+              final moved = await transport.moveToDeck(noteIdLong, deckName);
+              if (!moved) {
+                failed++;
+                errors.add(
+                  '${note.sourceFile}: content updated, but deck projection '
+                  'to "$deckName" failed',
+                );
+                continue;
               }
               updated++;
             } else {
@@ -115,7 +185,10 @@ class AnkiSyncService {
           }
         }
       } on AnkiSyncAbort catch (e) {
-        errors.add(e.message);
+        failed++;
+        skipped = problemNotes.length - index - 1;
+        completed = false;
+        errors.add('${note.sourceFile}: ${e.message}');
         break;
       } on AnkiNoteFailure catch (e) {
         failed++;
@@ -130,7 +203,9 @@ class AnkiSyncService {
       added: added,
       updated: updated,
       failed: failed,
+      skipped: skipped,
       errors: errors,
+      completed: completed,
     );
   }
 

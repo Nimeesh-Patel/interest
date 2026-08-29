@@ -1,4 +1,4 @@
-package com.nimee.people_tracker
+package dev.interest.app
 
 import android.content.Intent
 import android.os.Bundle
@@ -15,7 +15,7 @@ import io.flutter.plugin.common.MethodChannel
 /// AnkiBridge (the AnkiDroid ContentProvider bridge) is registered here so its
 /// runtime permission request runs through this Activity.
 class MainActivity : FlutterActivity() {
-    private val deeplinkChannelName = "com.nimeesh.interest/deeplink"
+    private val deeplinkChannelName = "dev.interest.app/deeplink"
     private var bridge: AnkiBridge? = null
 
     /// True when the launching intent was `interest://sync-anki` and Flutter
