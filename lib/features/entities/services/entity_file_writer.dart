@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import '../models/entity.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/frontmatter_patch.dart';
 
 /// Writes entity files by patching ONLY the frontmatter keys the app owns —
 /// it never rebuilds, reshapes, or even reads the body for meaning. An entity
@@ -24,24 +27,17 @@ class EntityFileWriter {
     required String existingContent,
     required Entity entity,
   }) {
-    final split = splitFrontmatter(existingContent);
-    final merged = <String, dynamic>{};
-    parseYamlMap(split.frontmatter)
-        ?.forEach((k, v) => merged[k.toString()] = v);
-
-    merged['collection'] = entity.collection;
-    if (entity.score != null) {
-      merged['score'] = entity.score!.toStringAsFixed(1);
-    } else {
-      merged.remove('score');
-    }
-    if (entity.tags.isNotEmpty) {
-      merged['tags'] = entity.tags;
-    } else {
-      merged.remove('tags');
-    }
-
-    return '${buildFrontmatterBlock(merged, _knownOrder)}\n${split.body}';
+    final collection = yamlScalar(entity.collection);
+    // Preserve string meaning even for YAML's implicit booleans/numbers.
+    final plainCollection = parseYamlMap('value: $collection')?['value'];
+    return patchFrontmatterText(existingContent, {
+      'collection':
+          plainCollection == entity.collection
+              ? collection
+              : jsonEncode(entity.collection),
+      'score': entity.score?.toStringAsFixed(1),
+      'tags': entity.tags.isEmpty ? null : jsonEncode(entity.tags),
+    });
   }
 
   /// Content for a brand-new entity: just `collection:` frontmatter. No body

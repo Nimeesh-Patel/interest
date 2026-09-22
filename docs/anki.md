@@ -2,6 +2,17 @@
 
 ## Overview
 
+Revising an existing Problem Note retains its Anki identity and review history,
+regardless of the extent of the revision (current decision, 2026-09-22). This
+does not settle predecessor handling for splits, merges or withdrawal.
+
+Identity writes use the shared source-span frontmatter patcher. It preserves
+the original body, unrelated metadata, line endings and UTF-8 BOM rather than
+rebuilding the note through the read-only parser. Invalid or unsupported
+frontmatter is refused. A refusal after an external create remains a partial
+projection requiring reconciliation; this patch does not add crash recovery
+or change sync discovery's separate metadata-validation boundary.
+
 Problem notes whose `***` split has non-empty problem and conjecture sides are pushed to Anki as Basic cards. Blank templates and unfinished structural notes are not review-ready. Sync is **one-way: vault → Anki**, over either of two transports:
 
 | Transport | Backend | Wire protocol | Platform |

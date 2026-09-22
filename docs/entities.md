@@ -124,6 +124,12 @@ The name (filename) is not edited here; renaming a note is a file-rename concern
 
 ## Boundaries (do not violate)
 
+Existing-note metadata writes use `frontmatter_patch.dart` to change only
+`collection`, `score` and `tags` at their original source spans. Unknown nested
+metadata, comments, Anki identity and the exact body remain intact. Malformed
+YAML and unsupported flow-style root mappings are refused rather than
+reconstructed. A failed details save keeps the editor open and reports failure.
+
 - Discovery keys on `collection:` only — see CLAUDE.md invariant 2.
 - The app patches frontmatter, never the body — see CLAUDE.md invariant 3. No code path rewrites an entity body.
 - Problem Note (`***`) and Entity (`collection:`) are orthogonal — see CLAUDE.md invariant 4. Never gate one predicate on the other.

@@ -116,10 +116,14 @@ class _EntityScreenState extends State<EntityScreen> {
   }
 
   Future<void> _saveEdit() async {
-    await widget.storage.saveEntity(_entity);
+    final savedPath = await widget.storage.saveEntity(_entity);
+    if (!mounted) return;
+    if (savedPath == null) {
+      showSnack(context, 'Could not save details. Your edits are still open.');
+      return;
+    }
     final idx = widget.allEntities.indexWhere((e) => e.id == _entity.id);
     if (idx != -1) widget.allEntities[idx] = _entity;
-    if (!mounted) return;
     setState(() {
       _isEditMode = false;
       _isAddingTag = false;

@@ -7,6 +7,7 @@ import '../models/collection.dart';
 import '../models/entity.dart';
 import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/md_utils.dart';
+import '../../../shared/markdown/md_io.dart';
 import '../../../core/vault_service.dart';
 import 'entity_file_parser.dart';
 import 'entity_file_writer.dart';
@@ -128,7 +129,7 @@ class MarkdownStorageService {
         )) {
           return null;
         }
-        final existing = await File(existingPath).readAsString();
+        final existing = await readPreservingUtf8(File(existingPath));
         await File(existingPath).writeAsString(
           EntityFileWriter.patchFrontmatter(
             existingContent: existing,
