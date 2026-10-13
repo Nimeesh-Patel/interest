@@ -12,7 +12,7 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 
 /// The AnkiDroid ContentProvider bridge (AddContentApi) exposed to Dart over a
-/// MethodChannel. Translates the seven AnkiTransport operations; nothing else.
+/// MethodChannel. Translates the AnkiTransport operations; nothing else.
 /// Hosted on MainActivity: the sync runs in the foreground app, so the runtime
 /// READ_WRITE_DATABASE permission can be requested through the normal Activity
 /// flow. `register` wires the channel; the host activity must forward
@@ -99,8 +99,10 @@ class AnkiBridge(private val activity: Activity) {
                         val dupList = dupeMap?.get(0)
                         if (dupList != null && dupList.isNotEmpty()) {
                             val existingId = dupList.first().id
-                            api.updateNoteFields(existingId, arrayOf(front, back))
-                            result.success(existingId)
+                            val fieldsOk = api.updateNoteFields(existingId, arrayOf(front, back))
+                            val tagsOk = api.updateNoteTags(existingId, tags.toSet())
+                            if (fieldsOk && tagsOk) result.success(existingId)
+                            else result.error("ADD_FAILED", "Recovered duplicate $existingId could not be updated", null)
                         } else {
                             result.error("ADD_FAILED", "addNote returned null, not a duplicate", null)
                         }
@@ -115,7 +117,7 @@ class AnkiBridge(private val activity: Activity) {
             }
 
             "updateNote" -> {
-                val noteId = call.argument<Long>("noteId") ?: -1L
+                val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
                 val front = call.argument<String>("front") ?: ""
                 val back = call.argument<String>("back") ?: ""
                 val tags = call.argument<List<String>>("tags") ?: emptyList()
@@ -126,13 +128,12 @@ class AnkiBridge(private val activity: Activity) {
             }
 
             "noteExists" -> {
-                val noteId = call.argument<Long>("noteId") ?: -1L
-                val api = AddContentApi(ctx)
-                result.success(api.getNote(noteId) != null)
+                val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
+                result.success(readNoteFront(noteId) != null)
             }
 
             "moveNoteToDeck" -> {
-                val noteId = call.argument<Long>("noteId") ?: -1L
+                val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
                 val deckName = call.argument<String>("deckName") ?: ""
                 val api = AddContentApi(ctx)
                 val deckId = getOrCreateDeck(api, deckName)
@@ -140,15 +141,50 @@ class AnkiBridge(private val activity: Activity) {
                 else result.success(moveCardsToDeck(noteId, deckId))
             }
 
+            "retireNote" -> {
+                val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
+                val source = call.argument<String>("expectedSourceUri")
+                    ?: return result.error("SOURCE", "Retirement requires the exact source URI", null)
+                val front = readNoteFront(noteId)
+                if (front == null) return result.success(true)
+                val owned = listOf(source, source.replace("&", "&amp;")).any {
+                    front.contains("href=\"$it\"") || front.contains("href='$it'")
+                }
+                if (!owned) return result.error("SOURCE", "Refused retirement: Anki source link does not match this note", null)
+                val uri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, noteId.toString())
+                ctx.contentResolver.delete(uri, null, null)
+                result.success(readNoteFront(noteId) == null)
+            }
+
             else -> result.notImplemented()
         }
     }
 
     private fun getOrCreateDeck(api: AddContentApi, deckName: String): Long? {
-        val existing = api.getDeckList()?.entries
+        val decks = api.getDeckList() ?: throw IllegalStateException("Could not list AnkiDroid decks")
+        val existing = decks.entries
             ?.firstOrNull { it.value.equals(deckName, ignoreCase = true) }
             ?.key
         return existing ?: api.addNewDeck(deckName)
+    }
+
+    /// Null means a completed exact-id query returned no rows, never an
+    /// unavailable cursor. This distinction is required before ID removal.
+    private fun readNoteFront(noteId: Long): String? {
+        require(noteId > 0L) { "Invalid Anki note identity" }
+        val uri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, noteId.toString())
+        val cursor = ctx.contentResolver.query(uri,
+            arrayOf(FlashCardsContract.Note._ID, FlashCardsContract.Note.FLDS), null, null, null)
+            ?: throw IllegalStateException("AnkiDroid note query unavailable")
+        cursor.use { c ->
+            if (!c.moveToFirst()) return null
+            val observedId = c.getLong(c.getColumnIndexOrThrow(FlashCardsContract.Note._ID))
+            check(observedId == noteId) { "AnkiDroid returned a different note identity" }
+            val fields = c.getString(c.getColumnIndexOrThrow(FlashCardsContract.Note.FLDS))
+                ?: throw IllegalStateException("AnkiDroid returned no note fields")
+            check(!c.moveToNext()) { "AnkiDroid returned ambiguous note identity" }
+            return fields.substringBefore('\u001f')
+        }
     }
 
     private fun getBuiltInBasicModel(api: AddContentApi): Long? {
@@ -164,14 +200,10 @@ class AnkiBridge(private val activity: Activity) {
 
     private fun moveCardsToDeck(noteId: Long, deckId: Long): Boolean {
         return try {
-            val ords = mutableListOf<Int>()
-            ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)?.use { c ->
-                val ordIdx = c.getColumnIndex(FlashCardsContract.Card.CARD_ORD)
-                if (ordIdx < 0) return false
-                while (c.moveToNext()) ords.add(c.getInt(ordIdx))
-            }
-            if (ords.isEmpty()) return false
-            for (ord in ords) {
+            val before = readCardDecks(noteId)
+            if (before.isEmpty()) return false
+            for ((ord, currentDeck) in before) {
+                if (currentDeck == deckId) continue
                 val values = ContentValues().apply {
                     put(FlashCardsContract.Card.DECK_ID, deckId)
                 }
@@ -180,9 +212,28 @@ class AnkiBridge(private val activity: Activity) {
                     values, null, null,
                 )
             }
-            true
+            // A zero-row update is not evidence of placement. Check the actual
+            // card set and deck after the writes, including idempotent moves.
+            val after = readCardDecks(noteId)
+            after.keys == before.keys && after.values.all { it == deckId }
         } catch (e: Exception) {
             false
+        }
+    }
+
+    private fun readCardDecks(noteId: Long): Map<Int, Long> {
+        val cursor = ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)
+            ?: throw IllegalStateException("AnkiDroid card query unavailable")
+        return cursor.use { c ->
+            val ordIdx = c.getColumnIndexOrThrow(FlashCardsContract.Card.CARD_ORD)
+            val deckIdx = c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)
+            val decks = mutableMapOf<Int, Long>()
+            while (c.moveToNext()) {
+                val ord = c.getInt(ordIdx)
+                check(!decks.containsKey(ord)) { "AnkiDroid returned duplicate card ordinals" }
+                decks[ord] = c.getLong(deckIdx)
+            }
+            decks
         }
     }
 }

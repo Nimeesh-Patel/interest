@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
@@ -13,6 +15,7 @@ class AnkiSyncResult {
   final int updated;
   final int failed;
   final int skipped;
+  final int retired;
   final List<String> errors;
   final bool completed;
 
@@ -21,6 +24,7 @@ class AnkiSyncResult {
     required this.updated,
     required this.failed,
     this.skipped = 0,
+    this.retired = 0,
     required this.errors,
     this.completed = true,
   });
@@ -50,35 +54,39 @@ class AnkiSyncService {
   static Future<AnkiSyncResult> syncVault(
     AnkiTransport transport,
     List<AnkiProblemNote> problemNotes,
-    String vaultPath,
-  ) async {
+    String vaultPath, {
+    List<AnkiNoteRetirement> retirements = const [],
+  }) async {
     int added = 0;
     int updated = 0;
     int failed = 0;
     int skipped = 0;
+    int retired = 0;
     bool completed = true;
     final errors = <String>[];
 
+    final sourcePaths = [
+      ...problemNotes.map((note) => note.sourcePath),
+      ...retirements.map((note) => note.sourcePath),
+    ];
     final ineligible =
-        problemNotes
+        sourcePaths
             .where(
               (note) =>
                   !CurrentVaultContent.isEligible(
                     vaultPath,
-                    note.sourcePath,
+                    note,
                     use: CurrentVaultUse.ankiProblemNote,
                   ),
             )
             .toList();
     if (ineligible.isNotEmpty) {
       final paths =
-          ineligible
-              .map((note) => p.relative(note.sourcePath, from: vaultPath))
-              .toList()
+          ineligible.map((path) => p.relative(path, from: vaultPath)).toList()
             ..sort();
       return AnkiSyncResult.incomplete(
         failed: ineligible.length,
-        skipped: problemNotes.length - ineligible.length,
+        skipped: sourcePaths.length - ineligible.length,
         errors: ['Refused non-current Problem Notes: ${paths.join(', ')}'],
       );
     }
@@ -87,7 +95,7 @@ class AnkiSyncService {
     final builtLinkTargets = await buildLinkTargets(vaultPath);
     if (!builtLinkTargets.isComplete) {
       return AnkiSyncResult.incomplete(
-        skipped: problemNotes.length,
+        skipped: sourcePaths.length,
         errors: [
           'Wikilink-target discovery did not complete; no cards were changed.',
           ...builtLinkTargets.errors,
@@ -96,9 +104,67 @@ class AnkiSyncService {
     }
     final linkTargets = builtLinkTargets.targets;
 
+    for (final note in retirements) {
+      try {
+        final id = int.tryParse(note.ankiNoteId);
+        if (id == null || id <= 0) {
+          throw const AnkiNoteFailure('invalid anki_note_id for retirement');
+        }
+        // Validate removal before deleting the external projection. A later
+        // source edit still prevents the prepared patch from being applied.
+        final patch = await prepareFrontmatterField(
+          note.sourcePath,
+          'anki_note_id',
+          null,
+        );
+        final yaml = parseYamlMap(
+          splitFrontmatter(
+            patch.before.startsWith('\uFEFF')
+                ? patch.before.substring(1)
+                : patch.before,
+          ).frontmatter,
+        );
+        if (yaml?.containsKey('collection') != true ||
+            yaml?['anki_note_id']?.toString() != note.ankiNoteId) {
+          throw const AnkiNoteFailure(
+            'source role or Anki identity changed before retirement',
+          );
+        }
+        if (!await transport.retireNote(
+          id,
+          obsidianUri(vaultPath, note.sourcePath),
+        )) {
+          throw const AnkiNoteFailure(
+            'could not verify Anki retirement; local ID retained',
+          );
+        }
+        final applied = await patch.apply();
+        if (!applied.applied) {
+          throw AnkiNoteFailure(
+            'Anki projection retired, but local identity removal failed: ${applied.error}',
+          );
+        }
+        retired++;
+      } catch (error) {
+        failed++;
+        errors.add('${note.sourceFile}: $error');
+      }
+    }
+
     for (var index = 0; index < problemNotes.length; index++) {
       final note = problemNotes[index];
       try {
+        final current = await readPreservingUtf8(File(note.sourcePath));
+        final metadata = parseYamlMap(
+          splitFrontmatter(
+            current.startsWith('\uFEFF') ? current.substring(1) : current,
+          ).frontmatter,
+        );
+        if (metadata?.containsKey('collection') == true) {
+          throw const AnkiNoteFailure(
+            'source is now a collection note; rescan before syncing',
+          );
+        }
         final (front, back) = _renderCard(note, vaultPath, linkTargets);
         final deckName = note.category ?? 'Default';
         final tags = note.tags;
@@ -106,7 +172,7 @@ class AnkiSyncService {
 
         if (ankiNoteId != null) {
           final noteIdLong = int.tryParse(ankiNoteId);
-          if (noteIdLong == null) {
+          if (noteIdLong == null || noteIdLong <= 0) {
             failed++;
             errors.add(
               '${note.sourceFile}: invalid anki_note_id "$ankiNoteId"',
@@ -153,7 +219,14 @@ class AnkiSyncService {
             if (newId > 0) {
               final patch = await _patchAnkiNoteId(note.sourcePath, newId);
               if (patch.applied) {
-                added++;
+                if (await transport.moveToDeck(newId, deckName)) {
+                  added++;
+                } else {
+                  failed++;
+                  errors.add(
+                    '${note.sourceFile}: Anki note $newId created and linked, but deck projection to "$deckName" failed',
+                  );
+                }
               } else {
                 failed++;
                 errors.add(
@@ -171,7 +244,14 @@ class AnkiSyncService {
           if (newId > 0) {
             final patch = await _patchAnkiNoteId(note.sourcePath, newId);
             if (patch.applied) {
-              added++;
+              if (await transport.moveToDeck(newId, deckName)) {
+                added++;
+              } else {
+                failed++;
+                errors.add(
+                  '${note.sourceFile}: Anki note $newId created and linked, but deck projection to "$deckName" failed',
+                );
+              }
             } else {
               failed++;
               errors.add(
@@ -204,6 +284,7 @@ class AnkiSyncService {
       updated: updated,
       failed: failed,
       skipped: skipped,
+      retired: retired,
       errors: errors,
       completed: completed,
     );

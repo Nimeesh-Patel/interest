@@ -13,6 +13,12 @@ class AnkiDroidTransport extends AnkiTransport {
   String get displayName => 'AnkiDroid';
 
   @override
+  ProjectionCapabilities get projectionCapabilities => ProjectionCapabilities({
+    ...super.projectionCapabilities.operations,
+    'retire': null,
+  });
+
+  @override
   Future<bool> isAvailable() async {
     try {
       return await _channel.invokeMethod<bool>('isAnkiDroidAvailable') ?? false;
@@ -82,9 +88,8 @@ class AnkiDroidTransport extends AnkiTransport {
   Future<bool?> noteExists(int noteId) async {
     try {
       return await _channel.invokeMethod<bool>('noteExists', {
-            'noteId': noteId,
-          }) ??
-          false;
+        'noteId': noteId,
+      });
     } catch (_) {
       return null;
     }
@@ -98,6 +103,21 @@ class AnkiDroidTransport extends AnkiTransport {
             'deckName': deckName,
           }) ??
           false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> retireNote(int noteId, String expectedSourceUri) async {
+    try {
+      return await _channel.invokeMethod<bool>('retireNote', {
+            'noteId': noteId,
+            'expectedSourceUri': expectedSourceUri,
+          }) ??
+          false;
+    } on PlatformException catch (error) {
+      throw AnkiNoteFailure(error.message ?? error.code);
     } catch (_) {
       return false;
     }

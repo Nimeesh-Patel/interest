@@ -70,7 +70,14 @@ Future<void> main(List<String> args) async {
       scanned.notes
           .where((note) => wanted.contains(p.canonicalize(note.sourcePath)))
           .toList();
-  final found = selected.map((note) => p.canonicalize(note.sourcePath)).toSet();
+  final selectedRetirements =
+      scanned.retirements
+          .where((note) => wanted.contains(p.canonicalize(note.sourcePath)))
+          .toList();
+  final found = {
+    ...selected.map((note) => p.canonicalize(note.sourcePath)),
+    ...selectedRetirements.map((note) => p.canonicalize(note.sourcePath)),
+  };
   final missing = wanted.difference(found);
   if (missing.isNotEmpty) {
     _fail(
@@ -94,10 +101,11 @@ Future<void> main(List<String> args) async {
     transport,
     selected,
     vault.path,
+    retirements: selectedRetirements,
   );
   stdout.writeln(
     'synced ${selected.length} notes '
-    '(${result.added} added, ${result.updated} updated, ${result.failed} failed)',
+    '(${result.added} added, ${result.updated} updated, ${result.retired} removed, ${result.failed} failed)',
   );
   for (final error in result.errors) {
     stderr.writeln(error);

@@ -24,7 +24,8 @@ class FakeAnkiConnect {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _server.listen((req) async {
       final decoded =
-          jsonDecode(await utf8.decoder.bind(req).join()) as Map<String, dynamic>;
+          jsonDecode(await utf8.decoder.bind(req).join())
+              as Map<String, dynamic>;
       requests.add(decoded);
       Object? result;
       String? error;
@@ -97,8 +98,9 @@ void main() {
       anki.handlers['createDeck'] = (_) => 42;
       anki.handlers['addNote'] = (_) => 1781279337415;
 
-      final id = await transport
-          .addNote('Philosophy', '<b>front</b>', 'back', ['tag-a']);
+      final id = await transport.addNote('Philosophy', '<b>front</b>', 'back', [
+        'tag-a',
+      ]);
 
       expect(id, 1781279337415);
       expect(anki.actions, ['modelNames', 'createDeck', 'addNote']);
@@ -106,8 +108,9 @@ void main() {
       final createDeck = anki.requests[1]['params'] as Map<String, dynamic>;
       expect(createDeck['deck'], 'Philosophy');
 
-      final note = (anki.requests[2]['params']
-          as Map<String, dynamic>)['note'] as Map<String, dynamic>;
+      final note =
+          (anki.requests[2]['params'] as Map<String, dynamic>)['note']
+              as Map<String, dynamic>;
       expect(note['deckName'], 'Philosophy');
       expect(note['modelName'], 'Basic');
       expect(note['fields'], {'Front': '<b>front</b>', 'Back': 'back'});
@@ -117,22 +120,32 @@ void main() {
 
     test('missing Basic model aborts the sync', () async {
       anki.handlers['modelNames'] = (_) => ['Einfach', 'Cloze'];
-      expect(() => transport.addNote('D', 'f', 'b', []),
-          throwsA(isA<AnkiSyncAbort>()));
-    });
-
-    test('AnkiConnect error surfaces as a per-note failure with message',
-        () async {
-      allowBasicModel();
-      anki.handlers['createDeck'] = (_) => 42;
-      anki.handlers['addNote'] =
-          (_) => throw 'cannot create note because it is empty';
-
       expect(
-          () => transport.addNote('D', 'f', 'b', []),
-          throwsA(isA<AnkiNoteFailure>().having((e) => e.message, 'message',
-              'cannot create note because it is empty')));
+        () => transport.addNote('D', 'f', 'b', []),
+        throwsA(isA<AnkiSyncAbort>()),
+      );
     });
+
+    test(
+      'AnkiConnect error surfaces as a per-note failure with message',
+      () async {
+        allowBasicModel();
+        anki.handlers['createDeck'] = (_) => 42;
+        anki.handlers['addNote'] =
+            (_) => throw 'cannot create note because it is empty';
+
+        expect(
+          () => transport.addNote('D', 'f', 'b', []),
+          throwsA(
+            isA<AnkiNoteFailure>().having(
+              (e) => e.message,
+              'message',
+              'cannot create note because it is empty',
+            ),
+          ),
+        );
+      },
+    );
 
     test('Basic-model check runs once per transport instance', () async {
       allowBasicModel();
@@ -156,8 +169,9 @@ void main() {
       expect(ok, isTrue);
       expect(anki.actions, ['updateNoteFields', 'updateNoteTags']);
 
-      final fieldsNote = (anki.requests[0]['params']
-          as Map<String, dynamic>)['note'] as Map<String, dynamic>;
+      final fieldsNote =
+          (anki.requests[0]['params'] as Map<String, dynamic>)['note']
+              as Map<String, dynamic>;
       expect(fieldsNote['id'], 99);
       expect(fieldsNote['fields'], {'Front': 'f', 'Back': 'b'});
 
@@ -172,15 +186,107 @@ void main() {
     });
   });
 
+  group('guarded retirement', () {
+    const source = 'obsidian://open?vault=Research&file=Former%20card';
+    Map<String, Object?> linked(int id, String front) => {
+      'noteId': id,
+      'fields': {
+        'Front': {'value': front, 'order': 0},
+      },
+    };
+
+    test(
+      'matching source deletes only the exact note and verifies absence',
+      () async {
+        var removed = false;
+        anki.handlers['notesInfo'] =
+            (_) => [removed ? {} : linked(555, '<a href="$source">source</a>')];
+        anki.handlers['deleteNotes'] = (params) {
+          expect(params?['notes'], [555]);
+          removed = true;
+          return null;
+        };
+        expect(transport.projectionCapabilities.supports('retire'), isTrue);
+        expect(await transport.retireNote(555, source), isTrue);
+        expect(anki.actions, ['notesInfo', 'deleteNotes', 'notesInfo']);
+      },
+    );
+
+    test('a confirmed absent note is already retired', () async {
+      anki.handlers['notesInfo'] = (_) => [{}];
+      expect(await transport.retireNote(555, source), isTrue);
+      expect(anki.actions, ['notesInfo']);
+    });
+
+    test('wrong source or identity refuses native deletion', () async {
+      anki.handlers['notesInfo'] =
+          (_) => [
+            linked(
+              555,
+              '<a href="obsidian://open?vault=Other&file=Other">other</a>',
+            ),
+          ];
+      await expectLater(
+        transport.retireNote(555, source),
+        throwsA(isA<AnkiNoteFailure>()),
+      );
+      expect(anki.actions, ['notesInfo']);
+      anki.handlers['notesInfo'] =
+          (_) => [linked(777, '<a href="$source">source</a>')];
+      await expectLater(
+        transport.retireNote(555, source),
+        throwsA(isA<AnkiNoteFailure>()),
+      );
+      expect(anki.actions, ['notesInfo', 'notesInfo']);
+    });
+
+    test('unavailable identity is not interpreted as absence', () async {
+      anki.handlers['notesInfo'] = (_) => [];
+      await expectLater(
+        transport.retireNote(555, source),
+        throwsA(isA<AnkiNoteFailure>()),
+      );
+      expect(anki.actions, ['notesInfo']);
+    });
+
+    test(
+      'delete acknowledgement without observed absence is a failure',
+      () async {
+        anki.handlers['notesInfo'] =
+            (_) => [
+              linked(
+                555,
+                '<a href="${source.replaceAll('&', '&amp;')}">source</a>',
+              ),
+            ];
+        anki.handlers['deleteNotes'] = (_) => null;
+        expect(await transport.retireNote(555, source), isFalse);
+      },
+    );
+  });
+
   group('noteExists', () {
+    test(
+      'malformed or mismatched identity is unknown rather than missing',
+      () async {
+        anki.handlers['notesInfo'] = (_) => [];
+        expect(await transport.noteExists(123), isNull);
+        anki.handlers['notesInfo'] =
+            (_) => [
+              {'noteId': 456},
+            ];
+        expect(await transport.noteExists(123), isNull);
+      },
+    );
     test('empty object means missing (AnkiConnect convention)', () async {
       anki.handlers['notesInfo'] = (_) => [<String, Object?>{}];
       expect(await transport.noteExists(123), isFalse);
     });
 
     test('populated info means present', () async {
-      anki.handlers['notesInfo'] = (_) => [
-            {'noteId': 123, 'modelName': 'Basic'}
+      anki.handlers['notesInfo'] =
+          (_) => [
+            {'noteId': 123, 'modelName': 'Basic'},
           ];
       expect(await transport.noteExists(123), isTrue);
       final params = anki.requests.single['params'] as Map<String, dynamic>;

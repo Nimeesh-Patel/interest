@@ -63,7 +63,8 @@ class QuickCaptureActivity : Activity() {
         name.replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
 
     // collection: makes the note an entity (visible in the Collections tab);
-    // category: remains the AnkiDroid deck mapping. Both are required.
+    // Collection membership opts out of Anki. category: is only a deck
+    // preference if the user later removes that collection membership.
     private fun buildMarkdown(name: String, note: String?, vaultPath: String): String {
         val iso = nowIso()
         val frontmatter = "---\ncollection: Quick Capture\ncategory: Default\ncreated_at: $iso\nupdated_at: $iso\n---"

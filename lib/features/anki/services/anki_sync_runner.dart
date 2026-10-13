@@ -55,7 +55,7 @@ void showAnkiSyncResult(
 
   if (!result.isSuccessful) {
     final summary = StringBuffer(
-      '${result.added + result.updated} changed, ${result.failed} failed',
+      '${result.added + result.updated} synced, ${result.retired} removed, ${result.failed} failed',
     );
     if (result.skipped > 0) summary.write(', ${result.skipped} not attempted');
     showDialog<void>(
@@ -83,7 +83,7 @@ void showAnkiSyncResult(
     );
   } else {
     final msg =
-        'Synced $total problem notes to ${transport.displayName} (${result.added} added, ${result.updated} updated)';
+        'Synced $total problem notes to ${transport.displayName} (${result.added} added, ${result.updated} updated, ${result.retired} removed)';
     showSnack(context, msg);
   }
 }

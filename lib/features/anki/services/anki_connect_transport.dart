@@ -29,6 +29,12 @@ class AnkiConnectTransport extends AnkiTransport {
   @override
   String get displayName => 'Anki desktop';
 
+  @override
+  ProjectionCapabilities get projectionCapabilities => ProjectionCapabilities({
+    ...super.projectionCapabilities.operations,
+    'retire': null,
+  });
+
   /// POSTs one AnkiConnect action. Returns the `result` value; throws
   /// [AnkiNoteFailure] carrying AnkiConnect's `error` string when present.
   Future<Object?> _invoke(String action, [Map<String, Object?>? params]) async {
@@ -147,10 +153,13 @@ class AnkiConnectTransport extends AnkiTransport {
       final result = await _invoke('notesInfo', {
         'notes': [noteId],
       });
-      if (result is! List || result.isEmpty) return false;
+      if (result is! List || result.length != 1 || result.single is! Map) {
+        return null;
+      }
       // Missing notes come back as empty objects, not an error.
       final info = result.first;
-      return info is Map && info.isNotEmpty;
+      if ((info as Map).isEmpty) return false;
+      return info['noteId'] == noteId ? true : null;
     } catch (_) {
       return null;
     }
@@ -168,6 +177,46 @@ class AnkiConnectTransport extends AnkiTransport {
     } catch (_) {
       return false;
     }
+  }
+
+  @override
+  Future<bool> retireNote(int noteId, String expectedSourceUri) async {
+    try {
+      final info = await _retirementInfo(noteId);
+      if (info.isEmpty) return true;
+      final fields = info['fields'];
+      final front = fields is Map ? fields['Front'] : null;
+      final value = front is Map ? front['value'] : null;
+      if (value is! String || !hasAnkiSourceLink(value, expectedSourceUri)) {
+        throw const AnkiNoteFailure(
+          'refused retirement: Anki source link does not match this note',
+        );
+      }
+      await _invoke('deleteNotes', {
+        'notes': [noteId],
+      });
+      return (await _retirementInfo(noteId)).isEmpty;
+    } on AnkiNoteFailure {
+      rethrow;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map> _retirementInfo(int noteId) async {
+    final result = await _invoke('notesInfo', {
+      'notes': [noteId],
+    });
+    if (result is! List || result.length != 1 || result.single is! Map) {
+      throw const AnkiNoteFailure(
+        'could not verify Anki note identity for retirement',
+      );
+    }
+    final info = result.single as Map;
+    if (info.isNotEmpty && info['noteId'] != noteId) {
+      throw const AnkiNoteFailure('Anki returned a different note identity');
+    }
+    return info;
   }
 
   /// The card ids of [noteId] via `notesInfo`, or empty on any failure.

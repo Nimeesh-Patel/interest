@@ -19,7 +19,7 @@ class AnkiSyncController {
       if (!scanned.isComplete) {
         return AnkiSyncResult.incomplete(
           failed: scanned.conflictedRecords,
-          skipped: scanned.candidateCount - scanned.conflictedRecords,
+          skipped: scanned.operationCount - scanned.conflictedRecords,
           errors: [
             'Problem Note discovery did not complete; no cards were changed.',
             ...scanned.errors,
@@ -30,6 +30,7 @@ class AnkiSyncController {
         transport,
         scanned.notes,
         vaultPath,
+        retirements: scanned.retirements,
       );
     } catch (error) {
       return AnkiSyncResult.incomplete(

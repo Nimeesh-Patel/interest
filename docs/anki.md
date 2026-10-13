@@ -13,14 +13,14 @@ frontmatter is refused. A refusal after an external create remains a partial
 projection requiring reconciliation; this patch does not add crash recovery
 or change sync discovery's separate metadata-validation boundary.
 
-Problem notes whose `***` split has non-empty problem and conjecture sides are pushed to Anki as Basic cards. Blank templates and unfinished structural notes are not review-ready. Sync is **one-way: vault → Anki**, over either of two transports:
+Problem notes whose `***` split has non-empty problem and conjecture sides, with no `collection:` key, are pushed to Anki as Basic cards. Blank templates and unfinished structural notes are not review-ready. Collection membership opts out of Anki, including notes that also have a category; an existing projection is retired and its local ID cleared only after verified absence. The `***` body structure and local Problem Notes rendering remain unchanged. Sync is **one-way: vault → Anki**, over either of two transports:
 
 | Transport | Backend | Wire protocol | Platform |
 |---|---|---|---|
 | `AnkiDroidTransport` | AnkiDroid app | ContentProvider via MethodChannel (`AnkiBridge.kt`, `AddContentApi`) | Android only |
 | `AnkiConnectTransport` | Anki desktop + [AnkiConnect](https://git.sr.ht/~foosoft/anki-connect) add-on | HTTP, default `http://127.0.0.1:8765`, API version 6 | Pure Dart — any platform that can reach the URL |
 
-Anki never originates data; the vault remains the source of truth. Review history, scheduling state, ease factors, and due dates are never read or written — on either transport.
+Anki never originates data; the vault remains the source of truth. Ordinary updates do not read or rewrite scheduling, ease factors or due dates. Retirement deliberately deletes the native note and its cards, including their review history; a source-link mismatch or unavailable observation refuses that deletion.
 
 The whole sync stack lives self-contained under `lib/features/anki/`, with zero dependency on the Collections entity-body viewer. Obsidian + the Problem Notes plugin own Problem Note editing and review.
 
@@ -36,9 +36,9 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state disc
             AnkiConnectTransport → HTTP POST     → AnkiConnect → Anki desktop
 ```
 
-`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. It also honours `exclude_resurface: true`, requires a non-empty `splitFrontBack`, and rejects duplicate active `anki_note_id` values. Traversal/read/identity errors make discovery incomplete, and the controller changes no cards.
+`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. Collection notes with an existing ID become retirement candidates even if their former separator has been removed. Other sources honour `exclude_resurface: true` and require a non-empty `splitFrontBack`. Duplicate IDs across active and retiring sources, malformed frontmatter, ambiguous category values and traversal/read errors make discovery incomplete; the controller then changes no cards.
 
-`AnkiSyncService` owns everything both transports must agree on — front/back rendering, `category:`→deck mapping, the `obsidian://` wikilink rewrite, the `anki_note_id` round-trip — so the same note yields the same card whichever transport carries it. Transports translate six operations into their wire protocol and nothing else:
+`AnkiSyncService` owns everything both transports must agree on — rendering, category/deck mapping, source links, local identity and collection withdrawal — so the same note yields the same projection whichever transport carries it. Transports translate seven operations into their wire protocol:
 
 | `AnkiTransport` method | AnkiDroid (MethodChannel) | AnkiConnect (HTTP action) |
 |---|---|---|
@@ -48,12 +48,13 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state disc
 | `updateNote` | `updateNoteFields` + `updateNoteTags` | `updateNoteFields` + `updateNoteTags` |
 | `noteExists` | `getNote(noteId) != null` | `notesInfo` → non-empty object |
 | `moveToDeck` | `moveNoteToDeck` (ContentProvider card `DECK_ID` update) | `createDeck` then `changeDeck` |
+| `retireNote` | Exact note query, source-link guard, ContentProvider delete, absence verification | `notesInfo`, source-link guard, `deleteNotes`, `notesInfo` absence verification |
 
-`moveToDeck` is applied idempotently after every existing-note update. A failed placement is reported as a partial note outcome; an unavailable deck observation can no longer silently skip the category projection.
+`moveToDeck` is applied idempotently after every existing-note update and every new/recovered note's local identity patch. New IDs remain linked even if placement fails, allowing a retry in place. Android verifies the actual card deck IDs after a move rather than treating a no-op update as success. Unknown native note cursors/responses are not interpreted as missing notes.
 
 The transport also exposes the shared external-projection lifecycle as
 capabilities rather than pretending every backend supports every correction:
-`read`, `create`, `update`, and `verify` are supported; guarded `retire` is not;
+`read`, `create`, `update`, `verify` and source-guarded `retire` are supported;
 local vault-id patches can be rolled back in-process, but Anki mutations cannot.
 The operation names are open strings, so a future projection can add a
 capability without changing a closed enum in the core.
@@ -96,7 +97,7 @@ The sync logic itself is unchanged from any other trigger; only *how it starts* 
 
 ## `anki_note_id` — the only vault write
 
-Only `anki_note_id` is ever written back to a vault file, via `AnkiSyncService._patchAnkiNoteId` → `patchFrontmatterField` (patches in place, never rebuilds frontmatter, **never touches the body**). This is the entire vault-write surface of the sync. The patch returns an explicit verified result and a stale-safe in-process rollback; it no longer swallows write failures. If Anki creates a note but the local identity patch fails, sync reports that partial projection with the external note id rather than claiming success.
+Only `anki_note_id` is written or removed in a vault file. Creation/recovery uses `AnkiSyncService._patchAnkiNoteId` → `patchFrontmatterField`; retirement preflights `prepareFrontmatterField` and applies its unchanged-source patch after native absence is verified. Both use the same source-span patcher, preserving unrelated metadata and **never replacing the body**. The applied patch has a verified result and stale-safe local rollback. An external create/deletion followed by a failed local patch is reported as a partial projection; it is not claimed as success or as reversible native review history.
 
 ```yaml
 anki_note_id: 1234567890   # collection note id (epoch-millis Long)
@@ -115,9 +116,13 @@ The id is an Anki *collection's* note id, which AnkiWeb preserves when syncing a
 
 ## Deck mapping
 
-The `category:` frontmatter field is the deck name; absent means `"Default"`. Both transports look-up-or-create (AnkiDroid `getOrCreateDeck` in `AnkiBridge.kt`; AnkiConnect idempotent `createDeck`).
+The `category:` frontmatter field is the deck name, as text or a singleton text list; leading/trailing whitespace is trimmed. Missing/empty means `"Default"`. Multiple distinct names or non-text values are refused rather than projected to Default. Both transports look up or create the requested deck; manually created decks are reused. Collection membership takes precedence over category and opts out of Anki.
 
-**Deck projection.** A new note is added straight into its `category:` deck. For an existing note, `updateNote` rewrites fields/tags and the core then idempotently applies the `category:`-derived deck through `transport.moveToDeck`. A failed placement is explicit even though the field/tag update has already happened.
+**Deck projection.** Create/update is followed by explicit deck placement, including recovery of an existing duplicate by Android. A failed placement is explicit even though the field/tag update or creation has already happened. Native card IDs and review history are preserved during ordinary deck changes.
+
+## Collection withdrawal
+
+Sync preflights a source-span removal of `anki_note_id` against the current file before mutating Anki. The file must still be a collection note with the expected ID. The native note must carry the exact Obsidian source href; unrelated cards are refused. After deletion, the transport must observe absence before the prepared local patch is applied. A confirmed already-absent projection can clear a stale ID. Failed reads, deletes, verification or local patches retain a visible failure and any remaining ID for reconciliation/retry. An intervening source edit is preserved rather than overwritten. This is a sequential distributed operation, not an atomic rollback of native review history.
 
 ## Note model
 
@@ -125,7 +130,7 @@ Both transports create notes only on the model literally named **`Basic`** (fiel
 
 ## What is NOT synced
 
-Review history, intervals, ease factors, due dates; FSRS/SM-2 scheduling state; deck options/templates; media; notes without a `***` separator.
+Review history, intervals, ease factors, due dates; FSRS/SM-2 scheduling state; deck options/templates; media. Notes without a complete `***` split are not created/updated as cards, and collection notes only withdraw former projections. Source deletion, split/merge retirement and `exclude_resurface` retirement are outside this correction.
 
 ## Card-body wikilinks → Obsidian
 
@@ -162,12 +167,28 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 | Method | Args | Returns |
 |---|---|---|
 | `isAnkiDroidAvailable` | — | `bool` |
+| `getAnkiDroidVersion` | — | Installed version name or null |
 | `requestPermission` | — | `bool` (true if already granted, else requests via the Activity and resolves on the result) |
-| `addNote` | `deckName, front, back, tags` | `Long` (noteId, or -1) |
+| `addNote` | `deckName, front, back, tags` | Positive `Long` noteId, or explicit error |
 | `updateNote` | `noteId, front, back, tags` | `bool` |
-| `noteExists` | `noteId` | `bool` |
+| `noteExists` | `noteId` | `bool`; unavailable or invalid observation is an error |
 | `moveNoteToDeck` | `noteId, deckName` | `bool` |
+| `retireNote` | `noteId, expectedSourceUri` | `true` only after verified absence; source mismatch is an error |
 
 **`dev.interest.app/deeplink`** (`MainActivity`): `getInitialSyncAnki` → `bool` (Flutter pulls a cold-start `interest://sync-anki` once); native→Flutter `syncAnki` invoked from `onNewIntent` when a running app receives the deep link.
 
-Android implementation uses `AddContentApi` and `FlashCardsContract` from `com.github.ankidroid:Anki-Android:api-2.0.0:api@aar`.
+Android implementation uses `AddContentApi` and `FlashCardsContract` from `com.github.ankidroid:Anki-Android:api-v1.1.0`, as pinned in `android/app/build.gradle.kts`.
+
+## Device verification
+
+The Flutter tests cover discovery, source-span ID removal, role changes, partial outcomes and both transport contracts. The opt-in `AnkiBridgeDeviceChecks` instrumentation runner also exercises the actual installed AnkiDroid provider. It requires Interest's normal Anki permission and an existing ordinary deck other than Default. It creates only uniquely identified temporary notes, verifies existing-deck reuse and placement, ordinary updates, source-guarded withdrawal and repeat withdrawal, then removes its own notes. It creates no decks, launches no sync and edits no vault files.
+
+```text
+cd android
+gradlew :app:assembleDebugAndroidTest
+adb -s DEVICE install -r ../build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s DEVICE shell am instrument -w -e deckName Vocabulary dev.interest.app.test/dev.interest.app.AnkiBridgeDeviceChecks
+adb -s DEVICE uninstall dev.interest.app.test
+```
+
+Install the matching debug app first. Check `INSTRUMENTATION_RESULT: result=PASS`; the shell command's exit code alone is insufficient. On 2026-10-14, these checks passed on the user's Moto G45 with AnkiDroid 2.25.1 against the existing Vocabulary deck. Both temporary notes were verified absent, and the test package was removed. The updated Interest app remains installed with its permission retained. Whole-vault sync and first-time permission/deep-link delivery were not invoked by these device checks.

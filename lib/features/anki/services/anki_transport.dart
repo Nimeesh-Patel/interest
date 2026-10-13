@@ -1,4 +1,6 @@
 import '../../../shared/projection/external_projection.dart';
+export '../../../shared/projection/external_projection.dart'
+    show ProjectionCapabilities;
 
 /// Transport abstraction over an Anki backend. `AnkiSyncService` drives any
 /// implementation with identical sync semantics; implementations translate
@@ -12,7 +14,7 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
     'create': null,
     'update': null,
     'verify': null,
-    'retire': 'the current Anki transports expose no guarded delete',
+    'retire': 'this transport does not implement guarded deletion',
     'local-rollback':
         'vault id patches can be reversed in-process; Anki mutations cannot',
   });
@@ -50,7 +52,19 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
   /// throws: an unavailable deck operation is a reported note failure, not a
   /// reason to silently leave category and deck out of sync.
   Future<bool> moveToDeck(int noteId, String deckName);
+
+  /// Retire only a note carrying this exact Obsidian source link. True means
+  /// confirmed absence after deletion (or an already absent projection).
+  /// Unknown identity/availability must fail and keep the local Anki id.
+  Future<bool> retireNote(int noteId, String expectedSourceUri) async => false;
 }
+
+/// Match the exact source href, accepting the renderer's original form and
+/// HTML-escaped ampersands. Mere text mentioning a source is not ownership.
+bool hasAnkiSourceLink(String front, String sourceUri) => [
+  sourceUri,
+  sourceUri.replaceAll('&', '&amp;'),
+].any((uri) => front.contains('href="$uri"') || front.contains("href='$uri'"));
 
 /// Collection-level fatal condition (e.g. no "Basic" model). Thrown by
 /// transports and consumed only by `AnkiSyncService.syncVault`, which records

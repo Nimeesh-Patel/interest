@@ -63,10 +63,8 @@ void main() {
       expect(entities.errors, isEmpty);
 
       final cards = await AnkiProblemNoteScanner.scan(vault.path);
-      expect(cards.notes.map((note) => note.sourceFile), {
-        'Root.md',
-        'Excerpt.md',
-      });
+      expect(cards.notes, isEmpty);
+      expect(cards.retirements, isEmpty);
       expect(cards.errors, isEmpty);
     },
   );
@@ -93,7 +91,7 @@ void main() {
       expect(entities.errors, isEmpty);
 
       final cards = await AnkiProblemNoteScanner.scan(vault.path);
-      expect(cards.notes.map((note) => note.sourceFile), ['Samay Raina.md']);
+      expect(cards.notes, isEmpty);
       expect(cards.errors, isEmpty);
     },
   );
@@ -163,4 +161,90 @@ void main() {
     expect(result.notes, isEmpty);
     expect(result.errors.single, contains('Duplicate active anki_note_id'));
   });
+
+  test(
+    'scalar and singleton-list categories preserve exact deck names',
+    () async {
+      await write(
+        'Scalar.md',
+        '---\ncategory: " New deck "\n---\nProblem?\n***\nConjecture.\n',
+      );
+      await write(
+        'List.md',
+        '---\ncategory:\n  - "Theory::Optimism"\n---\nProblem?\n***\nConjecture.\n',
+      );
+      await write('Default.md', 'Problem?\n***\nConjecture.\n');
+      final result = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(result.isComplete, isTrue);
+      final decks = {
+        for (final note in result.notes) note.sourceFile: note.category,
+      };
+      expect(decks, {
+        'Scalar.md': 'New deck',
+        'List.md': 'Theory::Optimism',
+        'Default.md': null,
+      });
+    },
+  );
+
+  test(
+    'ambiguous or malformed deck metadata is refused rather than Default',
+    () async {
+      await write(
+        'Multiple.md',
+        '---\ncategory: [One, Two]\n---\nProblem?\n***\nConjecture.\n',
+      );
+      await write(
+        'Malformed.md',
+        '---\ncategory: [\n---\nProblem?\n***\nConjecture.\n',
+      );
+      final result = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(result.isComplete, isFalse);
+      expect(result.notes, isEmpty);
+      expect(result.errors, hasLength(2));
+    },
+  );
+
+  test(
+    'collection opts out even with category or without a remaining separator',
+    () async {
+      await write(
+        'Both.md',
+        '---\ncategory: Philosophy\ncollection: Ideas\nanki_note_id: 555\n---\nProblem?\n***\nConjecture.\n',
+      );
+      await write(
+        'Converted.md',
+        '---\ncollection: People\nanki_note_id: 556\n---\nA normal note now.\n',
+      );
+      await write('New entity.md', entityProblem);
+      final result = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(result.isComplete, isTrue);
+      expect(result.notes, isEmpty);
+      expect(result.retirements.map((note) => note.ankiNoteId).toSet(), {
+        '555',
+        '556',
+      });
+      expect(result.operationCount, 2);
+    },
+  );
+
+  test(
+    'shared identities across active and retiring notes stop discovery',
+    () async {
+      await write(
+        'Active.md',
+        '---\nanki_note_id: 123\n---\nProblem?\n***\nConjecture.\n',
+      );
+      await write(
+        'Retiring.md',
+        '---\ncollection: People\nanki_note_id: 123\n---\nA normal note.\n',
+      );
+      final result = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(result.isComplete, isFalse);
+      expect(result.operationCount, 2);
+      expect(result.conflictedRecords, 2);
+      expect(result.notes, isEmpty);
+      expect(result.retirements, isEmpty);
+    },
+  );
 }

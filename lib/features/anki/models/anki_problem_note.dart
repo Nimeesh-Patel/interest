@@ -1,4 +1,4 @@
-/// A vault note carrying a `***` front/back separator — the only notes the
+/// A review-ready `***` note without collection membership — the notes the
 /// Anki sync pushes. This is a slim projection of exactly what the sync needs;
 /// it is produced by [AnkiProblemNoteScanner] and consumed by [AnkiSyncService].
 /// The app never edits or renders these notes — rendering lives in Obsidian
@@ -25,5 +25,19 @@ class AnkiProblemNote {
     this.category,
     this.tags = const [],
     this.ankiNoteId,
+  });
+}
+
+/// A current collection note still linked to a former Anki projection.
+/// Its body need not remain a Problem Note; only the owned link is retired.
+class AnkiNoteRetirement {
+  final String sourcePath;
+  final String sourceFile;
+  final String ankiNoteId;
+
+  const AnkiNoteRetirement({
+    required this.sourcePath,
+    required this.sourceFile,
+    required this.ankiNoteId,
   });
 }

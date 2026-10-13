@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:people_tracker/features/anki/models/anki_problem_note.dart';
+import 'package:people_tracker/features/anki/services/anki_problem_note_scanner.dart';
 import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
 import 'package:people_tracker/features/anki/services/anki_transport.dart';
 
@@ -22,6 +23,10 @@ class FakeTransport extends AnkiTransport {
   final List<(int id, String deck)> moveCalls = [];
   bool noteExistsUnavailable = false;
   bool moveSucceeds = true;
+  bool retireSucceeds = true;
+  final List<(int, String)> retireCalls = [];
+  Future<void> Function()? afterAdd;
+  Future<void> Function()? afterRetire;
 
   /// When set, addNote throws this instead of adding.
   Exception? addThrows;
@@ -48,6 +53,7 @@ class FakeTransport extends AnkiTransport {
     addCalls.add((deckName, front, back, tags));
     final id = _nextId++;
     existingIds.add(id);
+    await afterAdd?.call();
     return id;
   }
 
@@ -70,6 +76,15 @@ class FakeTransport extends AnkiTransport {
   Future<bool> moveToDeck(int noteId, String deckName) async {
     moveCalls.add((noteId, deckName));
     return moveSucceeds;
+  }
+
+  @override
+  Future<bool> retireNote(int noteId, String expectedSourceUri) async {
+    retireCalls.add((noteId, expectedSourceUri));
+    if (!retireSucceeds) return false;
+    existingIds.remove(noteId);
+    await afterRetire?.call();
+    return true;
   }
 }
 
@@ -117,7 +132,7 @@ void main() {
     expect(capabilities.supports('read'), isTrue);
     expect(capabilities.supports('verify'), isTrue);
     expect(capabilities.supports('retire'), isFalse);
-    expect(capabilities.limitation('retire'), contains('no guarded delete'));
+    expect(capabilities.limitation('retire'), contains('does not implement'));
   });
 
   group('add / update / re-add decision', () {
@@ -152,7 +167,7 @@ void main() {
       () async {
         final transport = FakeTransport(firstId: 2100);
         final note = await problemNote('Vanished');
-        await File(note.sourcePath).delete();
+        transport.afterAdd = () => File(note.sourcePath).delete();
 
         final result = await AnkiSyncService.syncVault(transport, [
           note,
@@ -243,6 +258,209 @@ void main() {
       expect(transport.updateCalls, isEmpty);
     });
   });
+
+  group('collection retirement', () {
+    Future<AnkiNoteRetirement> collection({
+      String metadata = 'collection: People\nanki_note_id: 555',
+      String body = 'Question?\n***\nAnswer.',
+    }) async {
+      final path = p.join(vault.path, 'Former card.md');
+      await File(path).writeAsString('---\n$metadata\n---\n$body\n');
+      return AnkiNoteRetirement(
+        sourcePath: path,
+        sourceFile: 'Former card.md',
+        ankiNoteId: '555',
+      );
+    }
+
+    test(
+      'removes the native card, clears only the ID, and does not recreate it',
+      () async {
+        final note = await collection();
+        final file = File(note.sourcePath);
+        const body =
+            'A problem?\r\n***\r\nA conjecture.\r\nanki_note_id: body text\r\n';
+        await file.writeAsString(
+          '\uFEFF---\r\ncollection: People\r\n# Preserve metadata\r\nscore: 5\r\nanki_note_id: 555\r\n---\r\n$body',
+        );
+        final transport = FakeTransport()..existingIds.add(555);
+        final result = await AnkiSyncService.syncVault(
+          transport,
+          [],
+          vault.path,
+          retirements: [note],
+        );
+        expect(result.isSuccessful, isTrue);
+        expect(result.retired, 1);
+        expect(transport.existingIds, isEmpty);
+        expect(transport.retireCalls.single.$2, contains('obsidian://open'));
+        final bytes = await file.readAsBytes();
+        expect(bytes.take(3), [0xef, 0xbb, 0xbf]);
+        final after = await file.readAsString();
+        expect(after, contains('# Preserve metadata\r\nscore: 5'));
+        expect(after, endsWith(body));
+        expect(after, isNot(contains('anki_note_id: 555')));
+        final scan = await AnkiProblemNoteScanner.scan(vault.path);
+        expect(scan.notes, isEmpty);
+        expect(scan.retirements, isEmpty);
+        await AnkiSyncService.syncVault(
+          transport,
+          scan.notes,
+          vault.path,
+          retirements: scan.retirements,
+        );
+        expect(transport.addCalls, isEmpty);
+        expect(transport.moveCalls, isEmpty);
+      },
+    );
+
+    test('already absent native note can clear a stale ID', () async {
+      final note = await collection();
+      final result = await AnkiSyncService.syncVault(
+        FakeTransport(),
+        [],
+        vault.path,
+        retirements: [note],
+      );
+      expect(result.retired, 1);
+      expect(
+        await File(note.sourcePath).readAsString(),
+        isNot(contains('anki_note_id')),
+      );
+    });
+
+    test(
+      'unavailable retirement keeps the ID and retries without losing the source',
+      () async {
+        final note = await collection();
+        final before = await File(note.sourcePath).readAsBytes();
+        final transport =
+            FakeTransport()
+              ..existingIds.add(555)
+              ..retireSucceeds = false;
+        final failed = await AnkiSyncService.syncVault(
+          transport,
+          [],
+          vault.path,
+          retirements: [note],
+        );
+        expect(failed.failed, 1);
+        expect(failed.retired, 0);
+        expect(await File(note.sourcePath).readAsBytes(), before);
+        expect(transport.existingIds, {555});
+        transport.retireSucceeds = true;
+        final retried = await AnkiSyncService.syncVault(
+          transport,
+          [],
+          vault.path,
+          retirements: [note],
+        );
+        expect(retried.retired, 1);
+      },
+    );
+
+    test(
+      'unsupported local patch refuses deletion before external mutation',
+      () async {
+        final note = await collection(
+          metadata: '{collection: People, anki_note_id: 555}',
+        );
+        final transport = FakeTransport()..existingIds.add(555);
+        final result = await AnkiSyncService.syncVault(
+          transport,
+          [],
+          vault.path,
+          retirements: [note],
+        );
+        expect(result.failed, 1);
+        expect(transport.retireCalls, isEmpty);
+        expect(transport.existingIds, {555});
+      },
+    );
+
+    test('role changes before retirement prevent native removal', () async {
+      final note = await collection(
+        metadata: 'category: Philosophy\nanki_note_id: 555',
+      );
+      final transport = FakeTransport()..existingIds.add(555);
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        [],
+        vault.path,
+        retirements: [note],
+      );
+      expect(result.failed, 1);
+      expect(transport.retireCalls, isEmpty);
+    });
+
+    test(
+      'an intervening edit after native removal is preserved and reported',
+      () async {
+        final note = await collection();
+        final file = File(note.sourcePath);
+        final transport = FakeTransport()..existingIds.add(555);
+        transport.afterRetire =
+            () async => file.writeAsString(
+              '${await file.readAsString()}New authored thought.\n',
+            );
+        final result = await AnkiSyncService.syncVault(
+          transport,
+          [],
+          vault.path,
+          retirements: [note],
+        );
+        expect(result.failed, 1);
+        expect(result.errors.single, contains('Anki projection retired'));
+        expect(await file.readAsString(), contains('New authored thought.'));
+        expect(await file.readAsString(), contains('anki_note_id: 555'));
+      },
+    );
+  });
+
+  test(
+    'a created note is linked before a failed deck placement and retries in place',
+    () async {
+      final note = await problemNote('New deck card', category: 'New deck');
+      final transport = FakeTransport()..moveSucceeds = false;
+      final first = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
+      expect(first.failed, 1);
+      expect(await fileContent(note), contains('anki_note_id: 1000'));
+      transport.moveSucceeds = true;
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      final second = await AnkiSyncService.syncVault(
+        transport,
+        scan.notes,
+        vault.path,
+      );
+      expect(second.updated, 1);
+      expect(transport.addCalls, hasLength(1));
+      expect(transport.moveCalls.last, (1000, 'New deck'));
+    },
+  );
+
+  test(
+    'an Obsidian list category moves the existing card into the requested deck',
+    () async {
+      final file = File(p.join(vault.path, 'Requested deck.md'));
+      await file.writeAsString(
+        '---\ncategory:\n  - New manually created deck\nanki_note_id: 555\n---\nProblem?\n***\nConjecture.\n',
+      );
+      final original = await file.readAsBytes();
+      final transport = FakeTransport()..existingIds.add(555);
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        scan.notes,
+        vault.path,
+      );
+      expect(result.updated, 1);
+      expect(transport.moveCalls, [(555, 'New manually created deck')]);
+      expect(transport.addCalls, isEmpty);
+      expect(await file.readAsBytes(), original);
+    },
+  );
 
   group('card body rendering', () {
     test('wikilinks become obsidian:// links to the target note', () async {

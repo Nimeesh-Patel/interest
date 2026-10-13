@@ -11,7 +11,7 @@ It exists because plain Markdown files are the durable artifact and apps are not
 
 ## The Problem Note
 
-A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card only when both sides are non-empty; a blank template or unfinished capture remains a Problem Note without becoming a review card yet.
+A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card only when both sides are non-empty and the note has no `collection:` key. Collection membership opts out of Anki even if the body still has `***` or a deck category. A blank template or unfinished capture remains a Problem Note without becoming a review card yet.
 
 ```markdown
 What makes Interest a good Obsidian-to-Anki bridge?
@@ -24,9 +24,9 @@ to your note. The file stays an ordinary, readable Markdown
 note that works on its own, with or without Anki.
 ```
 
-That is the entire format. No special fields, no ID comments, no injected code. The note stays a fully readable Markdown file. Optionally a `category:` frontmatter key picks the AnkiDroid deck and `tags:` become Anki tags; neither is required.
+That is the entire body format. The note stays a fully readable Markdown file. Optionally a `category:` frontmatter key picks the Anki deck and `tags:` become Anki tags; neither is required. Category accepts a text value or a one-item text list, as Obsidian properties commonly serialize it. An absent or empty category uses Default; ambiguous deck metadata is an error rather than a silent Default fallback.
 
-The framing is deliberate: the front is a problem, the back is your current best conjecture, and **both sides keep evolving**. You edit it in Obsidian whenever your thinking moves, and the next sync updates the card in place.
+The framing is deliberate: the front is a problem, the back is your current best conjecture, and **both sides keep evolving**. You edit it in Obsidian whenever your thinking moves, and the next sync updates the card in place. Adding `collection:` withdraws an existing Anki projection: sync verifies its source link, removes the native Anki note and cards, confirms absence, then clears `anki_note_id` without changing your body. Offline or uncertain retirement keeps the ID for a retry.
 
 ## The companion plugin
 
@@ -70,7 +70,7 @@ For the Anki bridge: add `***` to a note, then either tap the Problem Notes plug
 
 ## Architecture in brief
 
-Flutter, `setState` only. Expected failures cross service boundaries as explicit results; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Two invariants matter: a note's roles are orthogonal frontmatter/body facts (`collection:` makes it a collection member, a non-empty `***` split makes it card-ready — a note can be both), and vault-root integrations patch frontmatter without replacing user prose. Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
+Flutter, `setState` only. Expected failures cross service boundaries as explicit results; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Structural note roles remain frontmatter/body facts: `collection:` makes a collection member and `***` makes a Problem Note. Anki eligibility is a separate projection rule: a complete Problem Note without collection membership. Vault-root integrations patch frontmatter without replacing user prose; Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
 
 Subsystem detail: [docs/](docs/) — [Inbox and its provider](docs/inbox.md), [Anki sync & the deep-link contract](docs/anki.md), [entities & collections](docs/entities.md), [projects](docs/projects.md), [tasks parser](docs/tasks.md), [UI](docs/ui.md), [mobile UX](docs/mobile_ux.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
 
