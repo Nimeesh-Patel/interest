@@ -74,6 +74,37 @@ import 'package:yaml/yaml.dart';
 
 // ── Section parsers ───────────────────────────────────────────────────────────
 
+/// Source line identities outside frontmatter and Markdown code fences.
+/// Used by editors to avoid treating quoted examples as owned content.
+Iterable<int> unfencedBodyLines(List<String> lines) sync* {
+  var start = 0;
+  if (lines.isNotEmpty && lines.first.trim() == '---') {
+    final end = lines.indexWhere((line) => line.trim() == '---', 1);
+    if (end < 0) throw const FormatException('Frontmatter is not closed.');
+    start = end + 1;
+  }
+  String? fence;
+  var fenceLength = 0;
+  for (var index = start; index < lines.length; index++) {
+    final marker = RegExp(
+      r'^ {0,3}(`{3,}|~{3,})(.*)$',
+    ).firstMatch(lines[index]);
+    if (marker != null) {
+      final run = marker.group(1)!;
+      if (fence == null) {
+        fence = run[0];
+        fenceLength = run.length;
+      } else if (run[0] == fence &&
+          run.length >= fenceLength &&
+          marker.group(2)!.trim().isEmpty) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fence == null) yield index;
+  }
+}
+
 /// Parses H2 (`##`) sections from a Markdown body.
 /// `###` and deeper headings are treated as content within the parent H2.
 /// Returns an insertion-ordered map of section name → raw content (trimRight).
@@ -183,8 +214,16 @@ String noteKey(String filePath) =>
 
 /// Returns an `obsidian://open` URI for [noteFilePath] inside [vaultPath].
 /// Pure — no I/O. Both vault name and note name are percent-encoded.
-String obsidianUri(String vaultPath, String noteFilePath) =>
-    obsidianUriForName(vaultPath, p.basenameWithoutExtension(noteFilePath));
+String obsidianUri(String vaultPath, String noteFilePath) => obsidianUriForName(
+  vaultPath,
+  p
+      .withoutExtension(
+        p.isAbsolute(noteFilePath)
+            ? p.relative(noteFilePath, from: vaultPath)
+            : noteFilePath,
+      )
+      .replaceAll('\\', '/'),
+);
 
 /// Returns an `obsidian://open` URI for a bare note [noteName] (a wikilink
 /// target, already extension-less) inside [vaultPath]. Shares the vault-name

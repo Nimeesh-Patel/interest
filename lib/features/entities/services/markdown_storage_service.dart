@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -8,6 +9,7 @@ import '../models/entity.dart';
 import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/markdown/md_io.dart';
+import '../../../shared/markdown/markdown_file.dart';
 import '../../../core/vault_service.dart';
 import 'entity_file_parser.dart';
 import 'entity_file_writer.dart';
@@ -46,7 +48,13 @@ class MarkdownStorageService {
           if (kDebugMode && EntityFileParser.isCorruptedHusk(content)) {
             corrupted.add(entry.path);
           }
-          final yaml = parseYamlMap(splitFrontmatter(content).frontmatter);
+          final frontmatter = splitFrontmatter(content).frontmatter;
+          final yaml = parseYamlMap(frontmatter);
+          if (frontmatter?.trim().isNotEmpty == true && yaml == null) {
+            throw const FormatException(
+              'frontmatter must be a valid YAML mapping',
+            );
+          }
           if (!EntityFileParser.isEntityFrontmatter(yaml)) continue;
           final result = EntityFileParser.parseEntityFile(content, entry.path);
           entities.add(result.entity);
@@ -121,7 +129,7 @@ class MarkdownStorageService {
       _vaultPath = vaultPath;
 
       final existingPath = entity.sourcePath;
-      if (existingPath != null && await File(existingPath).exists()) {
+      if (existingPath != null) {
         if (!CurrentVaultContent.isEligible(
           vaultPath,
           existingPath,
@@ -130,12 +138,16 @@ class MarkdownStorageService {
           return null;
         }
         final existing = await readPreservingUtf8(File(existingPath));
-        await File(existingPath).writeAsString(
-          EntityFileWriter.patchFrontmatter(
-            existingContent: existing,
-            entity: entity,
-          ),
+        final patched = EntityFileWriter.patchFrontmatter(
+          existingContent: existing,
+          entity: entity,
         );
+        final result = await MarkdownFile.guardedReplaceBytes(
+          existingPath,
+          TaskFileSnapshot(bytes: utf8.encode(existing), lines: const []),
+          utf8.encode(patched),
+        );
+        if (!result.applied) return null;
         return existingPath;
       }
 

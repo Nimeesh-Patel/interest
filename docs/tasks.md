@@ -58,7 +58,7 @@ abstract class TaskNode
 
 ## Parser (`TaskStorageService.parseNodes`)
 
-**Signature:** `static List<TaskNode> parseNodes(List<String> lines)` — pure, no I/O. Call after `loadLines()`. Shared by `TaskFileScreen` and the read-only Inbox provider; provider code must not implement a rival checkbox parser.
+**Signature:** `static List<TaskNode> parseNodes(List<String> lines)` — pure, no I/O. Call with `MarkdownFile.loadSnapshot().lines`. Shared by `TaskFileScreen` and the read-only Inbox provider; provider code must not implement a rival checkbox parser.
 
 **Top-level scan:**
 1. Skip H1 (file title — rendered in AppBar)
@@ -133,3 +133,14 @@ Pushed by `ProjectsScreen` for todo-style project files and embedded directly in
 - Do NOT wire task wikilinks into any graph — task files have no identity anchor
 - Do NOT add due dates, reminders, recurring tasks, priorities, notifications, or calendar integration
 - `TaskBlock.endLine` is computed from the live subtree — do not cache across reloads
+
+## Shared file boundary
+
+`lib/shared/markdown/markdown_file.dart` owns strict snapshots, unchanged-source
+preconditions, staged/flushed/verified replacement, recovery observation and
+guarded title/filename rename. The task module owns checkbox parsing and
+line/block transforms, not another filesystem writer. Every editor mode uses
+this boundary; the former unguarded writers and empty-on-read-error loader are
+removed. Metadata and fenced examples do not become live checkbox tasks.
+Project completion keeps its existing root reorder behavior; Inbox completion
+remains in place. Failed/stale operations are visible and never auto-retried.

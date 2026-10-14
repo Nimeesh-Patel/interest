@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -27,6 +28,7 @@ class FakeTransport extends AnkiTransport {
   final List<(int, String)> retireCalls = [];
   Future<void> Function()? afterAdd;
   Future<void> Function()? afterRetire;
+  Future<void> Function()? afterUpdate;
 
   /// When set, addNote throws this instead of adding.
   Exception? addThrows;
@@ -65,6 +67,7 @@ class FakeTransport extends AnkiTransport {
     List<String> tags,
   ) async {
     updateCalls.add((noteId, front, back));
+    await afterUpdate?.call();
     return true;
   }
 
@@ -121,11 +124,110 @@ void main() {
       category: category,
       tags: tags,
       ankiNoteId: ankiNoteId,
+      sourceContent: await File(path).readAsString(),
     );
   }
 
   Future<String> fileContent(AnkiProblemNote note) =>
       File(note.sourcePath).readAsString();
+
+  test(
+    'overlapping vault sync is refused before a second external create',
+    () async {
+      await problemNote('Overlap');
+      final scanned = await AnkiProblemNoteScanner.scan(vault.path);
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final transport =
+          FakeTransport()
+            ..afterAdd = () async {
+              entered.complete();
+              await release.future;
+            };
+      final first = AnkiSyncService.syncVault(
+        transport,
+        scanned.notes,
+        vault.path,
+      );
+      await entered.future;
+      final second = await AnkiSyncService.syncVault(
+        transport,
+        scanned.notes,
+        vault.path,
+      );
+      expect(second.isSuccessful, isFalse);
+      expect(second.errors.join(), contains('already running'));
+      expect(transport.addCalls, hasLength(1));
+      release.complete();
+      expect((await first).isSuccessful, isTrue);
+      final staleRetry = await AnkiSyncService.syncVault(
+        transport,
+        scanned.notes,
+        vault.path,
+      );
+      expect(staleRetry.isSuccessful, isFalse);
+      expect(transport.addCalls, hasLength(1));
+    },
+  );
+
+  test('a source edit after discovery cannot publish the old answer', () async {
+    final note = await problemNote('Stale');
+    final changed = (await fileContent(
+      note,
+    )).replaceFirst('Answer.', 'A revised answer.');
+    await File(note.sourcePath).writeAsString(changed);
+    final transport = FakeTransport();
+    final result = await AnkiSyncService.syncVault(transport, [
+      note,
+    ], vault.path);
+    expect(result.failed, 1);
+    expect(transport.addCalls, isEmpty);
+    expect(await fileContent(note), changed);
+  });
+
+  test(
+    'source edits during an external update remain visible partial outcomes',
+    () async {
+      final note = await problemNote('During update', ankiNoteId: '42');
+      final changed = (await fileContent(
+        note,
+      )).replaceFirst('Answer.', 'New source.');
+      final transport =
+          FakeTransport()
+            ..existingIds.add(42)
+            ..afterUpdate =
+                () => File(note.sourcePath).writeAsString(changed).then((_) {});
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
+      expect(result.updated, 0);
+      expect(result.failed, 1);
+      expect(result.errors.join(), contains('source changed during sync'));
+      expect(await fileContent(note), changed);
+    },
+  );
+
+  test(
+    'source edits during creation prevent linking an old projection to new text',
+    () async {
+      final note = await problemNote('During create');
+      final changed = (await fileContent(
+        note,
+      )).replaceFirst('Answer.', 'New source.');
+      final transport =
+          FakeTransport()
+            ..afterAdd =
+                () => File(note.sourcePath).writeAsString(changed).then((_) {});
+      final result = await AnkiSyncService.syncVault(transport, [
+        note,
+      ], vault.path);
+      expect(result.added, 0);
+      expect(result.failed, 1);
+      expect(result.errors.join(), contains('1000'));
+      expect(await fileContent(note), changed);
+      expect(changed, isNot(contains('anki_note_id')));
+    },
+  );
 
   test('Anki declares projection capabilities and correction limits', () {
     final capabilities = FakeTransport().projectionCapabilities;

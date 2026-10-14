@@ -6,6 +6,25 @@ import 'dart:io';
 import 'dart:convert';
 
 void main() {
+  test(
+    'source links retain subfolder identity while root links remain stable',
+    () {
+      final vault = p.join(Directory.systemTemp.path, 'Vault');
+      expect(
+        obsidianUri(vault, p.join(vault, 'A', 'Same.md')),
+        contains('file=A%2FSame'),
+      );
+      expect(
+        obsidianUri(vault, p.join(vault, 'B', 'Same.md')),
+        contains('file=B%2FSame'),
+      );
+      expect(
+        obsidianUri(vault, p.join(vault, 'Root.md')),
+        contains('file=Root'),
+      );
+    },
+  );
+
   // ── splitFrontmatter ────────────────────────────────────────────────────────
 
   group('splitFrontmatter', () {

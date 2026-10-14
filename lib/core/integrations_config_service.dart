@@ -1,9 +1,13 @@
+import 'package:people_tracker/shared/markdown/markdown_file.dart';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../shared/markdown/md_utils.dart';
+import '../shared/markdown/frontmatter_patch.dart';
+import '../shared/markdown/md_io.dart';
 
 class IntegrationsConfig {
   /// AnkiConnect endpoint override; null means the transport default
@@ -28,11 +32,24 @@ class IntegrationsConfigService {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   static Future<IntegrationsConfig> load(String vaultPath) async {
-    try {
+    {
       final file = File(configPath(vaultPath));
       if (!await file.exists()) return const IntegrationsConfig();
-      final content = await file.readAsString();
+      final content = await readPreservingUtf8(file);
       final split = splitFrontmatter(content);
+      if (content.trimLeft().startsWith('---') && split.frontmatter == null) {
+        throw const FormatException('Integration frontmatter is not closed.');
+      }
+      if (split.frontmatter != null) _sectionYaml(split.frontmatter!);
+      for (final name in ['AnkiConnect', 'Resurface']) {
+        if (RegExp(
+              '^## $name\\s*\\r?\$',
+              multiLine: true,
+            ).allMatches(split.body).length >
+            1) {
+          throw FormatException('Duplicate $name configuration section.');
+        }
+      }
       final sections = parseSectionsH2(split.body);
       return IntegrationsConfig(
         ankiConnectUrl: _parseScalarSection(
@@ -41,8 +58,6 @@ class IntegrationsConfigService {
         ),
         excludedFolders: _parseExcludedSection(sections['Resurface'] ?? ''),
       );
-    } catch (_) {
-      return const IntegrationsConfig();
     }
   }
 
@@ -50,10 +65,18 @@ class IntegrationsConfigService {
 
   static Future<bool> save(String vaultPath, IntegrationsConfig config) async {
     try {
-      final file = File(configPath(vaultPath));
-      await file.parent.create(recursive: true);
-      await file.writeAsString(_buildContent(config));
-      return true;
+      return await _saveFields(vaultPath, {
+        'AnkiConnect': {
+          'url':
+              config.ankiConnectUrl == null
+                  ? null
+                  : yamlScalar(config.ankiConnectUrl!),
+        },
+        'Resurface': {
+          'excluded_folders':
+              '[${config.excludedFolders.map(yamlScalar).join(', ')}]',
+        },
+      }, config);
     } catch (_) {
       return false;
     }
@@ -63,42 +86,115 @@ class IntegrationsConfigService {
     String vaultPath,
     List<String> folders,
   ) async {
-    final c = await load(vaultPath);
-    return save(
-      vaultPath,
-      IntegrationsConfig(
-        ankiConnectUrl: c.ankiConnectUrl,
-        excludedFolders: folders,
-      ),
-    );
+    try {
+      return await _saveFields(vaultPath, {
+        'Resurface': {
+          'excluded_folders': '[${folders.map(yamlScalar).join(', ')}]',
+        },
+      }, IntegrationsConfig(excludedFolders: folders));
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Private: parsing ──────────────────────────────────────────────────────
 
-  static String? _parseScalarSection(String sectionContent, String key) {
-    if (sectionContent.trim().isEmpty) return null;
-    try {
-      final yaml = loadYaml(sectionContent.trim());
-      if (yaml is YamlMap) {
-        final value = yaml[key]?.toString();
-        return (value != null && value.isNotEmpty) ? value : null;
-      }
-    } catch (_) {}
-    return null;
+  static Map<dynamic, dynamic> _sectionYaml(String text) {
+    if (text.trim().isEmpty) return const {};
+    final value = loadYaml(text);
+    if (value == null) return const {};
+    if (value is! YamlMap) {
+      throw const FormatException(
+        'Integration sections must be YAML mappings.',
+      );
+    }
+    return value;
   }
 
-  static List<String> _parseExcludedSection(String sectionContent) {
-    if (sectionContent.trim().isEmpty) return const [];
-    try {
-      final yaml = loadYaml(sectionContent.trim());
-      if (yaml is! YamlMap) return const [];
-      final raw = yaml['excluded_folders'];
-      if (raw is! YamlList) return const [];
-      final result = raw.map((e) => e.toString()).toList();
-      return result;
-    } catch (_) {
-      return const [];
+  static String? _parseScalarSection(String text, String key) {
+    final value = _sectionYaml(text)[key];
+    if (value == null) return null;
+    if (value is! String) throw FormatException('$key must be text.');
+    return value.trim().isEmpty ? null : value.trim();
+  }
+
+  static List<String> _parseExcludedSection(String text) {
+    final value = _sectionYaml(text)['excluded_folders'];
+    if (value == null) return const [];
+    if (value is! List || value.any((item) => item is! String)) {
+      throw const FormatException('excluded_folders must be a text list.');
     }
+    return value.cast<String>().toList();
+  }
+
+  static String _patchSection(
+    String source,
+    String heading,
+    Map<String, String?> fields,
+  ) {
+    final matches =
+        RegExp(
+          r'^## ([^\r\n]+)\r?$',
+          multiLine: true,
+        ).allMatches(source).toList();
+    final selected =
+        matches.where((match) => match.group(1)!.trim() == heading).toList();
+    if (selected.length > 1) {
+      throw FormatException('Duplicate $heading configuration section.');
+    }
+    if (selected.isEmpty) {
+      final body = fields.entries
+          .where((entry) => entry.value != null)
+          .map((entry) => '${entry.key}: ${entry.value}')
+          .join('\n');
+      return '$source${source.endsWith('\n') ? '' : '\n'}\n## $heading\n\n$body\n';
+    }
+    final match = selected.single;
+    final next = matches.indexOf(match) + 1;
+    final end = next < matches.length ? matches[next].start : source.length;
+    final section = source.substring(match.end, end);
+    final wrapped = '---\n$section${section.endsWith('\n') ? '' : '\n'}---\n';
+    final patched = patchFrontmatterText(wrapped, fields);
+    return source.replaceRange(
+      match.end,
+      end,
+      patched.substring(4, patched.length - 4),
+    );
+  }
+
+  static Future<bool> _saveFields(
+    String vaultPath,
+    Map<String, Map<String, String?>> fields,
+    IntegrationsConfig initial,
+  ) async {
+    final path = configPath(vaultPath);
+    final file = File(path);
+    if (!await file.exists()) {
+      await file.parent.create(recursive: true);
+      await file.create(exclusive: true);
+      await file.writeAsString(_buildContent(initial), flush: true);
+      return true;
+    }
+    final loaded = await MarkdownFile.loadSnapshot(path);
+    if (loaded.snapshot == null) return false;
+    // Validate both current owned sections before any edit; never overwrite
+    // an unreadable config with guessed defaults.
+    await load(vaultPath);
+    var source = await readPreservingUtf8(file);
+    final observed = utf8.encode(source);
+    final expected = loaded.snapshot!.bytes;
+    if (observed.length != expected.length) return false;
+    for (var index = 0; index < observed.length; index++) {
+      if (observed[index] != expected[index]) return false;
+    }
+    for (final entry in fields.entries) {
+      source = _patchSection(source, entry.key, entry.value);
+    }
+    return (await MarkdownFile.guardedReplaceBytes(
+      path,
+      loaded.snapshot!,
+      utf8.encode(source),
+    )).applied;
   }
 
   // ── Private: building ─────────────────────────────────────────────────────
@@ -123,7 +219,11 @@ class IntegrationsConfigService {
     buf.writeln();
     buf.writeln('## Resurface');
     buf.writeln();
-    buf.writeln('excluded_folders:');
+    buf.writeln(
+      config.excludedFolders.isEmpty
+          ? 'excluded_folders: []'
+          : 'excluded_folders:',
+    );
     for (final folder in config.excludedFolders) {
       buf.writeln('  - $folder');
     }

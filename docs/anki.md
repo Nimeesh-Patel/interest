@@ -192,3 +192,27 @@ adb -s DEVICE uninstall dev.interest.app.test
 ```
 
 Install the matching debug app first. Check `INSTRUMENTATION_RESULT: result=PASS`; the shell command's exit code alone is insufficient. On 2026-10-14, these checks passed on the user's Moto G45 with AnkiDroid 2.25.1 against the existing Vocabulary deck. Both temporary notes were verified absent, and the test package was removed. The updated Interest app remains installed with its permission retained. Whole-vault sync and first-time permission/deep-link delivery were not invoked by these device checks.
+
+## Concurrent requests and source freshness
+
+The shared sync core obtains one non-blocking lease per resolved physical vault,
+with an in-process guard and OS file lock. It covers UI, deep link and file CLI
+mutations; it does not coordinate separately mirrored vaults on other devices.
+The empty `Interesting/System/.anki-sync.lock` must not be unlinked while a
+process could hold it. It is coordination state, never knowledge.
+
+Discovery carries the exact source, including BOM/line endings. A changed
+snapshot is refused before mutation; edits observed during external operations
+are reported as partial outcomes requiring a fresh sync. Creation validates
+its local identity patch before adding a native card. One add/link/deck helper
+owns both first creation and re-creation. All local ID writes/removals use
+`MarkdownFile` staging; native review history is still not atomically reversible.
+Source hrefs use vault-relative paths, including subfolders. Older ambiguous
+hrefs are not sufficient authority for retirement.
+
+The UI and exact-file CLI load the same authored integration configuration.
+Absent configuration retains defaults; invalid/unreadable configuration and
+ambiguous sections are explicit errors. Editing exclusions preserves endpoints,
+unknown keys and unrelated sections through the shared source transaction.
+Run `dart run tool/check_sync_lock.dart` for the independent-process lease
+check against a disposable vault.

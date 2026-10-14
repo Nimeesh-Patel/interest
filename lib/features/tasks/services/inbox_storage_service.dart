@@ -1,10 +1,10 @@
+import 'package:people_tracker/shared/markdown/markdown_file.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
 import '../../../core/vault_service.dart';
-import 'task_storage_service.dart';
 
 class InboxEnsureResult {
   final String? path;
@@ -29,7 +29,7 @@ class InboxStorageService {
     final path = VaultService.inboxPath(vaultPath);
     final file = File(path);
     try {
-      final probe = await TaskStorageService.probeRecovery(path);
+      final probe = await MarkdownFile.probeRecovery(path);
       if (probe.status == TaskFileRecoveryProbeStatus.canonicalPresent) {
         return InboxEnsureResult.ready(path);
       }
@@ -40,7 +40,7 @@ class InboxStorageService {
       }
 
       await file.parent.create(recursive: true);
-      final recheck = await TaskStorageService.probeRecovery(path);
+      final recheck = await MarkdownFile.probeRecovery(path);
       if (recheck.status == TaskFileRecoveryProbeStatus.canonicalPresent) {
         return InboxEnsureResult.ready(path);
       }

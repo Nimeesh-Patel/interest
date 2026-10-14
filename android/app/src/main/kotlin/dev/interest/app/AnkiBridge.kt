@@ -73,6 +73,8 @@ class AnkiBridge(private val activity: Activity) {
                     PackageManager.PERMISSION_GRANTED) {
                     result.success(true)
                 } else {
+                    if (pendingPermissionResult != null) return result.error(
+                        "PERMISSION_PENDING", "An AnkiDroid permission request is already pending", null)
                     pendingPermissionResult = result
                     ActivityCompat.requestPermissions(
                         activity, arrayOf(PERMISSION), PERMISSION_REQUEST_CODE)

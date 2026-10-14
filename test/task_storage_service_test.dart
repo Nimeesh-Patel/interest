@@ -1,3 +1,4 @@
+import 'package:people_tracker/shared/markdown/markdown_file.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +8,26 @@ import 'package:people_tracker/features/tasks/models/task_block.dart';
 import 'package:people_tracker/features/tasks/services/task_storage_service.dart';
 
 void main() {
+  test('quoted code and metadata are not live checkbox tasks', () {
+    final lines = [
+      '---',
+      'example: "- [ ] Metadata"',
+      '---',
+      '# Project',
+      '```text',
+      '- [ ] Code example',
+      '```',
+      '- [ ] Actual',
+      '  ```',
+      '  - [ ] Nested example',
+      '  ```',
+    ];
+    final blocks =
+        TaskStorageService.parseNodes(lines).whereType<TaskBlock>().toList();
+    expect(blocks.map((block) => block.text), ['Actual']);
+    expect(blocks.single.children, isEmpty);
+  });
+
   group('TaskStorageService.parseNodes', () {
     test('keeps headings, attached prose, and nested checkbox structure', () {
       final nodes = TaskStorageService.parseNodes(const [
@@ -74,7 +95,12 @@ void main() {
             TaskStorageService.parseNodes(lines).whereType<TaskBlock>().first;
         final child = parent.children.single;
 
-        await TaskStorageService.toggleBlockAndReorder(file.path, child);
+        await TaskStorageService.guardedToggleBlock(
+          file.path,
+          (await MarkdownFile.loadSnapshot(file.path)).snapshot!,
+          child,
+          reorderRoot: true,
+        );
 
         final after = await file.readAsLines();
         expect(after, [
@@ -97,7 +123,13 @@ void main() {
 ''');
         var nodes = TaskStorageService.parseNodes(await file.readAsLines());
 
-        await TaskStorageService.reorderRootBlocks(file.path, nodes, 0, 2);
+        await TaskStorageService.guardedReorderRootBlocks(
+          file.path,
+          (await MarkdownFile.loadSnapshot(file.path)).snapshot!,
+          nodes,
+          0,
+          2,
+        );
         expect(await file.readAsLines(), [
           '- [ ] Second',
           '- [ ] Third',
@@ -106,7 +138,13 @@ void main() {
         ]);
 
         nodes = TaskStorageService.parseNodes(await file.readAsLines());
-        await TaskStorageService.reorderRootBlocks(file.path, nodes, 2, 0);
+        await TaskStorageService.guardedReorderRootBlocks(
+          file.path,
+          (await MarkdownFile.loadSnapshot(file.path)).snapshot!,
+          nodes,
+          2,
+          0,
+        );
         expect(await file.readAsLines(), [
           '- [ ] First',
           '  first context',
@@ -127,8 +165,7 @@ void main() {
 - [ ] Watch lecture
 ''';
         file.writeAsStringSync(before);
-        final snapshot =
-            (await TaskStorageService.loadSnapshot(file.path)).snapshot!;
+        final snapshot = (await MarkdownFile.loadSnapshot(file.path)).snapshot!;
         final block =
             TaskStorageService.parseNodes(
               snapshot.lines,
@@ -225,8 +262,7 @@ void main() {
 
       for (final operation in operations.entries) {
         file.writeAsStringSync(before);
-        final snapshot =
-            (await TaskStorageService.loadSnapshot(file.path)).snapshot!;
+        final snapshot = (await MarkdownFile.loadSnapshot(file.path)).snapshot!;
         final block =
             TaskStorageService.parseNodes(
               snapshot.lines,
@@ -255,7 +291,7 @@ void main() {
       () async {
         file.writeAsBytesSync([0xff, 0xfe, 0xfd]);
 
-        final result = await TaskStorageService.loadSnapshot(file.path);
+        final result = await MarkdownFile.loadSnapshot(file.path);
 
         expect(result.snapshot, isNull);
         expect(result.error, contains('not valid UTF-8'));
@@ -272,8 +308,7 @@ void main() {
           ...utf8.encode('# Inbox\r\n\r\n- [ ] Existing\r\n'),
         ];
         file.writeAsBytesSync(before);
-        final snapshot =
-            (await TaskStorageService.loadSnapshot(file.path)).snapshot!;
+        final snapshot = (await MarkdownFile.loadSnapshot(file.path)).snapshot!;
 
         final result = await TaskStorageService.guardedAddTask(
           file.path,
@@ -301,8 +336,7 @@ void main() {
           ...utf8.encode('# Inbox\r\n\r\n- [ ] Existing\n'),
         ];
         file.writeAsBytesSync(before);
-        final snapshot =
-            (await TaskStorageService.loadSnapshot(file.path)).snapshot!;
+        final snapshot = (await MarkdownFile.loadSnapshot(file.path)).snapshot!;
 
         final result = await TaskStorageService.guardedAddTask(
           file.path,
@@ -326,8 +360,7 @@ void main() {
         final before = utf8.encode('# Inbox\n\n- [ ] Existing\n');
         final external = utf8.encode('# Inbox\n\n- [ ] External edit\n');
         file.writeAsBytesSync(before);
-        final snapshot =
-            (await TaskStorageService.loadSnapshot(file.path)).snapshot!;
+        final snapshot = (await MarkdownFile.loadSnapshot(file.path)).snapshot!;
 
         final result = await TaskStorageService.guardedAddTask(
           file.path,

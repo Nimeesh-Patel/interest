@@ -195,10 +195,8 @@ class OpenInboxQueryService {
 
   static String _now() => DateTime.now().toUtc().toIso8601String();
 
-  static List<OpenInboxItem> _parseHints(
-    List<String> lines,
-    String locator,
-  ) => parseOpenItems(lines, locator: locator);
+  static List<OpenInboxItem> _parseHints(List<String> lines, String locator) =>
+      parseOpenItems(lines, locator: locator);
 
   /// Pure query projection over the same parser used by the Inbox editor.
   static List<OpenInboxItem> parseOpenItems(

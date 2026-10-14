@@ -33,47 +33,51 @@ void main() {
     },
   );
 
-  test('recoverable interrupted transaction refuses empty restart creation',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final backup = File(
-      p.join(directory.path, '.Inbox.md.interest_restart_1.backup'),
-    )..writeAsStringSync('# Inbox\n\n- [ ] Preserved\n');
-    final stage = File(
-      p.join(directory.path, '.Inbox.md.interest_restart_1.stage'),
-    )..writeAsStringSync('# Inbox\n\n- [ ] Proposed\n');
+  test(
+    'recoverable interrupted transaction refuses empty restart creation',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final backup = File(
+        p.join(directory.path, '.Inbox.md.interest_restart_1.backup'),
+      )..writeAsStringSync('# Inbox\n\n- [ ] Preserved\n');
+      final stage = File(
+        p.join(directory.path, '.Inbox.md.interest_restart_1.stage'),
+      )..writeAsStringSync('# Inbox\n\n- [ ] Proposed\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, isNull);
-    expect(result.error, contains('recoverable interrupted Inbox write'));
-    expect(result.error, contains(backup.path));
-    expect(result.error, contains(stage.path));
-    expect(File(p.join(directory.path, 'Inbox.md')).existsSync(), isFalse);
-    expect(backup.readAsStringSync(), '# Inbox\n\n- [ ] Preserved\n');
-    expect(stage.readAsStringSync(), '# Inbox\n\n- [ ] Proposed\n');
-  });
+      expect(result.path, isNull);
+      expect(result.error, contains('recoverable interrupted Inbox write'));
+      expect(result.error, contains(backup.path));
+      expect(result.error, contains(stage.path));
+      expect(File(p.join(directory.path, 'Inbox.md')).existsSync(), isFalse);
+      expect(backup.readAsStringSync(), '# Inbox\n\n- [ ] Preserved\n');
+      expect(stage.readAsStringSync(), '# Inbox\n\n- [ ] Proposed\n');
+    },
+  );
 
-  test('ambiguous interrupted transactions refuse empty restart creation',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final firstBackup = File(
-      p.join(directory.path, '.Inbox.md.interest_restart_1.backup'),
-    )..writeAsStringSync('# Inbox\n\n- [ ] First\n');
-    final secondBackup = File(
-      p.join(directory.path, '.Inbox.md.interest_restart_2.backup'),
-    )..writeAsStringSync('# Inbox\n\n- [ ] Second\n');
+  test(
+    'ambiguous interrupted transactions refuse empty restart creation',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final firstBackup = File(
+        p.join(directory.path, '.Inbox.md.interest_restart_1.backup'),
+      )..writeAsStringSync('# Inbox\n\n- [ ] First\n');
+      final secondBackup = File(
+        p.join(directory.path, '.Inbox.md.interest_restart_2.backup'),
+      )..writeAsStringSync('# Inbox\n\n- [ ] Second\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, isNull);
-    expect(result.error, contains('Ambiguous'));
-    expect(result.error, contains(firstBackup.path));
-    expect(result.error, contains(secondBackup.path));
-    expect(File(p.join(directory.path, 'Inbox.md')).existsSync(), isFalse);
-  });
+      expect(result.path, isNull);
+      expect(result.error, contains('Ambiguous'));
+      expect(result.error, contains(firstBackup.path));
+      expect(result.error, contains(secondBackup.path));
+      expect(File(p.join(directory.path, 'Inbox.md')).existsSync(), isFalse);
+    },
+  );
 
   test('existing canonical Inbox is never replaced during startup', () async {
     final directory = Directory(p.join(vault.path, 'Interesting'))
@@ -91,90 +95,86 @@ void main() {
     expect(backup.readAsStringSync(), '# Inbox\n\n- [ ] Old\n');
   });
 
-  test('empty canonical plus creation marker blocks restart acceptance',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final inbox = File(p.join(directory.path, 'Inbox.md'))..createSync();
-    final marker = File(
-      p.join(
-        directory.path,
-        '.Inbox.md.interest_create_restart_1.marker',
-      ),
-    )..writeAsStringSync('# Inbox\n\n');
+  test(
+    'empty canonical plus creation marker blocks restart acceptance',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final inbox = File(p.join(directory.path, 'Inbox.md'))..createSync();
+      final marker = File(
+        p.join(directory.path, '.Inbox.md.interest_create_restart_1.marker'),
+      )..writeAsStringSync('# Inbox\n\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, isNull);
-    expect(result.error, contains('empty or partial'));
-    expect(result.error, contains(inbox.path));
-    expect(result.error, contains(marker.path));
-    expect(inbox.readAsBytesSync(), isEmpty);
-    expect(marker.readAsStringSync(), '# Inbox\n\n');
-  });
+      expect(result.path, isNull);
+      expect(result.error, contains('empty or partial'));
+      expect(result.error, contains(inbox.path));
+      expect(result.error, contains(marker.path));
+      expect(inbox.readAsBytesSync(), isEmpty);
+      expect(marker.readAsStringSync(), '# Inbox\n\n');
+    },
+  );
 
-  test('partial canonical plus creation marker blocks restart acceptance',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final inbox = File(p.join(directory.path, 'Inbox.md'))
-      ..writeAsStringSync('# Inbox\n');
-    final marker = File(
-      p.join(
-        directory.path,
-        '.Inbox.md.interest_create_restart_1.marker',
-      ),
-    )..writeAsStringSync('# Inbox\n\n');
+  test(
+    'partial canonical plus creation marker blocks restart acceptance',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final inbox = File(p.join(directory.path, 'Inbox.md'))
+        ..writeAsStringSync('# Inbox\n');
+      final marker = File(
+        p.join(directory.path, '.Inbox.md.interest_create_restart_1.marker'),
+      )..writeAsStringSync('# Inbox\n\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, isNull);
-    expect(result.error, contains(inbox.path));
-    expect(result.error, contains(marker.path));
-    expect(inbox.readAsStringSync(), '# Inbox\n');
-    expect(marker.readAsStringSync(), '# Inbox\n\n');
-  });
+      expect(result.path, isNull);
+      expect(result.error, contains(inbox.path));
+      expect(result.error, contains(marker.path));
+      expect(inbox.readAsStringSync(), '# Inbox\n');
+      expect(marker.readAsStringSync(), '# Inbox\n\n');
+    },
+  );
 
-  test('absent canonical plus creation marker refuses empty recreation',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final inboxPath = p.join(directory.path, 'Inbox.md');
-    final marker = File(
-      p.join(
-        directory.path,
-        '.Inbox.md.interest_create_restart_1.marker',
-      ),
-    )..writeAsStringSync('# Inbox\n\n');
+  test(
+    'absent canonical plus creation marker refuses empty recreation',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final inboxPath = p.join(directory.path, 'Inbox.md');
+      final marker = File(
+        p.join(directory.path, '.Inbox.md.interest_create_restart_1.marker'),
+      )..writeAsStringSync('# Inbox\n\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, isNull);
-    expect(result.error, contains(inboxPath));
-    expect(result.error, contains(marker.path));
-    expect(File(inboxPath).existsSync(), isFalse);
-    expect(marker.readAsStringSync(), '# Inbox\n\n');
-  });
+      expect(result.path, isNull);
+      expect(result.error, contains(inboxPath));
+      expect(result.error, contains(marker.path));
+      expect(File(inboxPath).existsSync(), isFalse);
+      expect(marker.readAsStringSync(), '# Inbox\n\n');
+    },
+  );
 
-  test('complete canonical plus creation marker is accepted and cleaned',
-      () async {
-    final directory = Directory(p.join(vault.path, 'Interesting'))
-      ..createSync(recursive: true);
-    final inbox = File(p.join(directory.path, 'Inbox.md'))
-      ..writeAsStringSync('# Inbox\n\n');
-    final marker = File(
-      p.join(
-        directory.path,
-        '.Inbox.md.interest_create_restart_1.marker',
-      ),
-    )..writeAsStringSync('# Inbox\n\n');
+  test(
+    'complete canonical plus creation marker is accepted and cleaned',
+    () async {
+      final directory = Directory(p.join(vault.path, 'Interesting'))
+        ..createSync(recursive: true);
+      final inbox = File(p.join(directory.path, 'Inbox.md'))
+        ..writeAsStringSync('# Inbox\n\n');
+      final marker = File(
+        p.join(directory.path, '.Inbox.md.interest_create_restart_1.marker'),
+      )..writeAsStringSync('# Inbox\n\n');
 
-    final result = await InboxStorageService.ensureInbox(vault.path);
+      final result = await InboxStorageService.ensureInbox(vault.path);
 
-    expect(result.path, inbox.path);
-    expect(inbox.readAsStringSync(), '# Inbox\n\n');
-    expect(marker.existsSync(), isFalse);
-  });
+      expect(result.path, inbox.path);
+      expect(inbox.readAsStringSync(), '# Inbox\n\n');
+      expect(marker.existsSync(), isFalse);
+    },
+  );
 
   test(
     'query returns only unchecked Inbox items with authored context',
@@ -274,14 +274,10 @@ void main() {
           'A continuation whose boundary an agent can interpret.\r\n'
           '- [x] Completed context remains evidence.\r\n'
           '- [ ] One derived hint\r\n';
-      final inbox = File(p.join(vault.path, 'Interesting', 'Inbox.md'))
-        ..parent.createSync(recursive: true)
-        ..writeAsBytesSync([
-          0xef,
-          0xbb,
-          0xbf,
-          ...utf8.encode(markdown),
-        ]);
+      final inbox =
+          File(p.join(vault.path, 'Interesting', 'Inbox.md'))
+            ..parent.createSync(recursive: true)
+            ..writeAsBytesSync([0xef, 0xbb, 0xbf, ...utf8.encode(markdown)]);
 
       final result = await OpenInboxQueryService.query(vault.path);
 
@@ -430,13 +426,7 @@ void main() {
             );
     final process = await Process.run(
       dart,
-      [
-        'run',
-        'tool/query_open_inbox.dart',
-        '--vault',
-        vault.path,
-        '--pretty',
-      ],
+      ['run', 'tool/query_open_inbox.dart', '--vault', vault.path, '--pretty'],
       workingDirectory: Directory.current.path,
       stdoutEncoding: null,
       stderrEncoding: utf8,

@@ -17,6 +17,9 @@ class AnkiProblemNote {
   /// frontmatter patch (the sync's only vault write).
   final String? ankiNoteId;
 
+  /// Exact authored snapshot used by discovery; changes invalidate projection.
+  final String sourceContent;
+
   const AnkiProblemNote({
     required this.sourcePath,
     required this.sourceFile,
@@ -25,6 +28,7 @@ class AnkiProblemNote {
     this.category,
     this.tags = const [],
     this.ankiNoteId,
+    required this.sourceContent,
   });
 }
 

@@ -37,11 +37,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final vaultPath = await VaultService.getVaultPath();
     if (!mounted || vaultPath == null) return;
     setState(() => _vaultPath = vaultPath);
-    final config = await IntegrationsConfigService.load(vaultPath);
-    if (mounted) {
-      setState(
-        () => _excludedController.text = config.excludedFolders.join(', '),
-      );
+    try {
+      final config = await IntegrationsConfigService.load(vaultPath);
+      if (mounted) {
+        setState(
+          () => _excludedController.text = config.excludedFolders.join(', '),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _excludedSaveStatus = 'Could not read sync settings: $error';
+          _excludedSaveFailed = true;
+        });
+      }
     }
   }
 

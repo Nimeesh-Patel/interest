@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'frontmatter_patch.dart';
+import 'markdown_file.dart';
 
 /// Dart's UTF-8 decoder consumes the BOM. Retain it for exact-source patches.
 Future<String> readPreservingUtf8(File file) async {
@@ -50,27 +51,19 @@ class PreparedFrontmatterPatch {
   final String after;
   const PreparedFrontmatterPatch(this.filePath, this.before, this.after);
 
-  Future<FilePatchResult> apply() async {
-    try {
-      final file = File(filePath);
-      if (await readPreservingUtf8(file) != before) {
-        return FilePatchResult.failed(
-          filePath,
-          'file changed before patch write',
-        );
-      }
-      await file.writeAsString(after);
-      final observed = await readPreservingUtf8(file);
-      if (observed != after) {
-        return FilePatchResult.failed(
-          filePath,
-          'written state could not be verified',
-        );
-      }
-      return FilePatchResult.applied(filePath, before, after);
-    } catch (error) {
-      return FilePatchResult.failed(filePath, '$error');
+  Future<FilePatchResult> apply({
+    GuardedTaskFileOperations operations = const GuardedTaskFileOperations(),
+  }) async {
+    final result = await MarkdownFile.guardedReplaceBytes(
+      filePath,
+      TaskFileSnapshot(bytes: utf8.encode(before), lines: const []),
+      utf8.encode(after),
+      operations: operations,
+    );
+    if (!result.applied) {
+      return FilePatchResult.failed(filePath, result.message);
     }
+    return FilePatchResult.applied(filePath, before, after);
   }
 }
 
@@ -101,13 +94,10 @@ class FilePatchResult {
   /// Restore only while the file still equals the state this patch wrote.
   Future<bool> rollback() async {
     if (!applied || before == null || after == null) return false;
-    try {
-      final file = File(filePath);
-      if (await readPreservingUtf8(file) != after) return false;
-      await file.writeAsString(before!);
-      return await readPreservingUtf8(file) == before;
-    } catch (_) {
-      return false;
-    }
+    return (await MarkdownFile.guardedReplaceBytes(
+      filePath,
+      TaskFileSnapshot(bytes: utf8.encode(after!), lines: const []),
+      utf8.encode(before!),
+    )).applied;
   }
 }

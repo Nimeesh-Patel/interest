@@ -9,7 +9,6 @@ import '../shared/utils/obsidian_launcher.dart';
 import '../features/anki/services/anki_connect_transport.dart';
 import '../features/anki/services/anki_sync_controller.dart';
 import '../features/anki/services/anki_sync_runner.dart';
-import '../features/anki/services/anki_transport.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/widgets/list_row.dart';
@@ -81,54 +80,45 @@ class _SourcesScreenState extends State<SourcesScreen> {
     if (_ankiBusy) return;
     await runAnkiDroidSync(
       context,
-      onBusy: (busy) => setState(() => _syncingAnkiDroid = busy),
+      onBusy: (busy) {
+        if (mounted) setState(() => _syncingAnkiDroid = busy);
+      },
     );
   }
 
   Future<void> _syncAnkiConnect() async {
     if (_ankiBusy) return;
-
-    final vaultPath = await VaultService.getVaultPath();
-    if (!mounted) return;
-    if (vaultPath == null) {
-      showSnack(context, 'No vault configured');
-      return;
+    setState(() => _syncingAnkiConnect = true);
+    try {
+      final vaultPath = await VaultService.getVaultPath();
+      if (!mounted) return;
+      if (vaultPath == null) {
+        showSnack(context, 'No vault configured');
+        return;
+      }
+      final config = await IntegrationsConfigService.load(vaultPath);
+      final transport = AnkiConnectTransport(url: config.ankiConnectUrl);
+      if (!await transport.isAvailable()) {
+        if (mounted) {
+          showSnack(
+            context,
+            'Anki desktop not reachable — is Anki running with AnkiConnect installed?',
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (!await transport.requestPermission()) {
+        if (mounted) showSnack(context, 'AnkiConnect denied the connection');
+        return;
+      }
+      final result = await AnkiSyncController.sync(transport);
+      if (mounted) showAnkiSyncResult(context, transport, result);
+    } catch (error) {
+      if (mounted) showSnack(context, 'Sync could not start: $error');
+    } finally {
+      if (mounted) setState(() => _syncingAnkiConnect = false);
     }
-
-    final config = await IntegrationsConfigService.load(vaultPath);
-    final transport = AnkiConnectTransport(url: config.ankiConnectUrl);
-    final available = await transport.isAvailable();
-    if (!mounted) return;
-    if (!available) {
-      showSnack(
-        context,
-        'Anki desktop not reachable — is Anki running with AnkiConnect installed?',
-      );
-      return;
-    }
-
-    final granted = await transport.requestPermission();
-    if (!mounted) return;
-    if (!granted) {
-      showSnack(context, 'AnkiConnect denied the connection');
-      return;
-    }
-
-    await _runAnkiSync(
-      transport,
-      (busy) => setState(() => _syncingAnkiConnect = busy),
-    );
-  }
-
-  Future<void> _runAnkiSync(
-    AnkiTransport transport,
-    void Function(bool) setBusy,
-  ) async {
-    setBusy(true);
-    final result = await AnkiSyncController.sync(transport);
-    if (!mounted) return;
-    setBusy(false);
-    showAnkiSyncResult(context, transport, result);
   }
 }
 

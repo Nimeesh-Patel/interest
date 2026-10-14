@@ -1,3 +1,4 @@
+import 'package:people_tracker/shared/markdown/markdown_file.dart';
 import 'package:flutter/material.dart';
 
 import '../models/task_block.dart';
@@ -38,7 +39,6 @@ class TaskFileScreen extends StatefulWidget {
 }
 
 class _TaskFileScreenState extends State<TaskFileScreen> {
-
   List<String> _lines = [];
   List<TaskNode> _nodes = [];
   bool _isLoading = true;
@@ -89,22 +89,17 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     super.dispose();
   }
 
+  bool _mutating = false;
+
   Future<void> _reload() async {
     List<String> lines;
     TaskFileSnapshot? exactSnapshot;
     String? loadError;
-    if (widget.inboxMode) {
-      final result = await TaskStorageService.loadSnapshot(_currentPath);
-      final snapshot = result.snapshot;
-      if (snapshot == null) {
-        lines = const [];
-        loadError = 'Inbox could not be loaded. ${result.error}';
-      } else {
-        lines = snapshot.lines;
-        exactSnapshot = snapshot;
-      }
-    } else {
-      lines = await TaskStorageService.loadLines(_currentPath);
+    final result = await MarkdownFile.loadSnapshot(_currentPath);
+    exactSnapshot = result.snapshot;
+    lines = exactSnapshot?.lines ?? const [];
+    if (exactSnapshot == null) {
+      loadError = 'The file could not be loaded. ${result.error}';
     }
     if (!mounted) return;
     setState(() {
@@ -123,169 +118,114 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   // ── Root-level quick add ──────────────────────────────────────────────────
 
-  Future<bool> _applyInboxMutation(
-      Future<GuardedTaskMutationResult> Function(TaskFileSnapshot expected)
-          mutation) async {
+  Future<bool> _applyDocumentMutation(
+    Future<GuardedTaskMutationResult> Function(TaskFileSnapshot) mutation,
+  ) async {
+    if (_mutating) return false;
     final expected = _exactSnapshot;
     if (expected == null) {
       if (mounted) {
-        showSnack(context, 'Inbox is not ready. It was reloaded.');
+        showSnack(context, 'The file is not ready. It was reloaded.');
         await _reload();
       }
       return false;
     }
-
-    final result = await mutation(expected);
-    if (!mounted) return false;
-    if (!result.applied) showSnack(context, result.message);
-    await _reload();
-    return result.applied;
+    _mutating = true;
+    try {
+      final result = await mutation(expected);
+      if (!mounted) return false;
+      if (!result.applied) showSnack(context, result.message);
+      await _reload();
+      return result.applied;
+    } finally {
+      _mutating = false;
+    }
   }
 
   Future<void> _addRootTask() async {
     final text = _addController.text.trim();
     if (text.isEmpty) return;
-    if (widget.inboxMode) {
-      final applied = await _applyInboxMutation(
-        (expected) => TaskStorageService.guardedAddTask(
-          _currentPath,
-          expected,
-          text,
-        ),
-      );
-      if (applied) _addController.clear();
-    } else {
+    if (await _applyDocumentMutation(
+      (expected) =>
+          TaskStorageService.guardedAddTask(_currentPath, expected, text),
+    )) {
       _addController.clear();
-      await TaskStorageService.addTask(_currentPath, text);
-      await _reload();
     }
   }
 
-  // ── Block mutations ───────────────────────────────────────────────────────
-
-  Future<void> _toggle(TaskBlock block) async {
-    if (widget.inboxMode) {
-      await _applyInboxMutation(
-        (expected) => TaskStorageService.guardedToggleBlock(
-          _currentPath,
-          expected,
-          block,
-        ),
-      );
-    } else {
-      await TaskStorageService.toggleBlockAndReorder(_currentPath, block);
-      await _reload();
-    }
-  }
-
+  Future<void> _toggle(TaskBlock block) => _applyDocumentMutation(
+    (expected) => TaskStorageService.guardedToggleBlock(
+      _currentPath,
+      expected,
+      block,
+      reorderRoot: !widget.inboxMode,
+    ),
+  );
   Future<void> _saveBlockEdit(TaskBlock block) async {
     final text = _editController.text.trim();
     if (text.isNotEmpty) {
-      if (widget.inboxMode) {
-        await _applyInboxMutation(
-          (expected) => TaskStorageService.guardedUpdateBlockText(
-            _currentPath,
-            expected,
-            block,
-            text,
-          ),
-        );
-        return;
-      }
-      await TaskStorageService.updateBlockText(_currentPath, block, text);
+      await _applyDocumentMutation(
+        (expected) => TaskStorageService.guardedUpdateBlockText(
+          _currentPath,
+          expected,
+          block,
+          text,
+        ),
+      );
     }
-    await _reload();
   }
 
   Future<void> _saveNoteEdit(int lineIndex) async {
     if (lineIndex >= _lines.length) return;
     final original = _lines[lineIndex];
-    final trimStart = original.length - original.trimLeft().length;
-    final indent = original.substring(0, trimStart);
-    final newContent = '$indent${_editNoteController.text}';
-    if (widget.inboxMode) {
-      await _applyInboxMutation(
-        (expected) => TaskStorageService.guardedUpdateLine(
-          _currentPath,
-          expected,
-          lineIndex,
-          newContent,
-        ),
-      );
-    } else {
-      await TaskStorageService.updateLine(_currentPath, lineIndex, newContent);
-      await _reload();
-    }
+    final indent = original.substring(
+      0,
+      original.length - original.trimLeft().length,
+    );
+    await _applyDocumentMutation(
+      (expected) => TaskStorageService.guardedUpdateLine(
+        _currentPath,
+        expected,
+        lineIndex,
+        '$indent${_editNoteController.text}',
+      ),
+    );
   }
 
-  Future<void> _deleteBlock(TaskBlock block) async {
-    if (widget.inboxMode) {
-      await _applyInboxMutation(
-        (expected) => TaskStorageService.guardedDeleteBlock(
-          _currentPath,
-          expected,
-          block,
-        ),
-      );
-    } else {
-      await TaskStorageService.deleteBlock(_currentPath, block);
-      await _reload();
-    }
-  }
-
-  Future<void> _deleteNoteLine(int lineIndex) async {
-    if (widget.inboxMode) {
-      await _applyInboxMutation(
-        (expected) => TaskStorageService.guardedDeleteLine(
-          _currentPath,
-          expected,
-          lineIndex,
-        ),
-      );
-    } else {
-      await TaskStorageService.deleteTask(_currentPath, lineIndex);
-      await _reload();
-    }
-  }
-
+  Future<void> _deleteBlock(TaskBlock block) => _applyDocumentMutation(
+    (expected) =>
+        TaskStorageService.guardedDeleteBlock(_currentPath, expected, block),
+  );
+  Future<void> _deleteNoteLine(int index) => _applyDocumentMutation(
+    (expected) =>
+        TaskStorageService.guardedDeleteLine(_currentPath, expected, index),
+  );
   Future<void> _addSubtask(TaskBlock parent) async {
     final text = _addChildController.text.trim();
     if (text.isNotEmpty) {
-      if (widget.inboxMode) {
-        await _applyInboxMutation(
-          (expected) => TaskStorageService.guardedAddSubtask(
-            _currentPath,
-            expected,
-            parent,
-            text,
-          ),
-        );
-        return;
-      }
-      await TaskStorageService.addSubtask(_currentPath, parent, text);
+      await _applyDocumentMutation(
+        (expected) => TaskStorageService.guardedAddSubtask(
+          _currentPath,
+          expected,
+          parent,
+          text,
+        ),
+      );
     }
-    setState(() => _addingChildOf = null);
-    await _reload();
   }
 
   Future<void> _addNote(TaskBlock parent) async {
     final text = _addNoteController.text.trim();
     if (text.isNotEmpty) {
-      if (widget.inboxMode) {
-        await _applyInboxMutation(
-          (expected) => TaskStorageService.guardedAddNote(
-            _currentPath,
-            expected,
-            parent,
-            text,
-          ),
-        );
-        return;
-      }
-      await TaskStorageService.addNote(_currentPath, parent, text);
+      await _applyDocumentMutation(
+        (expected) => TaskStorageService.guardedAddNote(
+          _currentPath,
+          expected,
+          parent,
+          text,
+        ),
+      );
     }
-    setState(() => _addingNoteOf = null);
-    await _reload();
   }
 
   int _countDescendants(TaskBlock block) {
@@ -308,7 +248,8 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   // ── Rename ────────────────────────────────────────────────────────────────
 
   void _showRenameDialog() async {
-    final name = await showInputDialog(context,
+    final name = await showInputDialog(
+      context,
       title: 'Rename',
       initialValue: _currentTitle,
       confirmLabel: 'Rename',
@@ -320,7 +261,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   Future<void> _doRename(String newName) async {
     final trimmed = newName.trim();
     if (trimmed.isEmpty || trimmed == _currentTitle) return;
-    final newPath = await TaskStorageService.renameTaskFile(_currentPath, trimmed);
+    final newPath = await MarkdownFile.renameTaskFile(
+      _currentPath,
+      trimmed,
+      expected: _exactSnapshot,
+    );
     if (!mounted) return;
     if (newPath == null) {
       showSnack(context, 'Rename failed — name already in use.');
@@ -333,7 +278,6 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     widget.onRenamed?.call(newPath, trimmed);
     await _reload();
   }
-
 
   // ── Node renderer dispatch ────────────────────────────────────────────────
 
@@ -363,7 +307,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     if (node.raw.trim().isEmpty) return const SizedBox(height: 6);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      child: Text(node.raw, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+      child: Text(
+        node.raw,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+      ),
     );
   }
 
@@ -397,24 +344,26 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 // Collapse chevron
                 SizedBox(
                   width: 24,
-                  child: hasExpandable
-                      ? GestureDetector(
-                          onTap: () => setState(() {
-                            if (isCollapsed) {
-                              _collapsed.remove(block.startLine);
-                            } else {
-                              _collapsed.add(block.startLine);
-                            }
-                          }),
-                          child: Icon(
-                            isCollapsed
-                                ? Icons.chevron_right
-                                : Icons.expand_more,
-                            size: 18,
-                            color: AppColors.textTertiary,
-                          ),
-                        )
-                      : null,
+                  child:
+                      hasExpandable
+                          ? GestureDetector(
+                            onTap:
+                                () => setState(() {
+                                  if (isCollapsed) {
+                                    _collapsed.remove(block.startLine);
+                                  } else {
+                                    _collapsed.add(block.startLine);
+                                  }
+                                }),
+                            child: Icon(
+                              isCollapsed
+                                  ? Icons.chevron_right
+                                  : Icons.expand_more,
+                              size: 18,
+                              color: AppColors.textTertiary,
+                            ),
+                          )
+                          : null,
                 ),
                 // Checkbox
                 SizedBox(
@@ -429,58 +378,66 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 ),
                 // Task text / inline editor
                 Expanded(
-                  child: isEditing
-                      ? TextField(
-                          controller: _editController,
-                          autofocus: true,
-                          style: taskTextStyle,
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 4),
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _saveBlockEdit(block),
-                          onTapOutside: (_) => _saveBlockEdit(block),
-                        )
-                      : GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _editingLine = block.startLine;
-                              _editController.text = block.text;
-                            });
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: WikilinkText(
-                                    text: block.text,
-                                    style: taskTextStyle,
-                                    strikethrough: block.completed,
+                  child:
+                      isEditing
+                          ? TextField(
+                            controller: _editController,
+                            autofocus: true,
+                            style: taskTextStyle,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(vertical: 4),
+                            ),
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _saveBlockEdit(block),
+                            onTapOutside: (_) => _saveBlockEdit(block),
+                          )
+                          : GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _editingLine = block.startLine;
+                                _editController.text = block.text;
+                              });
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: WikilinkText(
+                                      text: block.text,
+                                      style: taskTextStyle,
+                                      strikethrough: block.completed,
+                                    ),
                                   ),
-                                ),
-                                // Collapsed child count badge
-                                if (isCollapsed && hasExpandable)
-                                  Text(
-                                    '  +${_countDescendants(block)}',
-                                    style: const TextStyle(
+                                  // Collapsed child count badge
+                                  if (isCollapsed && hasExpandable)
+                                    Text(
+                                      '  +${_countDescendants(block)}',
+                                      style: const TextStyle(
                                         fontSize: 11,
-                                        color: AppColors.textTertiary),
-                                  ),
-                              ],
+                                        color: AppColors.textTertiary,
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
                 ),
                 // ··· More actions button
                 if (!isEditing)
                   IconButton(
-                    icon: const Icon(Icons.more_horiz,
-                        size: 18, color: AppColors.textTertiary),
+                    icon: const Icon(
+                      Icons.more_horiz,
+                      size: 18,
+                      color: AppColors.textTertiary,
+                    ),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
                     tooltip: 'More actions',
                     onPressed: () => _showTaskActions(block),
                   ),
@@ -491,8 +448,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                     child: SizedBox(
                       width: 32,
                       height: 32,
-                      child: const Icon(Icons.drag_indicator,
-                          size: 20, color: AppColors.textTertiary),
+                      child: const Icon(
+                        Icons.drag_indicator,
+                        size: 20,
+                        color: AppColors.textTertiary,
+                      ),
                     ),
                   ),
               ],
@@ -506,11 +466,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             for (final idx in block.noteLineIndices)
               _buildNoteLineWidget(idx, depth),
           // ── Inline subtask add field ──────────────────────────────────
-          if (isAddingChild)
-            _buildInlineAddField(block, depth),
+          if (isAddingChild) _buildInlineAddField(block, depth),
           // ── Children (if not collapsed) ───────────────────────────────
           if (!isCollapsed)
-            for (final child in block.children) _buildBlockWidget(child, depth + 1),
+            for (final child in block.children)
+              _buildBlockWidget(child, depth + 1),
         ],
       ),
     );
@@ -526,74 +486,91 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final isEditing = _editingNoteLine == lineIdx;
 
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + (depth * 24.0), right: 8, top: 2, bottom: 2),
-      child: isEditing
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _editNoteController,
-                    autofocus: true,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 2),
-                    ),
-                    maxLines: null,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _saveNoteEdit(lineIdx),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline,
-                      size: 18, color: AppColors.destructive),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'Delete note',
-                  onPressed: () => _deleteNoteLine(lineIdx),
-                ),
-              ],
-            )
-          : GestureDetector(
-              onTap: () => setState(() {
-                _editingNoteLine = lineIdx;
-                _editNoteController.text = raw.trimLeft();
-              }),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsets.only(
+        left: 56.0 + (depth * 24.0),
+        right: 8,
+        top: 2,
+        bottom: 2,
+      ),
+      child:
+          isEditing
+              ? Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 2,
-                    height: 16,
-                    color: AppColors.border,
-                    margin: const EdgeInsets.only(right: 6, top: 2),
-                  ),
                   Expanded(
-                    child: WikilinkText(
-                      text: raw.trimLeft(),
+                    child: TextField(
+                      controller: _editNoteController,
+                      autofocus: true,
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
                         fontStyle: FontStyle.italic,
                       ),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 2),
+                      ),
+                      maxLines: null,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _saveNoteEdit(lineIdx),
                     ),
                   ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 18,
+                      color: AppColors.destructive,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    tooltip: 'Delete note',
+                    onPressed: () => _deleteNoteLine(lineIdx),
+                  ),
                 ],
+              )
+              : GestureDetector(
+                onTap:
+                    () => setState(() {
+                      _editingNoteLine = lineIdx;
+                      _editNoteController.text = raw.trimLeft();
+                    }),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 2,
+                      height: 16,
+                      color: AppColors.border,
+                      margin: const EdgeInsets.only(right: 6, top: 2),
+                    ),
+                    Expanded(
+                      child: WikilinkText(
+                        text: raw.trimLeft(),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
     );
   }
 
   Widget _buildInlineAddField(TaskBlock parent, int depth) {
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + ((depth + 1) * 24.0), right: 8, top: 4, bottom: 4),
+      padding: EdgeInsets.only(
+        left: 56.0 + ((depth + 1) * 24.0),
+        right: 8,
+        top: 4,
+        bottom: 4,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -602,7 +579,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Subtask…',
-                hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 14),
+                hintStyle: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 14,
+                ),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -619,7 +599,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
             onPressed: () => _addSubtask(parent),
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 16, color: AppColors.textTertiary),
+            icon: const Icon(
+              Icons.close,
+              size: 16,
+              color: AppColors.textTertiary,
+            ),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: () => setState(() => _addingChildOf = null),
@@ -631,7 +615,12 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
 
   Widget _buildInlineNoteAddField(TaskBlock parent, int depth) {
     return Padding(
-      padding: EdgeInsets.only(left: 56.0 + (depth * 24.0), right: 8, top: 4, bottom: 4),
+      padding: EdgeInsets.only(
+        left: 56.0 + (depth * 24.0),
+        right: 8,
+        top: 4,
+        bottom: 4,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -641,7 +630,10 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Note…',
-                hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+                hintStyle: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 13,
+                ),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -665,7 +657,11 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
                 onPressed: () => _addNote(parent),
               ),
               IconButton(
-                icon: const Icon(Icons.close, size: 16, color: AppColors.textTertiary),
+                icon: const Icon(
+                  Icons.close,
+                  size: 16,
+                  color: AppColors.textTertiary,
+                ),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 onPressed: () => setState(() => _addingNoteOf = null),
@@ -678,49 +674,57 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
   }
 
   void _showTaskActions(TaskBlock block) {
-    showBottomSheetMenu(context, items: [
-      BottomSheetMenuItem(
-        icon: Icons.subdirectory_arrow_right,
-        label: 'Add subtask',
-        onTap: () => setState(() {
-          _addingChildOf = block.startLine;
-          _addChildController.clear();
-        }),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.sticky_note_2_outlined,
-        label: 'Add note',
-        onTap: () => setState(() {
-          _addingNoteOf = block.startLine;
-          _addNoteController.clear();
-        }),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.edit_outlined,
-        label: 'Edit',
-        onTap: () => setState(() {
-          _editingLine = block.startLine;
-          _editController.text = block.text;
-        }),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _showDeleteConfirm(block),
-      ),
-    ]);
+    showBottomSheetMenu(
+      context,
+      items: [
+        BottomSheetMenuItem(
+          icon: Icons.subdirectory_arrow_right,
+          label: 'Add subtask',
+          onTap:
+              () => setState(() {
+                _addingChildOf = block.startLine;
+                _addChildController.clear();
+              }),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.sticky_note_2_outlined,
+          label: 'Add note',
+          onTap:
+              () => setState(() {
+                _addingNoteOf = block.startLine;
+                _addNoteController.clear();
+              }),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.edit_outlined,
+          label: 'Edit',
+          onTap:
+              () => setState(() {
+                _editingLine = block.startLine;
+                _editController.text = block.text;
+              }),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.delete_outline,
+          label: 'Delete',
+          isDestructive: true,
+          onTap: () => _showDeleteConfirm(block),
+        ),
+      ],
+    );
   }
 
   // ── Delete confirmation ───────────────────────────────────────────────────
 
   Future<void> _showDeleteConfirm(TaskBlock block) async {
     final hasChildren = block.children.isNotEmpty;
-    final confirmed = await showConfirmDialog(context,
+    final confirmed = await showConfirmDialog(
+      context,
       title: 'Delete task?',
-      message: hasChildren
-          ? '"${block.text}" and all its subtasks will be removed.'
-          : '"${block.text}"',
+      message:
+          hasChildren
+              ? '"${block.text}" and all its subtasks will be removed.'
+              : '"${block.text}"',
     );
     if (confirmed) await _deleteBlock(block);
   }
@@ -732,125 +736,166 @@ class _TaskFileScreenState extends State<TaskFileScreen> {
     final int? dividerAt = _isLoading ? null : _firstCompleteRootNodeIdx();
     final int displayCount = _nodes.length + (dividerAt != null ? 1 : 0);
     return Scaffold(
-      appBar: widget.embedded ? null : AppBar(
-        title: Text(_currentTitle),
-        actions: [
-          PopupMenuButton<String>(
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'rename', child: Text('Rename')),
-            ],
-            onSelected: (v) {
-              if (v == 'rename') _showRenameDialog();
-            },
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const LoadingState()
-          : _loadError != null
+      appBar:
+          widget.embedded
+              ? null
+              : AppBar(
+                title: Text(_currentTitle),
+                actions: [
+                  PopupMenuButton<String>(
+                    itemBuilder:
+                        (_) => const [
+                          PopupMenuItem(value: 'rename', child: Text('Rename')),
+                        ],
+                    onSelected: (v) {
+                      if (v == 'rename') _showRenameDialog();
+                    },
+                  ),
+                ],
+              ),
+      body:
+          _isLoading
+              ? const LoadingState()
+              : _loadError != null
               ? ErrorRetryState(message: _loadError!, onRetry: _reload)
               : Column(
-              children: [
-                Expanded(
-                  child: _nodes.isEmpty
-                      ? EmptyState(message: widget.emptyMessage)
-                      : ReorderableListView.builder(
-                          buildDefaultDragHandles: false,
-                          padding: const EdgeInsets.only(top: 8, bottom: 16),
-                          itemCount: displayCount,
-                          itemBuilder: (ctx, displayIdx) {
-                            if (dividerAt != null && displayIdx == dividerAt) {
-                              return const Padding(
-                                key: ValueKey('_cmp_divider'),
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 4),
-                                child: Row(children: [
-                                  Expanded(child: Divider()),
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 8),
-                                    child: Text('Completed',
-                                        style: TextStyle(
-                                            fontSize: 11, color: AppColors.textTertiary)),
-                                  ),
-                                  Expanded(child: Divider()),
-                                ]),
-                              );
-                            }
-                            final nodeIdx = (dividerAt != null && displayIdx > dividerAt)
-                                ? displayIdx - 1
-                                : displayIdx;
-                            final node = _nodes[nodeIdx];
-                            if (node is TaskBlock && node.indentSpaces == 0) {
-                              return KeyedSubtree(
-                                key: ValueKey('blk-${node.startLine}'),
-                                child: _buildBlockWidget(node, 0,
-                                    reorderIndex:
-                                        widget.inboxMode ? null : displayIdx),
-                              );
-                            }
-                            return KeyedSubtree(
-                              key: ValueKey('nd-$nodeIdx'),
-                              child: _buildNodeWidget(node),
-                            );
-                          },
-                          onReorderItem: (oldDisplayIdx, newDisplayIdx) async {
-                            if (widget.inboxMode) return;
-                            if (dividerAt != null &&
-                                oldDisplayIdx == dividerAt) {
-                              return;
-                            }
-                            final oldNodeIdx =
-                                (dividerAt != null && oldDisplayIdx > dividerAt)
-                                    ? oldDisplayIdx - 1
-                                    : oldDisplayIdx;
-                            final postDividerAt = dividerAt != null
-                                ? (oldDisplayIdx < dividerAt
-                                    ? dividerAt - 1
-                                    : dividerAt)
-                                : null;
-                            final newNodeIdx = (postDividerAt != null &&
-                                    newDisplayIdx > postDividerAt)
-                                ? newDisplayIdx - 1
-                                : newDisplayIdx;
-                            await TaskStorageService.reorderRootBlocks(
-                                _currentPath, _nodes, oldNodeIdx, newNodeIdx);
-                            await _reload();
-                          },
-                        ),
-                ),
-                const Divider(height: 1),
-                // SafeArea handles Android gesture nav bar bottom inset;
-                // Scaffold resizeToAvoidBottomInset handles keyboard.
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _addController,
-                            focusNode: _addFocus,
-                            decoration: InputDecoration(
-                              hintText: widget.addHint,
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 10),
+                children: [
+                  Expanded(
+                    child:
+                        _nodes.isEmpty
+                            ? EmptyState(message: widget.emptyMessage)
+                            : ReorderableListView.builder(
+                              buildDefaultDragHandles: false,
+                              padding: const EdgeInsets.only(
+                                top: 8,
+                                bottom: 16,
+                              ),
+                              itemCount: displayCount,
+                              itemBuilder: (ctx, displayIdx) {
+                                if (dividerAt != null &&
+                                    displayIdx == dividerAt) {
+                                  return const Padding(
+                                    key: ValueKey('_cmp_divider'),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 4,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(child: Divider()),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                          child: Text(
+                                            'Completed',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(child: Divider()),
+                                      ],
+                                    ),
+                                  );
+                                }
+                                final nodeIdx =
+                                    (dividerAt != null &&
+                                            displayIdx > dividerAt)
+                                        ? displayIdx - 1
+                                        : displayIdx;
+                                final node = _nodes[nodeIdx];
+                                if (node is TaskBlock &&
+                                    node.indentSpaces == 0) {
+                                  return KeyedSubtree(
+                                    key: ValueKey('blk-${node.startLine}'),
+                                    child: _buildBlockWidget(
+                                      node,
+                                      0,
+                                      reorderIndex:
+                                          widget.inboxMode ? null : displayIdx,
+                                    ),
+                                  );
+                                }
+                                return KeyedSubtree(
+                                  key: ValueKey('nd-$nodeIdx'),
+                                  child: _buildNodeWidget(node),
+                                );
+                              },
+                              onReorderItem: (
+                                oldDisplayIdx,
+                                newDisplayIdx,
+                              ) async {
+                                if (widget.inboxMode) return;
+                                if (dividerAt != null &&
+                                    oldDisplayIdx == dividerAt) {
+                                  return;
+                                }
+                                final oldNodeIdx =
+                                    (dividerAt != null &&
+                                            oldDisplayIdx > dividerAt)
+                                        ? oldDisplayIdx - 1
+                                        : oldDisplayIdx;
+                                final postDividerAt =
+                                    dividerAt != null
+                                        ? (oldDisplayIdx < dividerAt
+                                            ? dividerAt - 1
+                                            : dividerAt)
+                                        : null;
+                                final newNodeIdx =
+                                    (postDividerAt != null &&
+                                            newDisplayIdx > postDividerAt)
+                                        ? newDisplayIdx - 1
+                                        : newDisplayIdx;
+                                await _applyDocumentMutation(
+                                  (expected) =>
+                                      TaskStorageService.guardedReorderRootBlocks(
+                                        _currentPath,
+                                        expected,
+                                        _nodes,
+                                        oldNodeIdx,
+                                        newNodeIdx,
+                                      ),
+                                );
+                              },
                             ),
-                            onSubmitted: (_) => _addRootTask(),
-                            textInputAction: TextInputAction.send,
+                  ),
+                  const Divider(height: 1),
+                  // SafeArea handles Android gesture nav bar bottom inset;
+                  // Scaffold resizeToAvoidBottomInset handles keyboard.
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _addController,
+                              focusNode: _addFocus,
+                              decoration: InputDecoration(
+                                hintText: widget.addHint,
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 10,
+                                ),
+                              ),
+                              onSubmitted: (_) => _addRootTask(),
+                              textInputAction: TextInputAction.send,
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.send),
-                          onPressed: _addRootTask,
-                        ),
-                      ],
+                          IconButton(
+                            icon: const Icon(Icons.send),
+                            onPressed: _addRootTask,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
     );
   }
 }

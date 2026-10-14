@@ -9,6 +9,7 @@ import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
 import 'anki_transport.dart';
+import 'anki_sync_lock.dart';
 
 class AnkiSyncResult {
   final int added;
@@ -56,6 +57,38 @@ class AnkiSyncService {
     List<AnkiProblemNote> problemNotes,
     String vaultPath, {
     List<AnkiNoteRetirement> retirements = const [],
+  }) async {
+    AnkiSyncLock? lease;
+    try {
+      lease = await AnkiSyncLock.acquire(vaultPath);
+      if (lease == null) {
+        return AnkiSyncResult.incomplete(
+          skipped: problemNotes.length + retirements.length,
+          errors: [
+            'The vault sync is already running or its lock is unavailable. No cards were changed.',
+          ],
+        );
+      }
+      return await _syncVault(
+        transport,
+        problemNotes,
+        vaultPath,
+        retirements: retirements,
+      );
+    } catch (error) {
+      return AnkiSyncResult.incomplete(
+        errors: ['Vault sync could not run: $error'],
+      );
+    } finally {
+      await lease?.release();
+    }
+  }
+
+  static Future<AnkiSyncResult> _syncVault(
+    AnkiTransport transport,
+    List<AnkiProblemNote> problemNotes,
+    String vaultPath, {
+    required List<AnkiNoteRetirement> retirements,
   }) async {
     int added = 0;
     int updated = 0;
@@ -155,6 +188,11 @@ class AnkiSyncService {
       final note = problemNotes[index];
       try {
         final current = await readPreservingUtf8(File(note.sourcePath));
+        if (note.sourceContent != current) {
+          throw const AnkiNoteFailure(
+            'source changed after discovery; rescan before syncing',
+          );
+        }
         final metadata = parseYamlMap(
           splitFrontmatter(
             current.startsWith('\uFEFF') ? current.substring(1) : current,
@@ -180,6 +218,11 @@ class AnkiSyncService {
             continue;
           }
           final exists = await transport.noteExists(noteIdLong);
+          if (await readPreservingUtf8(File(note.sourcePath)) != current) {
+            throw const AnkiNoteFailure(
+              'source changed during identity lookup; rescan before syncing',
+            );
+          }
           if (exists == null) {
             failed++;
             errors.add(
@@ -209,60 +252,39 @@ class AnkiSyncService {
                 continue;
               }
               updated++;
+              if (await readPreservingUtf8(File(note.sourcePath)) != current) {
+                updated--;
+                throw const AnkiNoteFailure(
+                  'Anki received the discovered snapshot, but the source changed during sync; resync is required',
+                );
+              }
             } else {
               failed++;
               errors.add('${note.sourceFile}: update failed');
             }
           } else {
-            // Note was deleted from Anki — re-add and write new ID back.
-            final newId = await transport.addNote(deckName, front, back, tags);
-            if (newId > 0) {
-              final patch = await _patchAnkiNoteId(note.sourcePath, newId);
-              if (patch.applied) {
-                if (await transport.moveToDeck(newId, deckName)) {
-                  added++;
-                } else {
-                  failed++;
-                  errors.add(
-                    '${note.sourceFile}: Anki note $newId created and linked, but deck projection to "$deckName" failed',
-                  );
-                }
-              } else {
-                failed++;
-                errors.add(
-                  '${note.sourceFile}: Anki note $newId was created, '
-                  'but local identity patch failed: ${patch.error}',
-                );
-              }
-            } else {
-              failed++;
-              errors.add('${note.sourceFile}: add failed after missing note');
-            }
+            await _addAndLink(
+              transport,
+              note,
+              deckName,
+              front,
+              back,
+              tags,
+              current,
+            );
+            added++;
           }
         } else {
-          final newId = await transport.addNote(deckName, front, back, tags);
-          if (newId > 0) {
-            final patch = await _patchAnkiNoteId(note.sourcePath, newId);
-            if (patch.applied) {
-              if (await transport.moveToDeck(newId, deckName)) {
-                added++;
-              } else {
-                failed++;
-                errors.add(
-                  '${note.sourceFile}: Anki note $newId created and linked, but deck projection to "$deckName" failed',
-                );
-              }
-            } else {
-              failed++;
-              errors.add(
-                '${note.sourceFile}: Anki note $newId was created, '
-                'but local identity patch failed: ${patch.error}',
-              );
-            }
-          } else {
-            failed++;
-            errors.add('${note.sourceFile}: add failed');
-          }
+          await _addAndLink(
+            transport,
+            note,
+            deckName,
+            front,
+            back,
+            tags,
+            current,
+          );
+          added++;
         }
       } on AnkiSyncAbort catch (e) {
         failed++;
@@ -340,11 +362,72 @@ class AnkiSyncService {
     );
   }
 
+  static Future<void> _addAndLink(
+    AnkiTransport transport,
+    AnkiProblemNote note,
+    String deck,
+    String front,
+    String back,
+    List<String> tags,
+    String source,
+  ) async {
+    final possiblePatch = await prepareFrontmatterField(
+      note.sourcePath,
+      'anki_note_id',
+      '1',
+    );
+    if (possiblePatch.before != source) {
+      throw const AnkiNoteFailure(
+        'source changed before creation; rescan before syncing',
+      );
+    }
+    final id = await transport.addNote(deck, front, back, tags);
+    if (id <= 0) throw const AnkiNoteFailure('add failed');
+    final patch = await _patchAnkiNoteId(
+      note.sourcePath,
+      id,
+      expectedSource: source,
+    );
+    if (!patch.applied) {
+      throw AnkiNoteFailure(
+        'Anki note $id was created, but local identity patch failed: ${patch.error}',
+      );
+    }
+    if (!await transport.moveToDeck(id, deck)) {
+      throw AnkiNoteFailure(
+        'Anki note $id created and linked, but deck projection to "$deck" failed',
+      );
+    }
+    if (await readPreservingUtf8(File(note.sourcePath)) != patch.after) {
+      throw const AnkiNoteFailure(
+        'Anki was created and linked, but the source changed during deck placement; resync is required',
+      );
+    }
+  }
+
   /// The sync's ONLY vault write: surgically patches the `anki_note_id`
   /// frontmatter key via [patchFrontmatterField], which preserves the note body
   /// byte-for-byte. No sync code opens or rewrites a note body. Never throws.
   static Future<FilePatchResult> _patchAnkiNoteId(
     String filePath,
-    int noteId,
-  ) => patchFrontmatterField(filePath, 'anki_note_id', '$noteId');
+    int noteId, {
+    required String expectedSource,
+  }) async {
+    try {
+      final patch = await prepareFrontmatterField(
+        filePath,
+        'anki_note_id',
+        '$noteId',
+      );
+      if (patch.before != expectedSource) {
+        return FilePatchResult.failed(
+          filePath,
+          'source changed during Anki creation; external ID retained in this error for reconciliation',
+        );
+      }
+      return await patch.apply();
+    } catch (error) {
+      return FilePatchResult.failed(filePath, '$error');
+    }
+  }
 }

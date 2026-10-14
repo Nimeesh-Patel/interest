@@ -15,27 +15,30 @@ Future<void> runAnkiDroidSync(
   BuildContext context, {
   void Function(bool busy)? onBusy,
 }) async {
-  final transport = AnkiDroidTransport();
-
-  final available = await transport.isAvailable();
-  if (!context.mounted) return;
-  if (!available) {
-    showSnack(context, 'AnkiDroid not installed');
-    return;
-  }
-
-  final granted = await transport.requestPermission();
-  if (!context.mounted) return;
-  if (!granted) {
-    showSnack(context, 'Permission denied');
-    return;
-  }
-
   onBusy?.call(true);
-  final result = await AnkiSyncController.sync(transport);
-  onBusy?.call(false);
-  if (!context.mounted) return;
-  showAnkiSyncResult(context, transport, result);
+  try {
+    final transport = AnkiDroidTransport();
+
+    final available = await transport.isAvailable();
+    if (!context.mounted) return;
+    if (!available) {
+      showSnack(context, 'AnkiDroid not installed');
+      return;
+    }
+
+    final granted = await transport.requestPermission();
+    if (!context.mounted) return;
+    if (!granted) {
+      showSnack(context, 'Permission denied');
+      return;
+    }
+
+    final result = await AnkiSyncController.sync(transport);
+    if (!context.mounted) return;
+    showAnkiSyncResult(context, transport, result);
+  } finally {
+    onBusy?.call(false);
+  }
 }
 
 /// Reports an [AnkiSyncResult]: a scrollable failures dialog when notes failed

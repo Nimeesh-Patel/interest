@@ -56,21 +56,27 @@ class ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   Future<void> showCreateDialog(BuildContext ctx) async {
-    showBottomSheetMenu(ctx, items: [
-      BottomSheetMenuItem(
-        icon: Icons.check_box_outline_blank,
-        label: 'Todo outline',
-        onTap: () => _createProject(ctx, listStyle: false),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.format_list_bulleted,
-        label: 'Simple list',
-        onTap: () => _createProject(ctx, listStyle: true),
-      ),
-    ]);
+    showBottomSheetMenu(
+      ctx,
+      items: [
+        BottomSheetMenuItem(
+          icon: Icons.check_box_outline_blank,
+          label: 'Todo outline',
+          onTap: () => _createProject(ctx, listStyle: false),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.format_list_bulleted,
+          label: 'Simple list',
+          onTap: () => _createProject(ctx, listStyle: true),
+        ),
+      ],
+    );
   }
 
-  Future<void> _createProject(BuildContext ctx, {required bool listStyle}) async {
+  Future<void> _createProject(
+    BuildContext ctx, {
+    required bool listStyle,
+  }) async {
     final vault = await VaultService.getVaultPath();
     if (vault == null || !ctx.mounted) return;
     final name = await showInputDialog(
@@ -100,41 +106,46 @@ class ProjectsScreenState extends State<ProjectsScreen> {
       await Navigator.push(
         ctx,
         MaterialPageRoute(
-          builder: (_) => ProjectListDetailScreen(
-            filePath: proj.filePath,
-            title: proj.name,
-            onRenamed: _reload,
-          ),
+          builder:
+              (_) => ProjectListDetailScreen(
+                filePath: proj.filePath,
+                title: proj.name,
+                onRenamed: _reload,
+              ),
         ),
       );
     } else {
       await Navigator.push(
         ctx,
         MaterialPageRoute(
-          builder: (_) => TaskFileScreen(
-            filePath: proj.filePath,
-            title: proj.name,
-            onRenamed: (_, _) => _reload(),
-          ),
+          builder:
+              (_) => TaskFileScreen(
+                filePath: proj.filePath,
+                title: proj.name,
+                onRenamed: (_, _) => _reload(),
+              ),
         ),
       );
     }
   }
 
   void _showProjectOptions(BuildContext ctx, ProjectFile project) {
-    showBottomSheetMenu(ctx, items: [
-      BottomSheetMenuItem(
-        icon: Icons.drive_file_rename_outline,
-        label: 'Rename',
-        onTap: () => _showRenameProject(project),
-      ),
-      BottomSheetMenuItem(
-        icon: Icons.delete_outline,
-        label: 'Delete',
-        isDestructive: true,
-        onTap: () => _showDeleteProject(project),
-      ),
-    ]);
+    showBottomSheetMenu(
+      ctx,
+      items: [
+        BottomSheetMenuItem(
+          icon: Icons.drive_file_rename_outline,
+          label: 'Rename',
+          onTap: () => _showRenameProject(project),
+        ),
+        BottomSheetMenuItem(
+          icon: Icons.delete_outline,
+          label: 'Delete',
+          isDestructive: true,
+          onTap: () => _showDeleteProject(project),
+        ),
+      ],
+    );
   }
 
   Future<void> _showRenameProject(ProjectFile project) async {
@@ -150,7 +161,10 @@ class ProjectsScreenState extends State<ProjectsScreen> {
     if (name == null) return;
     final trimmed = name.trim();
     if (trimmed.isEmpty || trimmed == project.name) return;
-    final result = await ProjectStorageService.renameProject(vault, project, trimmed);
+    final result = await ProjectStorageService.renameProject(
+      project.filePath,
+      trimmed,
+    );
     if (!mounted) return;
     if (result == null) {
       showSnack(context, 'Rename failed — name already in use.');
@@ -199,52 +213,51 @@ class ProjectsScreenState extends State<ProjectsScreen> {
             },
             onLongPress: () => _showProjectOptions(ctx, proj),
             child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          proj.name,
-                          style: AppTextStyles.entityName.copyWith(
-                            color: isComplete
-                                ? AppColors.textSecondary
-                                : AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        typeLabel,
-                        style: AppTextStyles.metaMuted.copyWith(
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (proj.totalTasks > 0) ...[
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(1),
-                      child: LinearProgressIndicator(
-                        value: proj.progress,
-                        minHeight: 2,
-                        backgroundColor: AppColors.border,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          isComplete
-                              ? AppColors.textTertiary
-                              : AppColors.accent,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        proj.name,
+                        style: AppTextStyles.entityName.copyWith(
+                          color:
+                              isComplete
+                                  ? AppColors.textSecondary
+                                  : AppColors.textPrimary,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 5),
                     Text(
-                      '${proj.completedTasks} / ${proj.totalTasks}',
-                      style: AppTextStyles.metaMuted,
+                      typeLabel,
+                      style: AppTextStyles.metaMuted.copyWith(
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ],
+                ),
+                if (proj.totalTasks > 0) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(1),
+                    child: LinearProgressIndicator(
+                      value: proj.progress,
+                      minHeight: 2,
+                      backgroundColor: AppColors.border,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isComplete ? AppColors.textTertiary : AppColors.accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${proj.completedTasks} / ${proj.totalTasks}',
+                    style: AppTextStyles.metaMuted,
+                  ),
                 ],
-              ),
+              ],
+            ),
           );
         },
       ),

@@ -1,3 +1,4 @@
+import 'package:people_tracker/shared/markdown/markdown_file.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -5,18 +6,11 @@ import 'package:path/path.dart' as p;
 import '../../../core/vault_service.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../../../shared/markdown/vault_scanner.dart';
+import '../../tasks/services/task_storage_service.dart';
+import '../../tasks/models/task_block.dart';
 import '../models/project_file.dart';
 
-class ProjectMeta {
-  final String title;
-  final Map<dynamic, dynamic> frontmatterMap;
-  final String body;
-  const ProjectMeta({required this.title, required this.frontmatterMap, required this.body});
-}
-
 class ProjectStorageService {
-  static final _taskRegex = RegExp(r'^\s*-\s+\[([ xX])\]\s+');
-
   static Future<List<ProjectFile>> loadAll(String vaultPath) async {
     final results = <ProjectFile>[];
     final dirPath = VaultService.projectsPath(vaultPath);
@@ -26,7 +20,9 @@ class ProjectStorageService {
         results.add(_parse(entry.path, content));
       } catch (_) {}
     }
-    results.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    results.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     return results;
   }
 
@@ -34,14 +30,29 @@ class ProjectStorageService {
     final split = splitFrontmatter(content);
     final yamlMap = parseYamlMap(split.frontmatter);
     final isListStyle = yamlMap != null && yamlMap['type'] == 'list';
-    final name = extractH1(split.body) ?? p.basenameWithoutExtension(filePath);
+    final lines = content
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n');
+    final titles = unfencedBodyLines(
+      lines,
+    ).where((index) => lines[index].startsWith('# '));
+    final name =
+        titles.isEmpty
+            ? p.basenameWithoutExtension(filePath)
+            : lines[titles.first].substring(2).trim();
     int total = 0, completed = 0;
-    for (final line in split.body.split('\n')) {
-      final m = _taskRegex.firstMatch(line);
-      if (m != null) {
-        total++;
-        if (m.group(1)!.toLowerCase() == 'x') completed++;
+    void count(TaskBlock block) {
+      total++;
+      if (block.completed) completed++;
+      for (final child in block.children) {
+        count(child);
       }
+    }
+
+    for (final block
+        in TaskStorageService.parseNodes(lines).whereType<TaskBlock>()) {
+      count(block);
     }
     return ProjectFile(
       filePath: filePath,
@@ -59,12 +70,14 @@ class ProjectStorageService {
   }) async {
     try {
       final safeName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final filePath = p.join(VaultService.projectsPath(vaultPath), '$safeName.md');
+      final filePath = p.join(
+        VaultService.projectsPath(vaultPath),
+        '$safeName.md',
+      );
       final file = File(filePath);
       if (await file.exists()) return null;
-      final content = listStyle
-          ? '---\ntype: list\n---\n# $name\n\n'
-          : '# $name\n\n';
+      final content =
+          listStyle ? '---\ntype: list\n---\n# $name\n\n' : '# $name\n\n';
       await file.writeAsString(content);
       return ProjectFile(
         filePath: filePath,
@@ -78,85 +91,19 @@ class ProjectStorageService {
     }
   }
 
-  static Future<void> deleteProject(String vaultPath, ProjectFile project) async {
+  static Future<void> deleteProject(
+    String vaultPath,
+    ProjectFile project,
+  ) async {
     try {
       final file = File(project.filePath);
       if (await file.exists()) await file.delete();
     } catch (_) {}
   }
 
-  static Future<String?> loadProjectContent(String filePath) async {
-    try {
-      return await File(filePath).readAsString();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<ProjectMeta?> loadProjectMeta(String filePath) async {
-    try {
-      final content = await loadProjectContent(filePath);
-      if (content == null) return null;
-      final split = splitFrontmatter(content);
-      final yamlMap = parseYamlMap(split.frontmatter) ?? {};
-      final title = extractH1(split.body) ?? p.basenameWithoutExtension(filePath);
-      return ProjectMeta(title: title, frontmatterMap: yamlMap, body: split.body);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> saveProjectContent(String filePath, String content) async {
-    try {
-      await File(filePath).writeAsString(content);
-    } catch (_) {}
-  }
-
-  // Named ByPath to avoid conflict with renameProject(vaultPath, ProjectFile, newName).
-  static Future<String?> renameProjectByPath(String filePath, String newTitle) async {
-    try {
-      final lines = await File(filePath).readAsLines();
-      for (int i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
-          lines[i] = '# $newTitle';
-          break;
-        }
-      }
-      final safeName = newTitle.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final newPath = p.join(p.dirname(filePath), '$safeName.md');
-      await File(filePath).writeAsString(lines.join('\n'));
-      if (newPath != filePath) {
-        if (await File(newPath).exists()) return null;
-        await File(filePath).rename(newPath);
-      }
-      return newPath;
-    } catch (_) {
-      return null;
-    }
-  }
-
   static Future<String?> renameProject(
-      String vaultPath, ProjectFile project, String newName) async {
-    try {
-      final file = File(project.filePath);
-      if (!await file.exists()) return null;
-      final lines = await file.readAsLines();
-      for (int i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
-          lines[i] = '# $newName';
-          break;
-        }
-      }
-      final safeName = newName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final newPath = p.join(p.dirname(project.filePath), '$safeName.md');
-      await file.writeAsString(lines.join('\n'));
-      if (newPath != project.filePath) {
-        if (await File(newPath).exists()) return null;
-        await File(project.filePath).rename(newPath);
-      }
-      return newPath;
-    } catch (_) {
-      return null;
-    }
-  }
+    String filePath,
+    String newTitle, {
+    TaskFileSnapshot? expected,
+  }) => MarkdownFile.renameTaskFile(filePath, newTitle, expected: expected);
 }

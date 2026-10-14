@@ -15,7 +15,7 @@ Projects are **not** a task-management industrial complex. They are:
 - Todo-style semantic canvases with no required structure beyond an optional H1 heading
 - Markdown-native — editable directly in Obsidian or any editor
 - Ephemeral working spaces — hard-deleted when no longer needed, no trash
-- Explicitly constrained list-style files containing only an H1 and flat `- item` rows
+- Flat-list projections over Markdown; unrelated authored content remains in the file
 
 **Do not add** due dates, reminders, scheduling, Kanban boards, priorities, time tracking, or recurring tasks. The system intentionally does not model these to avoid second-order productivity overhead.
 
@@ -166,7 +166,7 @@ After type selection, `showInputDialog` prompts for a name. On success, the proj
 - `false` → `TaskFileScreen(filePath, title, onRenamed: (_, _) => _reload())`
 - `true` → `ProjectListDetailScreen(filePath, title, onRenamed: _reload)`
 
-**Long press**: `showBottomSheetMenu` with Rename and Delete options. Rename calls `ProjectStorageService.renameProject`. Delete requires `showConfirmDialog` confirmation; hard-deletes with no undo.
+**Long press**: `showBottomSheetMenu` with Rename and Delete options. Rename calls `ProjectStorageService.renameProject(filePath, title)`. Delete requires `showConfirmDialog` confirmation; hard-deletes with no undo.
 
 ---
 
@@ -176,11 +176,11 @@ After type selection, `showInputDialog` prompts for a name. On success, the proj
 
 Flat list editor for list-style project files. It delegates file writes and renames to `ProjectStorageService`; the screen owns only the constrained item projection.
 
-**Load**: `splitFrontmatter()` strips YAML, then parses lines: the first `# ` line sets the title; `- ` lines become items. Lines that are neither H1 nor `- ` prefixed (H2+, blank, prose) are silently skipped on load and lost on the next save.
+**Load**: a strict byte snapshot feeds `ProjectListDocument`. Only top-level item lines outside metadata/code are editable items. Other Markdown remains canonical.
 
-**Save**: asks `ProjectStorageService.saveProjectContent` to rebuild the full file as `---\ntype: list\n---\n# $title\n\n- item1\n- item2\n`. Any content outside this constrained format is lost.
+**Save**: edits/additions patch the loaded document through `MarkdownFile`; stale or unreadable sources fail visibly. Plain item reorder/delete preserves the file shell. Attached or ambiguous additional content prevents destructive list operations rather than being dropped.
 
-**Rename**: calls `ProjectStorageService.renameProjectByPath`, then calls `widget.onRenamed` so `ProjectsScreen` reloads.
+**Rename**: both project entry points use the shared guarded title/filename rename. Known collisions leave the source untouched; the editor adopts the returned path before later saves. Unrelated metadata, body, BOM and line endings are preserved.
 
 **UI**: `ReorderableListView.builder` — tap to edit inline, delete icon, drag handle. FAB adds item via `showInputDialog`. AppBar trailing (`Icons.more_vert`) opens a bottom sheet with a Rename option.
 
@@ -205,4 +205,4 @@ Flat list editor for list-style project files. It delegates file writes and rena
 - Never add scheduling, due dates, reminders, or recurring tasks.
 - Project files have no identity anchor — do not add one unless a genuine use case requires it.
 - The task parser (`TaskStorageService.parseNodes`) is shared with the Tasks subsystem; do not duplicate it.
-- List-style file saves always rebuild from `_items`; any content outside `# Title` and `- item` lines is discarded on the next save in `ProjectListDetailScreen`.
+- All existing-source writes use the shared staged `MarkdownFile` transaction. List items never authorise rebuilding the rest of a Markdown file.

@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
+import '../../../shared/markdown/md_io.dart';
 
 class AnkiProblemNoteScanResult {
   final List<AnkiProblemNote> notes;
@@ -55,8 +56,10 @@ class AnkiProblemNoteScanner {
       errors.addAll(scanned.errors);
       for (final entry in scanned.files) {
         try {
-          final content = await entry.readAsString();
-          final split = splitFrontmatter(content);
+          final content = await readPreservingUtf8(entry);
+          final split = splitFrontmatter(
+            content.startsWith('\uFEFF') ? content.substring(1) : content,
+          );
           final yaml = parseYamlMap(split.frontmatter);
           if (yaml == null && split.frontmatter?.trim().isNotEmpty == true) {
             throw const FormatException(
@@ -91,6 +94,7 @@ class AnkiProblemNoteScanner {
                       ? (yaml['tags'] as List).whereType<String>().toList()
                       : const [],
               ankiNoteId: ankiNoteId,
+              sourceContent: content,
             ),
           );
         } catch (error) {
