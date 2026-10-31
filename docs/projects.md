@@ -38,7 +38,7 @@ Project files are created and scanned only in `Projects/`. The former `Lists/`, 
 
 Projects have two styles, distinguished by frontmatter:
 
-### Todo-style (no frontmatter)
+### Todo-style (default)
 
 ```markdown
 # Project Name
@@ -60,7 +60,7 @@ Projects have two styles, distinguished by frontmatter:
 - Indented `- [ ]` lines are subtasks (parsed by `TaskStorageService.parseNodes()`)
 - Plain prose lines, including `- item` without brackets, appear as body text
 
-Todo-style files are opened with `TaskFileScreen`.
+Files without `type: list` open with `TaskFileScreen`; unrelated frontmatter and prose remain in the source.
 
 ### List-style (`type: list` frontmatter)
 
@@ -77,8 +77,8 @@ type: list
 
 - YAML frontmatter with `type: list` is the only frontmatter field used
 - H1 is the list name
-- `- text` lines are list items (no checkboxes, no nesting)
-- File is rebuilt on every save; content outside the declared H1/flat-item format is not part of this projection and is discarded
+- `- text` lines are flat items; checkbox syntax or nesting does not add outline controls to this editor
+- Only top-level item lines outside metadata and fenced code are editable items. Other source content is retained; attached or ambiguous content prevents destructive item operations.
 
 List-style files are opened with `ProjectListDetailScreen`.
 
@@ -97,7 +97,7 @@ class ProjectFile {
 }
 ```
 
-`isListStyle` is derived at parse time from `type: list` frontmatter via `splitFrontmatter()` + `parseYamlMap()` from `md_utils.dart`. List-style files always have `totalTasks == 0` because their `- item` lines do not match the task regex `^\s*-\s+\[([ xX])\]\s+`.
+`isListStyle` is derived from `type: list` frontmatter using shared Markdown utilities. Ordinary `- item` lines do not contribute task counts. Any live checkbox blocks are counted by `TaskStorageService.parseNodes`, including their children; metadata and fenced examples are excluded.
 
 ---
 
@@ -117,34 +117,17 @@ Projects are ephemeral by design. When a project file is deleted, all its conten
 
 `lib/features/projects/services/project_storage_service.dart`
 
-All-static, all-catch-null, never throws.
+| Operation | Current contract |
+| --- | --- |
+| `loadAll(vaultPath)` | Scan `Interesting/Projects/`, derive `ProjectFile` projections and sort by name. Per-file read failures are currently omitted from the returned list. |
+| `createProject(vaultPath, name, listStyle: ...)` | Write a new todo or `type: list` file; return null for a known collision or I/O failure. Creation still checks existence before a non-exclusive write. |
+| `deleteProject(vaultPath, project)` | Hard-delete if present. Its legacy `Future<void>` interface catches failures; return alone does not prove deletion. |
+| `renameProject(filePath, newTitle, expected: snapshot)` | Delegate to `MarkdownFile.renameTaskFile`; return the new path or null on refusal/failure. |
 
-```dart
-static Future<List<ProjectFile>> loadAll(String vaultPath) async
-  // Scans Projects/
-  // Returns List<ProjectFile> sorted A→Z (case-insensitive) by name
-
-static Future<ProjectFile?> createProject(
-  String vaultPath,
-  String name, {
-  bool listStyle = false,
-}) async
-  // Creates file in Projects/ only
-  // Todo: writes '# $name\n\n'
-  // List: writes '---\ntype: list\n---\n# $name\n\n'
-  // Filename: illegal chars (\ / : * ? " < > |) replaced with '_'
-  // Returns null on filename collision or I/O error
-
-static Future<void> deleteProject(String vaultPath, ProjectFile project) async
-  // Hard-deletes the file; no trash; no-op if file already absent
-
-static Future<String?> renameProject(
-  String vaultPath, ProjectFile project, String newName) async
-  // Updates H1 heading in-place (reads all lines, patches first H1, writes back)
-  // Renames file on disk; returns new path, or null on collision or I/O error
-```
-
-**Note on `renameProject`**: reads the file via `readAsLines()` (not `splitFrontmatter()`), so frontmatter lines are preserved verbatim. The H1 search iterates all lines for the first `# ` prefix (excluding `## `), which correctly skips YAML `---` delimiters and `type: list` lines.
+The legacy discovery/create/delete error contracts are weaker than the guarded
+editor boundary and must not be described as complete observations or confirmed
+success. Existing-source editor writes and rename follow the
+[shared file boundary](tasks.md#shared-file-boundary).
 
 ---
 
@@ -174,13 +157,13 @@ After type selection, `showInputDialog` prompts for a name. On success, the proj
 
 `lib/features/projects/screens/project_list_detail_screen.dart`
 
-Flat list editor for list-style project files. It delegates file writes and renames to `ProjectStorageService`; the screen owns only the constrained item projection.
+Flat list editor for list-style project files. `ProjectListDocument` owns item transforms; `ProjectStorageService` delegates rename to the shared file boundary. The screen owns the constrained projection and editor state.
 
 **Load**: a strict byte snapshot feeds `ProjectListDocument`. Only top-level item lines outside metadata/code are editable items. Other Markdown remains canonical.
 
 **Save**: edits/additions patch the loaded document through `MarkdownFile`; stale or unreadable sources fail visibly. Plain item reorder/delete preserves the file shell. Attached or ambiguous additional content prevents destructive list operations rather than being dropped.
 
-**Rename**: both project entry points use the shared guarded title/filename rename. Known collisions leave the source untouched; the editor adopts the returned path before later saves. Unrelated metadata, body, BOM and line endings are preserved.
+**Rename**: both entry points use the [shared guarded rename](tasks.md#shared-file-boundary), and the editor adopts the returned path before later saves.
 
 **UI**: `ReorderableListView.builder` — tap to edit inline, delete icon, drag handle. FAB adds item via `showInputDialog`. AppBar trailing (`Icons.more_vert`) opens a bottom sheet with a Rename option.
 

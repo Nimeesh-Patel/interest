@@ -2,7 +2,7 @@
 
 ## Role
 
-The Tasks subsystem is the **shared checkbox-outline layer used by Inbox and Projects**. It owns the Markdown task syntax (`- [ ]` / `- [x]`, indentation, attached notes), the pure parser that turns file lines into a block tree, the line-level mutation methods, and `TaskFileScreen`.
+The Tasks subsystem is the **shared checkbox-outline layer used by Inbox and Projects**. It owns the Markdown task syntax (`- [ ]` / `- [x]`, indentation, attached notes), the pure parser that turns file lines into a block tree, snapshot-guarded line/block transforms, and `TaskFileScreen`.
 
 It is not a standalone storage subsystem and owns no path. `InboxStorageService` owns the persistent `Interesting/Inbox.md`; `ProjectStorageService` owns `Interesting/Projects/`. Items carry no stable identity and participate in no graph.
 
@@ -33,7 +33,7 @@ Do not add: due dates, reminders, recurring tasks, priorities, notifications, ca
 - [x] Fix widget UX
 ```
 
-No YAML frontmatter. Task syntax: `- [ ] text` (open), `- [x] text` (done). Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`.
+Todo outlines require no frontmatter. Existing metadata and fenced examples are preserved as prose rather than interpreted as tasks. Task syntax: `- [ ] text` (open), `- [x] text` (done). Regex: `^\s*-\s+\[([ xX])\]\s+(.+)$`.
 Subtasks: `- [ ]` at deeper indent below the parent task.
 Notes: indented non-task lines between a task and its subtasks.
 Wikilinks: rendered highlighted (`WikilinkText`) but not tappable here, and not part of any graph.
@@ -61,10 +61,11 @@ abstract class TaskNode
 **Signature:** `static List<TaskNode> parseNodes(List<String> lines)` — pure, no I/O. Call with `MarkdownFile.loadSnapshot().lines`. Shared by `TaskFileScreen` and the read-only Inbox provider; provider code must not implement a rival checkbox parser.
 
 **Top-level scan:**
-1. Skip H1 (file title — rendered in AppBar)
-2. `##` / `###` → `TaskHeaderNode`
-3. Task-regex match → `TaskBlock`; recurse via `_collectBlockContent`
-4. Anything else → `TaskProseNode`
+1. Metadata and fenced lines → `TaskProseNode`, using shared `unfencedBodyLines` eligibility
+2. Skip H1 (file title — rendered in AppBar)
+3. `##` / `###` → `TaskHeaderNode`
+4. Task-regex match → `TaskBlock`; recurse via `_collectBlockContent`
+5. Anything else → `TaskProseNode`
 
 **`_collectBlockContent(lines, start, parent) → int`** (private):
 - Blank line: look ahead to next non-blank; if its indent ≤ `parent.indentSpaces` → stop; else add blank to `parent.noteLineIndices`
@@ -73,26 +74,25 @@ abstract class TaskNode
 - Header line or indent ≤ `parent.indentSpaces` → stop
 - Returns next unconsumed line index
 
-## Storage methods (`lib/features/tasks/services/task_storage_service.dart`)
+## Mutations (`TaskStorageService`)
 
-All-static, all-catch, never throw. Project mutations retain the established `readAsLines() → mutate → writeAsString(join('\n'))` path. Inbox mutations use one exact-byte guarded, staged, flushed, verified, and recoverable replacement path; stage and backup share a transaction ID, preserve BOM and authored newline bytes, and never retry an ambiguous write. Before first creation, a verified sibling marker records the intended canonical bytes; startup accepts a marked canonical only on an exact byte match. Startup also probes mutation siblings and refuses empty creation when recovery material exists.
+Every method below receives the exact loaded `TaskFileSnapshot` and returns a
+`GuardedTaskMutationResult`. Both Inbox and Project outlines use these methods;
+the task service supplies line/block transforms to the shared file boundary.
 
-**Line-level:**
-- `loadLines(filePath)` → `List<String>`
-- `toggleTask(filePath, lineIndex)` — flip `[ ]` ↔ `[x]` on one line
-- `addTask(filePath, text)` — Project behavior: inserts before the first completed root task. Inbox capture uses `guardedAddTask`, which appends without regrouping authored content.
-- `deleteTask(filePath, lineIndex)` — remove a single line (task line or note line)
-- `updateTaskText(filePath, lineIndex, newText)` — preserve indent + check state, replace text
-- `updateLine(filePath, lineIndex, newText)` — raw line replacement; used for inline note editing (caller re-prepends original indentation)
+| Method | Transform |
+| --- | --- |
+| `guardedAddTask` | Append an open root task; do not regroup existing content. |
+| `guardedToggleBlock` | Toggle a checkbox. With `reorderRoot: true`, move a Project root block; nested and Inbox blocks stay in place. |
+| `guardedUpdateBlockText` | Replace a task's text, preserving indentation and checkbox state. |
+| `guardedDeleteBlock` | Remove the selected subtree, including its attached notes and children. |
+| `guardedAddNote` | Insert indented note lines immediately after the parent task line. |
+| `guardedAddSubtask` | Insert a child after the parent's current subtree. |
+| `guardedUpdateLine` / `guardedDeleteLine` | Change or remove one selected line. The editor retains note indentation when replacing text. |
+| `guardedReorderRootBlocks` | Move a Project root block among the current nodes; Inbox exposes no reorder surface. |
 
-**Block-level:**
-- `addNote(filePath, parent, noteText)` — insert at `parent.startLine + 1` with `parent.indentSpaces + 2` indent; multiline text split on `\n`
-- `addSubtask(filePath, parent, text)` — insert `'- [ ] text'` at `parent.endLine + 1`, indented one level deeper
-- `deleteBlock(filePath, block)` — `removeRange(startLine, endLine + 1)`; removes the full subtree including notes and children
-- `updateBlockText(filePath, block, newText)` — thin wrapper over `updateTaskText`
-- `toggleBlockAndReorder(filePath, block)` — root Project blocks toggle + reorder; nested blocks always toggle in place so they cannot detach from their parent
-- `reorderRootBlocks(filePath, nodes, oldIndex, newIndex)` — drag reorder for root-level blocks
-- `renameTaskFile(filePath, newName)` → `String?` — updates the `# heading`, renames the file on disk; null on collision or error
+Loading and title/filename rename belong to `MarkdownFile`, not this service.
+The former `loadLines` and unguarded file-writing methods have been removed.
 
 ## UI (`lib/features/tasks/screens/task_file_screen.dart`)
 
@@ -107,7 +107,7 @@ Pushed by `ProjectsScreen` for todo-style project files and embedded directly in
 ```
 
 - Collapse chevron: visible when the block has children or notes; shows a `+N` descendant badge when collapsed
-- Checkbox: Project roots use `toggleBlockAndReorder`; Inbox uses guarded in-place toggle
+- Checkbox: Project roots use `guardedToggleBlock(reorderRoot: true)`; Inbox uses guarded in-place toggle
 - Task text: `WikilinkText` in display mode (strikethrough + grey when completed); `TextField` in inline edit mode (tap to activate)
 - ⋯ More: bottom sheet — Add subtask / Add note / Edit / Delete (confirmed)
 - Drag handle: root blocks only; hidden during inline editing
@@ -116,16 +116,16 @@ Pushed by `ProjectsScreen` for todo-style project files and embedded directly in
 
 **Inline editing:** task text saves on `onSubmitted` and `onTapOutside`. Note editing saves on `onSubmitted` only — no `onTapOutside`, because the note edit row has an inline delete button and a tap-outside save would fire before the delete. Note edits re-prepend the original leading whitespace before writing.
 
-**Completed separation (Projects only):** a centered "Completed" divider is inserted before the first completed root block; `toggleBlockAndReorder` maintains the invariant that completed roots sit at the bottom. Inbox has no divider or regrouping.
+**Completed separation (Projects only):** a centered "Completed" divider precedes the first completed root block. Root completion uses `guardedToggleBlock(reorderRoot: true)`; nested completion stays in place. New root tasks append without regrouping existing content. Inbox has no divider or regrouping.
 
-**Bottom bar:** persistent `TextField`; `SafeArea(top: false)` handles the gesture nav bar, `resizeToAvoidBottomInset` handles the keyboard. Submitting calls `addTask()`.
+**Bottom bar:** persistent `TextField`; `SafeArea(top: false)` handles the gesture nav bar, `resizeToAvoidBottomInset` handles the keyboard. Submitting calls `guardedAddTask`.
 
-**Drag reorder (Projects only):** `ReorderableListView.builder` with `buildDefaultDragHandles: false`; root-level blocks only; `onReorder` adjusts for the "Completed" divider offset, then calls `reorderRootBlocks()`. Inbox passes no drag listener and defensively refuses the callback.
+**Drag reorder (Projects only):** `ReorderableListView.builder` with `buildDefaultDragHandles: false`; root-level blocks only; `onReorder` adjusts for the "Completed" divider offset, then calls `guardedReorderRootBlocks`. Inbox passes no drag listener and defensively refuses the callback.
 
 ## Boundaries (do not violate)
 
 - `_collapsed` is session-only — never write to Markdown or SharedPreferences
-- `parseNodes` is pure — call only after `loadLines()`
+- `parseNodes` is pure — pass the exact loaded snapshot lines
 - Inbox mutations require the exact loaded snapshot; stale coordinates must reload without retrying
 - Inbox completion stays in place and exposes no drag handle or completed divider
 - Invalid UTF-8/read failure is an error, never an empty outline
@@ -136,11 +136,16 @@ Pushed by `ProjectsScreen` for todo-style project files and embedded directly in
 
 ## Shared file boundary
 
-`lib/shared/markdown/markdown_file.dart` owns strict snapshots, unchanged-source
-preconditions, staged/flushed/verified replacement, recovery observation and
-guarded title/filename rename. The task module owns checkbox parsing and
-line/block transforms, not another filesystem writer. Every editor mode uses
-this boundary; the former unguarded writers and empty-on-read-error loader are
-removed. Metadata and fenced examples do not become live checkbox tasks.
-Project completion keeps its existing root reorder behavior; Inbox completion
-remains in place. Failed/stale operations are visible and never auto-retried.
+`lib/shared/markdown/markdown_file.dart` owns strict `loadSnapshot` observations,
+unchanged-source preconditions, staged/flushed/verified replacement, recovery
+observation and guarded `renameTaskFile`. It preserves unrelated source text,
+BOM and line endings. Stale or ambiguous results are visible and never retried
+automatically; this recoverable transaction is not an atomic cross-process CAS.
+
+Task outlines and flat-list Project edits use this same boundary. Their modules
+own syntax and semantic transforms rather than rival filesystem writers.
+After each attempt the editors reload; after a successful rename they adopt the
+returned path before further editing. Inbox startup and first-creation recovery
+have additional responsibilities owned by `InboxStorageService`; see
+[Inbox](inbox.md). Project file creation/deletion retain the legacy contracts
+documented in [Projects](projects.md#projectstorageservice).

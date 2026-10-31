@@ -22,13 +22,13 @@ Entity-ness and Problem-Note-ness are independent axes:
 | | predicate | what it grants |
 |---|---|---|
 | **Entity** | `collection:` in frontmatter | collection membership |
-| **Problem Note** | `***` in body | AnkiDroid sync (deck = `category:`, default `Default`) |
+| **Problem Note** | qualifying `***` in body | problem/conjecture structure |
 
-A note can be **both** (a `collection:` note that also has a `***` front/back). Because the app patches only frontmatter and never the body, saving such a note as an entity preserves its `***` content. `alias` and `category` are orthogonal to entity-ness.
+A note can be **both** (a `collection:` note that also has a `***` front/back). Saving it as an entity preserves that body, but collection membership opts it out of the Anki projection. Structure and projection eligibility are separate; [Anki sync](anki.md) owns the eligibility and withdrawal contract. `alias` and `category` are orthogonal to entity-ness.
 
 ## Non-goals
 
-- Entities are not tasks, books, or articles — those have separate schemas and write paths.
+- Collection membership imposes no book, article or task body schema; body editing belongs in Obsidian.
 - The graph is not typed; all edges are untyped wikilinks. Semantic typing lives in the user's prose.
 
 ---
