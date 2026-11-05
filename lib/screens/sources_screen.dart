@@ -9,9 +9,11 @@ import '../shared/utils/obsidian_launcher.dart';
 import '../features/anki/services/anki_connect_transport.dart';
 import '../features/anki/services/anki_sync_controller.dart';
 import '../features/anki/services/anki_sync_runner.dart';
+import '../features/anki/services/anki_state_capture_service.dart';
 import '../shared/constants/app_text_styles.dart';
 import '../shared/constants/app_theme.dart';
 import '../shared/widgets/list_row.dart';
+import '../shared/widgets/confirm_dialog.dart';
 import '../shared/widgets/progress.dart';
 import '../shared/widgets/snack.dart';
 
@@ -27,8 +29,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
   // write anki_note_id back to the same vault files.
   bool _syncingAnkiDroid = false;
   bool _syncingAnkiConnect = false;
+  bool _capturingAnki = false;
 
-  bool get _ankiBusy => _syncingAnkiDroid || _syncingAnkiConnect;
+  bool get _ankiBusy =>
+      _syncingAnkiDroid || _syncingAnkiConnect || _capturingAnki;
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +61,19 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         : 'Push problem notes to AnkiDroid',
                 meta: 'Flashcard sync',
                 busy: _syncingAnkiDroid,
-                onTap: _syncAnkiDroid,
+                onTap: _ankiBusy ? null : _syncAnkiDroid,
+              ),
+            if (Platform.isAndroid)
+              _SourceRow(
+                icon: Icons.file_download_outlined,
+                name: 'Capture Anki state',
+                description:
+                    _capturingAnki
+                        ? 'Reading card states…'
+                        : 'Due now, answered today and new cards',
+                meta: 'Export snapshot',
+                busy: _capturingAnki,
+                onTap: _ankiBusy ? null : _captureAnkiState,
               ),
             _SourceRow(
               icon: Icons.desktop_windows,
@@ -68,12 +84,75 @@ class _SourcesScreenState extends State<SourcesScreen> {
                       : 'Push problem notes via AnkiConnect',
               meta: 'Flashcard sync',
               busy: _syncingAnkiConnect,
-              onTap: _syncAnkiConnect,
+              onTap: _ankiBusy ? null : _syncAnkiConnect,
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _captureAnkiState() async {
+    if (_ankiBusy) return;
+    setState(() => _capturingAnki = true);
+    try {
+      final service = AnkiStateCaptureService();
+      final capture = await service.capture();
+      if (!mounted) return;
+      final observations = capture['records'] as List;
+      const labels = {
+        'is:due': 'Due now',
+        'rated:1': 'Answered today',
+        'is:new': 'New cards',
+      };
+      final summary = observations
+          .map((raw) {
+            final item = raw as Map;
+            final label = labels[item['query']] ?? item['query'];
+            return item['status'] == 'unavailable'
+                ? '$label: unavailable'
+                : '$label: ${(item['cards'] as List).length} of ${item['total']}';
+          })
+          .join('\n');
+      if (capture['status'] != 'complete') {
+        final proceed = await showConfirmDialog(
+          context,
+          title:
+              capture['status'] == 'unavailable'
+                  ? 'Card state unavailable'
+                  : 'Partial capture',
+          message: '$summary\n\nExport this capture with its limits recorded?',
+          confirmLabel: 'Export',
+          isDestructive: false,
+        );
+        if (!proceed || !mounted) return;
+      }
+      final saved = await service.save(capture);
+      if (!mounted) return;
+      switch (saved['status']) {
+        case 'cancelled':
+          showSnack(context, 'Export cancelled');
+        case 'written_unverified':
+          showSnack(
+            context,
+            'Capture written, but the destination could not verify it. Check the chosen file before using it.',
+            duration: const Duration(seconds: 8),
+          );
+        case 'verified':
+          showSnack(
+            context,
+            capture['status'] == 'complete'
+                ? 'Anki state exported and verified'
+                : 'Partial Anki state exported and verified; limits are recorded in the file',
+          );
+      }
+    } catch (error) {
+      if (mounted) {
+        showSnack(context, 'Anki state capture failed: $error', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _capturingAnki = false);
+    }
   }
 
   Future<void> _syncAnkiDroid() async {

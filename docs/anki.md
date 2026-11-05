@@ -20,7 +20,7 @@ Problem notes whose `***` split has non-empty problem and conjecture sides, with
 | `AnkiDroidTransport` | AnkiDroid app | ContentProvider via MethodChannel (`AnkiBridge.kt`, `AddContentApi`) | Android only |
 | `AnkiConnectTransport` | Anki desktop + [AnkiConnect](https://git.sr.ht/~foosoft/anki-connect) add-on | HTTP, default `http://127.0.0.1:8765`, API version 6 | Pure Dart — any platform that can reach the URL |
 
-Anki never originates data; the vault remains the source of truth. Ordinary updates do not read or rewrite scheduling, ease factors or due dates. Retirement deliberately deletes the native note and its cards, including their review history; a source-link mismatch or unavailable observation refuses that deletion.
+The vault owns authored content; Anki owns its native scheduling and review state. Ordinary projection updates do not read or rewrite scheduling, ease factors or due dates. Retirement deliberately deletes the native note and its cards, including their review history; a source-link mismatch or unavailable observation refuses that deletion.
 
 The whole sync stack lives self-contained under `lib/features/anki/`, with zero dependency on the Collections entity-body viewer. Obsidian + the Problem Notes plugin own Problem Note editing and review.
 
@@ -128,6 +128,22 @@ Sync preflights a source-span removal of `anki_note_id` against the current file
 
 Both transports create notes only on the model literally named **`Basic`** (fields `Front`/`Back`). If it is missing the sync aborts: AnkiDroid surfaces `BASIC_MODEL_NOT_FOUND`; AnkiConnect checks `modelNames` once per sync.
 
+## Explicit phone-state capture
+
+Sources → **Capture Anki state** queries the installed AnkiDroid collection and exports one dated JSON observation through Android’s document chooser. The caller chooses where to save and how to make that file available to Perspirator; ObsidianSync or a continuous phone connection is not assumed. Capture calls no sync or card mutation.
+
+The native query method `queryCardState(query, limit)` uses browser-search `/cards` with an `_id`-only projection, then bounded `/cards/<id>` details and selected exact note fields. It avoids `/schedule`, whose implementation interacts with scheduler queues. Native search still materialises matching IDs: the limit bounds exported details, not the underlying search cost. Runtime support is checked through actual responses; the older compiled API dependency does not prove the installed provider supports newer columns.
+
+The initial queries remain distinct: `is:due` means due review/learning cards waiting to be studied; `rated:1` identifies cards answered during Anki’s current day; `is:new` means new cards, not necessarily cards that will be introduced today. Sets overlap. Daily limits, burying, future answers and the selected study session prevent their union from specifying the exact upcoming queue. `rated:1` is membership, not a review-event log or event count. Raw queue/due values are not all timestamps.
+
+JSON follows the minimal provider envelope: `provider`, `capability`, `status`, `scope`, `freshness`, `records`, `errors`. Scope identifies queries, caller limits, observed app version and any unobserved collection identity. Freshness identifies capture start/end and phone timezone offset. Each record retains one query, observation time, total matches, cards and errors; each card carries its own card ID, note ID, ordinal, raw state and the observed source-front field or source error. Multiple cards may share a note; the same card in multiple queries remains separately observed. A changing or bounded observation is not an atomic collection snapshot. Unknown extensions remain available to readers.
+
+The native permission is AnkiDroid’s existing `READ_WRITE_DATABASE` grant; these capture operations use query access only. The export adapter writes only the user-selected document, records its actual URI and verifies bytes before reporting saved. Failure/cancellation remain distinct. The local file-picker backend was not used for this write because it can fabricate a Downloads path and report success on a null output stream.
+
+Perspirator consumes the explicit file through `anki_query.py snapshot --help`. It returns a bounded dated view and checks each renderer-owned source link against the exact contained current note’s `anki_note_id`. A verified local association does not prove collection-wide uniqueness, content synchronisation, or that the note’s argument is current. Original selected notes still need reading. No card state is stamped into authored frontmatter.
+
+Native source compatibility was inspected against [AnkiDroid v2.25.1](https://github.com/ankidroid/Anki-Android/blob/v2.25.1/AnkiDroid/src/main/java/com/ichi2/anki/provider/CardContentProvider.kt) and its [API contract](https://github.com/ankidroid/Anki-Android/blob/v2.25.1/api/src/main/java/com/ichi2/anki/FlashCardsContract.kt). Query meanings follow the [Anki manual](https://docs.ankiweb.net/manual/searching). Compilation and mocked tests cannot establish installed-phone or document-provider behavior; device acceptance is recorded separately.
+
 ## What is NOT synced
 
 Review history, intervals, ease factors, due dates; FSRS/SM-2 scheduling state; deck options/templates; media. Notes without a complete `***` split are not created/updated as cards, and collection notes only withdraw former projections. Source deletion, split/merge retirement and `exclude_resurface` retirement are outside this correction.
@@ -168,6 +184,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 |---|---|---|
 | `isAnkiDroidAvailable` | — | `bool` |
 | `getAnkiDroidVersion` | — | Installed version name or null |
+| `queryCardState` | `query, limit` | Read-only dated native query observation; explicit partial/unavailable outcomes |
 | `requestPermission` | — | `bool` (true if already granted, else requests via the Activity and resolves on the result) |
 | `addNote` | `deckName, front, back, tags` | Positive `Long` noteId, or explicit error |
 | `updateNote` | `noteId, front, back, tags` | `bool` |

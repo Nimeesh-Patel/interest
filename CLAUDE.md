@@ -2,7 +2,7 @@ Focus on creating progressively better abstractions: implementation should becom
 
 # Project
 
-Filesystem-native companion to an Obsidian vault. All data lives as Markdown files in a user-chosen vault. The app does four narrow things: **Collections**, one persistent **Inbox**, **Projects**, and a **one-way Anki sync**. Problem Note review/editing and full graph traversal live in **Obsidian**; Collections has one read-only entity-body view whose wikilinks open Obsidian. Vault-root integrations patch frontmatter only; Inbox and Projects are Interest-owned Markdown bodies under `Interesting/`. Architectural rationale: [README.md](README.md). This file states constraints and their enforcement points.
+Filesystem-native companion to an Obsidian vault. All data lives as Markdown files in a user-chosen vault. The app does four narrow things: **Collections**, one persistent **Inbox**, **Projects**, and **Anki integration** (one-way content projection plus explicit read-only state export). Problem Note review/editing and full graph traversal live in **Obsidian**; Collections has one read-only entity-body view whose wikilinks open Obsidian. Vault-root integrations patch frontmatter only; Inbox and Projects are Interest-owned Markdown bodies under `Interesting/`. Architectural rationale: [README.md](README.md). This file states constraints and their enforcement points.
 
 ## Documentation philosophy
 
@@ -46,7 +46,7 @@ Start here based on task class:
 These rules define the system's identity. Violating any changes what it fundamentally is.
 
 **1. Markdown is the database.**
-No SQLite, no parallel JSON persistence alongside `.md` files. WHY: dual-truth corrupts silently — when two stores diverge, there is no canonical answer.
+No rival editable store for authored Markdown. A user-requested AnkiDroid JSON export is dated native evidence, not a semantic database; scheduling state remains authoritative in Anki. WHY: two independent owners of authored knowledge diverge without a canonical answer.
 
 **2. An entity is a note with `collection:`.**
 Discovery keys on the `collection:` frontmatter key alone (`EntityFileParser.isEntityFrontmatter`). `alias`, `category`, and body shape are orthogonal to entity-ness. WHY: `category:` is a Problem-Note property (the Anki deck); keying entity discovery on it conflated the two sets and caused the June 2026 corruption. Enforcement: `isEntityFrontmatter` in `entity_file_parser.dart`, used by every scan in `markdown_storage_service.dart`.
@@ -88,6 +88,7 @@ Each storage path co-owns specific files. Vault-root integrations preserve note 
 | `InboxStorageService` | Creates `Interesting/Inbox.md` once; never rebuilds or migrates an existing Inbox |
 | `TaskStorageService` | Shared checkbox-outline parser/editor for `Interesting/Inbox.md` and todo-style files in `Interesting/Projects/`; no path of its own |
 | `IntegrationsConfigService` | `Interesting/System/integrations.md` — vault-native integration config |
+| Anki state export | One JSON document explicitly chosen through Android’s save dialog; no automatic vault write. Only verified bytes are reported saved. |
 | `TemplatesScreen` / `TemplateEditorScreen` | `Interesting/Templates/` — direct screen writes |
 
 ## Identity anchors
@@ -123,6 +124,8 @@ Integration configuration lives in `Interesting/System/integrations.md` (vault-c
 
 ## Subsystem constraints
 
+**Anki state observation** — a separate read-only browser search in the existing native bridge, followed by bounded exact card details and selected note source fields. It must not invoke the scheduler/`schedule` endpoint, answer cards, select decks or call sync. Exports retain per-query timing, counts, partial/unavailable status and raw queue/due values; they are not a promised future session or review-event log. Save uses the actual chosen document URI and verifies written bytes; cancellation and unverified/failed writes cannot become verified success. Full contract: docs/anki.md.
+
 **Anki sync** - one canonical scanner and renderer for Android, desktop UI and exact-file CLI. Config errors cannot become defaults or lost exclusions; CLI loads the same authored config. Exact snapshots invalidate stale projections; filesystem leases exclude simultaneous mutation of one physical vault. Source hrefs retain subfolder identity. Collection withdrawal and scalar/singleton-list category rules remain as adopted. Native observations distinguish absence from uncertainty. See docs/anki.md.
 
 **Deep-link sync (Android)** — `interest://sync-anki` is a VIEW intent on `MainActivity` (`launchMode=singleTop`): cold start stores `pendingSyncAnki`, while `onNewIntent` sends `syncAnki` over `dev.interest.app/deeplink`. Flutter runs the same foreground `runAnkiDroidSync` path used by Sources → AnkiDroid. `AnkiBridge` is registered on `MainActivity`, which forwards permission results. Compilation covers the dispatch contract; native bridge operations are verified by the opt-in device runner. First-run permission prompts and URI dispatch still require separate on-device evidence.
@@ -137,7 +140,7 @@ Integration configuration lives in `Interesting/System/integrations.md` (vault-c
 
 **Navigation shell** — `home_screen.dart` is a 3-tab `BottomNavigationBar`: 0=Collections (landing), 1=Inbox, 2=Projects. Inbox has its persistent bottom capture field rather than a FAB. FAB shows on Collections and Projects. AppBar actions: Sources (`sensors`), and a popup (Settings, Templates, Open Obsidian).
 
-**Sources screen** — `sources_screen.dart`, pushed from the `sensors` AppBar icon. Rows: Obsidian (launch `obsidian://`), AnkiDroid (manual push, Android only), Anki desktop (manual AnkiConnect sync). The two Anki rows are mutually exclusive (`_ankiBusy`) — both write `anki_note_id` to the same files. The AnkiDroid row and the `interest://sync-anki` deep link share `runAnkiDroidSync`.
+**Sources screen** — `sources_screen.dart`, pushed from the `sensors` AppBar icon. Rows: Obsidian, AnkiDroid projection, explicit Android card-state capture/export, and Anki desktop projection. The two Anki rows are mutually exclusive (`_ankiBusy`) — both write `anki_note_id` to the same files. The AnkiDroid row and the `interest://sync-anki` deep link share `runAnkiDroidSync`.
 
 **Android widget** - reads `flutter.vault_path`; new captures still carry `collection: Quick Capture` and an optional `category: Default` deck preference. Collection membership opts them out of Anki; category matters only if that membership is later removed. It stamps created/updated times and builds the body from `Interesting/Templates/default.md`, the existing native-side capture exception. It does not override Anki eligibility.
 

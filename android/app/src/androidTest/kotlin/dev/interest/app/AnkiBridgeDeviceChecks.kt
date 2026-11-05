@@ -11,18 +11,23 @@ import com.ichi2.anki.api.AddContentApi
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Device contract checks against the actual installed AnkiDroid provider.
  * Run only on an explicitly supplied device with AnkiDroid permission granted.
- * Uses an existing ordinary deck and only withdraws notes created by this run.
+ * `-e mode card-state` performs only state queries; the default projection
+ * checks use an existing ordinary deck and withdraw only their own new notes.
  * No Activity launch, vault sync, source-file edits, or deck creation occurs.
  */
 class AnkiBridgeDeviceChecks : Instrumentation() {
     private var requestedDeck: String? = null
+    private var readOnlyState = false
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         requestedDeck = arguments?.getString("deckName")
+        readOnlyState = arguments?.getString("mode") == "card-state"
         start()
     }
 
@@ -44,18 +49,18 @@ class AnkiBridgeDeviceChecks : Instrumentation() {
             "handle", String::class.java, MethodCall::class.java, MethodChannel.Result::class.java,
         ).apply { isAccessible = true }
         fun call(method: String, args: Map<String, Any?> = emptyMap()): Any? {
-            var completed = false
+            val completed = CountDownLatch(1)
             var value: Any? = null
             var error: String? = null
             handler.invoke(bridge, method, MethodCall(method, args), object : MethodChannel.Result {
-                override fun success(result: Any?) { completed = true; value = result }
+                override fun success(result: Any?) { value = result; completed.countDown() }
                 override fun error(code: String, message: String?, details: Any?) {
-                    completed = true
                     error = "$code: $message"
+                    completed.countDown()
                 }
-                override fun notImplemented() { error = "Not implemented: $method" }
+                override fun notImplemented() { error = "Not implemented: $method"; completed.countDown() }
             })
-            check(completed) { "$method did not complete" }
+            check(completed.await(30, TimeUnit.SECONDS)) { "$method did not complete" }
             check(error == null) { error!! }
             return value
         }
@@ -68,6 +73,52 @@ class AnkiBridgeDeviceChecks : Instrumentation() {
                 while (c.moveToNext()) ids.add(c.getLong(c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)))
                 ids
             }
+        }
+        if (readOnlyState) {
+            try {
+                check(context.checkSelfPermission(AnkiBridge.PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+                    "Grant Interest AnkiDroid permission through the normal app flow first"
+                }
+                // This mode creates, answers, moves and deletes no cards.
+                for (query in listOf("is:due", "rated:1", "is:new")) {
+                    val observed = call("queryCardState", mapOf("query" to query, "limit" to 2)) as Map<*, *>
+                    check(observed["query"] == query)
+                    check(observed["status"] in listOf("complete", "partial")) {
+                        "Native card observation unavailable: ${observed["errors"]}"
+                    }
+                    check((observed["observed_at_ms"] as Number).toLong() > 0)
+                    val total = (observed["total"] as Number).toInt()
+                    val rows = observed["cards"] as List<*>
+                    check(rows.size == minOf(total, 2)) { "Native card details were not all observable" }
+                    for (row in rows) {
+                        row as Map<*, *>
+                        check((row["card_id"] as Number).toLong() > 0)
+                        check((row["note_id"] as Number).toLong() > 0)
+                        check((row["ordinal"] as Number).toInt() >= 0)
+                        val state = row["state"] as Map<*, *>
+                        check(listOf("queue", "due", "interval", "reps", "lapses")
+                            .all { state[it] is Number })
+                        check(row["source_front_html"] is String || row["source_error"] is String)
+                    }
+                    if (observed["status"] == "complete") {
+                        check(rows.size == total && (observed["errors"] as List<*>).isEmpty())
+                    }
+                }
+                val empty = call("queryCardState", mapOf("query" to "cid:0", "limit" to 1)) as Map<*, *>
+                check(empty["status"] == "complete" && empty["total"] == 0 &&
+                    (empty["cards"] as List<*>).isEmpty())
+                var rejected = false
+                try { call("queryCardState", mapOf("query" to "is:due", "limit" to 0)) }
+                catch (_: IllegalStateException) { rejected = true }
+                check(rejected) { "Invalid result bound was accepted" }
+                report.putString("result", "PASS: bounded native state/identities, empty search and invalid bound; no mutations")
+                finish(Activity.RESULT_OK, report)
+            } catch (e: Throwable) {
+                report.putString("result", "FAIL")
+                report.putString("error", e.stackTraceToString())
+                finish(Activity.RESULT_CANCELED, report)
+            }
+            return
         }
         try {
             check(context.checkSelfPermission(AnkiBridge.PERMISSION) == PackageManager.PERMISSION_GRANTED) {

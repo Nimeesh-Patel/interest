@@ -1,5 +1,6 @@
 package dev.interest.app
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Bundle
 import android.view.WindowManager
@@ -37,6 +38,8 @@ class QuickCaptureActivity : Activity() {
         return prefs.getString("flutter.vault_path", null)
     }
 
+    // This timestamps an Interest capture, outside Anki's Collection clock.
+    @SuppressLint("DirectDateInstantiation")
     private fun nowIso(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("UTC")

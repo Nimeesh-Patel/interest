@@ -5,7 +5,7 @@ Interest is a small Android (and Windows) companion to an Obsidian vault. It doe
 1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
 2. **Inbox** — capture loose Markdown, including unfinished items and tangents, in one persistent `Interesting/Inbox.md` document.
 3. **Projects** — a lightweight todo/project workspace.
-4. **One-way Anki sync** — push your `***` "problem notes" to AnkiDroid as flashcards, triggered by a deep link from the companion **Problem Notes** Obsidian plugin.
+4. **Anki integration** — project `***` Problem Notes to cards, and explicitly capture AnkiDroid card state as dated evidence for Perspirator.
 
 It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Vault-root note integrations only patch frontmatter; Interest owns the Markdown bodies under `Interesting/` that back Inbox and Projects.
 
@@ -36,7 +36,7 @@ The plugin and the app meet at one contract: the plugin's "sync to AnkiDroid" bu
 
 ## The sync
 
-**One-way: vault → Anki.** The Markdown files are always the source of truth. Anki never writes into the vault; review history, intervals, and FSRS state stay on Anki's side and Interest never sees them. The single thing written back to a note is an `anki_note_id` frontmatter key (a surgical frontmatter patch), so re-syncs update the existing card instead of duplicating it. This is structural, not a setting — **no code path in the sync touches a note body**, so it cannot alter what you wrote. Discovery refuses rollback/history, trash, templates, attachments, Basic Memory, Interest system files, unreadable scans, and duplicate active IDs before changing cards.
+**Content projection is one-way: vault → Anki.** Markdown owns authored knowledge; Anki owns scheduling and review state. Sources → Capture Anki state separately exports read-only phone observations to a JSON file you choose, for Perspirator to inspect. It is dated evidence, not a second editable store or an automatic phone-to-computer connection. The single thing written back to a note is an `anki_note_id` frontmatter key (a surgical frontmatter patch), so re-syncs update the existing card instead of duplicating it. This is structural, not a setting — **no code path in the sync touches a note body**, so it cannot alter what you wrote. Discovery refuses rollback/history, trash, templates, attachments, Basic Memory, Interest system files, unreadable scans, and duplicate active IDs before changing cards.
 
 Two transports share one sync core and one `anki_note_id`:
 
@@ -52,7 +52,7 @@ What you give up: one note is one card (no multi-card extraction); cards use Ank
 | System | Owns |
 |---|---|
 | **Obsidian** (+ Problem Notes plugin) | Canonical editing, `***` review rendering, backlinks, and full wikilink traversal. The vault's Markdown files are the only canonical data. |
-| **Interest** | Collections (including a read-only entity-body view), Inbox, Projects, and the one-way Anki sync engine. |
+| **Interest** | Collections, Inbox, Projects, the Anki projection engine and explicit read-only phone-state capture. |
 | **AnkiDroid / Anki desktop** | Retention. FSRS scheduling and drilling, fed by the one-way push. |
 
 ## Running it

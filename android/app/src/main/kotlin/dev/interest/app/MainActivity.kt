@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val deeplinkChannelName = "dev.interest.app/deeplink"
     private var bridge: AnkiBridge? = null
+    private var stateExport: AnkiStateExport? = null
 
     /// True when the launching intent was `interest://sync-anki` and Flutter
     /// hasn't yet picked it up (cold start). Consumed by `getInitialSyncAnki`.
@@ -51,6 +52,7 @@ class MainActivity : FlutterActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
         bridge = AnkiBridge(this).also { it.register(messenger) }
+        stateExport = AnkiStateExport(this).also { it.register(messenger) }
 
         MethodChannel(messenger, deeplinkChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -61,6 +63,18 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    @Deprecated("Used by the Android document chooser")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (stateExport?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onDestroy() {
+        stateExport?.dispose()
+        stateExport = null
+        super.onDestroy()
     }
 
     private fun isSyncAnki(intent: Intent): Boolean {

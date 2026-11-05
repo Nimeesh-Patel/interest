@@ -12,7 +12,7 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 
 /// The AnkiDroid ContentProvider bridge (AddContentApi) exposed to Dart over a
-/// MethodChannel. Translates the AnkiTransport operations; nothing else.
+/// MethodChannel. Translates projection operations and explicit state queries.
 /// Hosted on MainActivity: the sync runs in the foreground app, so the runtime
 /// READ_WRITE_DATABASE permission can be requested through the normal Activity
 /// flow. `register` wires the channel; the host activity must forward
@@ -66,6 +66,31 @@ class AnkiBridge(private val activity: Activity) {
                     null
                 }
                 result.success(versionName)
+            }
+
+            "queryCardState" -> {
+                val query = call.argument<String>("query")
+                val requestedLimit = call.argument<Any>("limit")
+                if (query.isNullOrBlank() ||
+                    (requestedLimit !is Int && requestedLimit !is Long) ||
+                    (requestedLimit as Number).toLong() !in 1..AnkiCardStateReader.MAX_LIMIT.toLong()) {
+                    return result.error("ARGUMENT",
+                        "query must be nonblank and limit an integer from 1 to ${AnkiCardStateReader.MAX_LIMIT}", null)
+                }
+                val limit = (requestedLimit as Number).toInt()
+                // Task-scoped work: queries/rendering never block Flutter's UI
+                // thread, and this does not install a background service.
+                Thread({
+                    try {
+                        val observation = AnkiCardStateReader(ctx.contentResolver, ::readNoteFront)
+                            .query(query, limit)
+                        activity.runOnUiThread { result.success(observation) }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            result.error("ANKI_STATE", "${e.javaClass.simpleName}: ${e.message}", null)
+                        }
+                    }
+                }, "Interest-Anki-card-state").start()
             }
 
             "requestPermission" -> {
