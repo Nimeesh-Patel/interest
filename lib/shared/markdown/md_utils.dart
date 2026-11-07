@@ -31,14 +31,12 @@ import 'package:yaml/yaml.dart';
 // ── Front/back separator ──────────────────────────────────────────────────────
 
 /// Splits [body] into front/back at the first `***` separator outside code fences.
-/// Returns null if no valid separator found or either side is empty after trim.
+/// Returns null only if no valid separator is found. Either side may be empty:
+/// a blank Problem Note is still a Problem Note and is review-ready as its
+/// title (the rendered card front always carries the source-note link).
 ({String front, String back})? splitFrontBack(String body) {
   final structural = splitFrontBackStructural(body);
-  if (!structural.hasSeparator ||
-      structural.front.isEmpty ||
-      structural.back.isEmpty) {
-    return null;
-  }
+  if (!structural.hasSeparator) return null;
   return (front: structural.front, back: structural.back);
 }
 

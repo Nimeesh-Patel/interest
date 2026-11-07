@@ -130,12 +130,25 @@ void main() {
       expect(splitFrontBack('No separator here.'), isNull);
     });
 
-    test('returns null when front is empty after trim', () {
-      expect(splitFrontBack('\n\n***\n\nBack only.'), isNull);
+    test('keeps an empty front as a Problem Note', () {
+      final r = splitFrontBack('\n\n***\n\nBack only.');
+      expect(r, isNotNull);
+      expect(r!.front, '');
+      expect(r.back, 'Back only.');
     });
 
-    test('returns null when back is empty after trim', () {
-      expect(splitFrontBack('Front only.\n\n***\n\n'), isNull);
+    test('keeps an empty back as a Problem Note', () {
+      final r = splitFrontBack('Front only.\n\n***\n\n');
+      expect(r, isNotNull);
+      expect(r!.front, 'Front only.');
+      expect(r.back, '');
+    });
+
+    test('keeps a blank template as a Problem Note', () {
+      final r = splitFrontBack('***');
+      expect(r, isNotNull);
+      expect(r!.front, '');
+      expect(r.back, '');
     });
 
     test('ignores *** inside code fence', () {

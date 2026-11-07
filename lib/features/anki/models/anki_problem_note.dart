@@ -1,4 +1,4 @@
-/// A review-ready `***` note without collection membership — the notes the
+/// A `***` note (either side may be empty) without collection membership — the notes the
 /// Anki sync pushes. This is a slim projection of exactly what the sync needs;
 /// it is produced by [AnkiProblemNoteScanner] and consumed by [AnkiSyncService].
 /// The app never edits or renders these notes — rendering lives in Obsidian

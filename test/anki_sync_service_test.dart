@@ -543,6 +543,31 @@ void main() {
   );
 
   test(
+    'a blank template Problem Note syncs as a title card; a collection note does not',
+    () async {
+      await File(
+        p.join(vault.path, 'IPA ʃ (shoe).md'),
+      ).writeAsString('---\nup: null\ncategory: English\n---\n\n***');
+      await File(
+        p.join(vault.path, 'Some person.md'),
+      ).writeAsString('---\ncollection: People\n---\n\n***');
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(scan.notes.map((n) => n.sourceFile), ['IPA ʃ (shoe).md']);
+      final transport = FakeTransport();
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        scan.notes,
+        vault.path,
+      );
+      expect(result.added, 1);
+      final (deck, front, back, _) = transport.addCalls.single;
+      expect(deck, 'English');
+      expect(front, contains('IPA ʃ (shoe) ↗'));
+      expect(back.trim(), isEmpty);
+    },
+  );
+
+  test(
     'an Obsidian list category moves the existing card into the requested deck',
     () async {
       final file = File(p.join(vault.path, 'Requested deck.md'));

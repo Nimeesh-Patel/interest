@@ -13,7 +13,7 @@ frontmatter is refused. A refusal after an external create remains a partial
 projection requiring reconciliation; this patch does not add crash recovery
 or change sync discovery's separate metadata-validation boundary.
 
-Problem notes whose `***` split has non-empty problem and conjecture sides, with no `collection:` key, are pushed to Anki as Basic cards. Blank templates and unfinished structural notes are not review-ready. Collection membership opts out of Anki, including notes that also have a category; an existing projection is retired and its local ID cleared only after verified absence. The `***` body structure and local Problem Notes rendering remain unchanged. Sync is **one-way: vault → Anki**, over either of two transports:
+Problem notes with a `***` split and no `collection:` key are pushed to Anki as Basic cards, even when either side is empty. A blank template is review-ready: the rendered front always starts with the source-note title link, so Anki's first field is never empty. Collection membership opts out of Anki, including notes that also have a category; an existing projection is retired and its local ID cleared only after verified absence. The `***` body structure and local Problem Notes rendering remain unchanged. Sync is **one-way: vault → Anki**, over either of two transports:
 
 | Transport | Backend | Wire protocol | Platform |
 |---|---|---|---|
@@ -36,7 +36,7 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state disc
             AnkiConnectTransport → HTTP POST     → AnkiConnect → Anki desktop
 ```
 
-`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. Collection notes with an existing ID become retirement candidates even if their former separator has been removed. Other sources honour `exclude_resurface: true` and require a non-empty `splitFrontBack`. Duplicate IDs across active and retiring sources, malformed frontmatter, ambiguous category values and traversal/read errors make discovery incomplete; the controller then changes no cards.
+`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. Collection notes with an existing ID become retirement candidates even if their former separator has been removed. Other sources honour `exclude_resurface: true` and require a `***` separator (`splitFrontBack`); empty sides are allowed. Duplicate IDs across active and retiring sources, malformed frontmatter, ambiguous category values and traversal/read errors make discovery incomplete; the controller then changes no cards.
 
 `AnkiSyncService` owns everything both transports must agree on — rendering, category/deck mapping, source links, local identity and collection withdrawal — so the same note yields the same projection whichever transport carries it. Transports translate seven operations into their wire protocol:
 
