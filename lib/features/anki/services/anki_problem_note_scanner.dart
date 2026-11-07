@@ -6,6 +6,7 @@ import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
 import '../../../shared/markdown/md_io.dart';
+import 'sync_manifest.dart';
 
 class AnkiProblemNoteScanResult {
   final List<AnkiProblemNote> notes;
@@ -18,6 +19,10 @@ class AnkiProblemNoteScanResult {
   final int conflictedRecords;
   final int retirementCandidateCount;
 
+  /// Every file read, Problem Note or not, by vault-relative path: the
+  /// facts a [SyncManifest] keeps and link targets resolve from.
+  final Map<String, NoteFacts> facts;
+
   const AnkiProblemNoteScanResult({
     required this.notes,
     this.retirements = const [],
@@ -25,6 +30,7 @@ class AnkiProblemNoteScanResult {
     required this.candidateCount,
     required this.conflictedRecords,
     this.retirementCandidateCount = 0,
+    this.facts = const {},
   });
 
   bool get isComplete => errors.isEmpty;
@@ -46,23 +52,23 @@ class AnkiProblemNoteScanner {
     final notes = <AnkiProblemNote>[];
     final retirements = <AnkiNoteRetirement>[];
     final errors = <String>[];
+    final facts = <String, NoteFacts>{};
     try {
       final scanned = await CurrentVaultContent.scan(vaultPath);
       errors.addAll(scanned.errors);
       for (final entry in scanned.files) {
-        await _read(vaultPath, entry, notes, retirements, errors);
+        await _read(vaultPath, entry, notes, retirements, errors, facts);
       }
     } catch (error) {
       errors.add('Problem Note discovery failed: $error');
     }
-    return _withoutConflicts(vaultPath, notes, retirements, errors);
+    return _withoutConflicts(vaultPath, notes, retirements, errors, facts);
   }
 
-  /// Discovers only [paths] (absolute, inside [vaultPath]), for the edit
-  /// cycle: one note changed in Obsidian, so only it is read. A path that is
-  /// not a current eligible note is an error, never a silent skip. Duplicate
-  /// identities are checked among [paths] only; the whole-vault [scan] owns
-  /// the vault-wide check.
+  /// Discovers only [paths] (absolute, inside [vaultPath]): the files that
+  /// changed since the last sync. A path that is not a current eligible note
+  /// is an error, never a silent skip. Duplicate identities are checked among
+  /// [paths] only; the caller checks them against the rest of the vault.
   static Future<AnkiProblemNoteScanResult> scanPaths(
     String vaultPath,
     List<String> paths,
@@ -70,6 +76,7 @@ class AnkiProblemNoteScanner {
     final notes = <AnkiProblemNote>[];
     final retirements = <AnkiNoteRetirement>[];
     final errors = <String>[];
+    final facts = <String, NoteFacts>{};
     for (final path in paths) {
       final relative = p.relative(path, from: vaultPath);
       if (!path.toLowerCase().endsWith('.md') ||
@@ -82,9 +89,9 @@ class AnkiProblemNoteScanner {
         errors.add('"$relative" does not exist on this device yet');
         continue;
       }
-      await _read(vaultPath, file, notes, retirements, errors);
+      await _read(vaultPath, file, notes, retirements, errors, facts);
     }
-    return _withoutConflicts(vaultPath, notes, retirements, errors);
+    return _withoutConflicts(vaultPath, notes, retirements, errors, facts);
   }
 
   static Future<void> _read(
@@ -93,8 +100,11 @@ class AnkiProblemNoteScanner {
     List<AnkiProblemNote> notes,
     List<AnkiNoteRetirement> retirements,
     List<String> errors,
+    Map<String, NoteFacts> facts,
   ) async {
     try {
+      // Stat before reading: an edit landing after this is a change next time.
+      final stat = await entry.stat();
       final content = await readPreservingUtf8(entry);
       final split = splitFrontmatter(
         content.startsWith('﻿') ? content.substring(1) : content,
@@ -104,6 +114,12 @@ class AnkiProblemNoteScanner {
         throw const FormatException('frontmatter must be a valid YAML mapping');
       }
       final ankiNoteId = yaml?['anki_note_id']?.toString();
+      facts[relativeKey(vaultPath, entry.path)] = NoteFacts(
+        modified: stat.modified.millisecondsSinceEpoch,
+        size: stat.size,
+        aliases: parseAliases(split.frontmatter),
+        ankiNoteId: ankiNoteId == null || ankiNoteId.isEmpty ? null : ankiNoteId,
+      );
       if (yaml?.containsKey('collection') == true) {
         if (ankiNoteId != null && ankiNoteId.isNotEmpty) {
           retirements.add(
@@ -145,6 +161,7 @@ class AnkiProblemNoteScanner {
     List<AnkiProblemNote> notes,
     List<AnkiNoteRetirement> retirements,
     List<String> errors,
+    Map<String, NoteFacts> facts,
   ) {
     final candidateCount = notes.length;
     final byExternalId = <String, List<String>>{};
@@ -189,8 +206,13 @@ class AnkiProblemNoteScanner {
       candidateCount: candidateCount,
       conflictedRecords: conflictedRecords,
       retirementCandidateCount: retirements.length,
+      facts: facts,
     );
   }
+
+  /// A vault file's manifest key: vault-relative, `/`-separated, with `.md`.
+  static String relativeKey(String vaultPath, String path) =>
+      p.relative(path, from: vaultPath).replaceAll(r'\', '/');
 
   /// Obsidian properties may serialize a single deck as a one-item YAML list.
   /// One Basic note has one deck; ambiguous metadata must not become Default.

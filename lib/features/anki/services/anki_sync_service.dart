@@ -4,13 +4,13 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/current_vault_content.dart';
-import '../../../shared/markdown/link_target_cache.dart';
 import '../../../shared/markdown/link_targets.dart';
 import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
 import 'anki_transport.dart';
 import 'anki_sync_lock.dart';
+import 'card_source_header.dart';
 
 /// A linked note whose card is absent from the observed collection. Cards are
 /// only ever created, changed and deleted from Obsidian, so a missing card was
@@ -268,8 +268,8 @@ class AnkiSyncService {
     }
     // Built once per run: an alias like [[speed of progress]] must reach the
     // note that declares it, not a note of that name that does not exist.
-    // A one-note sync supplies the few targets its note needs instead
-    // ([LinkTargetCache]); every whole-vault build refreshes that cache.
+    // Callers holding every note's aliases already (a scan, the sync
+    // manifest) supply the resolved targets instead of a second vault read.
     var targets = linkTargets;
     if (targets == null) {
       final built = await buildLinkTargets(vaultPath);
@@ -286,7 +286,6 @@ class AnkiSyncService {
         );
       }
       targets = built.targets;
-      await LinkTargetCache.save(vaultPath, targets);
     }
     try {
       final snapshot = await transport.snapshot();
@@ -464,7 +463,11 @@ class AnkiSyncService {
         final ownerId = int.tryParse(
           owners[obsidianUriForName(vaultPath, noteName)]?.ankiNoteId ?? '',
         );
-        if (ownerId != null && present.containsKey(ownerId)) {
+        // Automatic only when nothing is lost: an extra card with more review
+        // history than the card its note links (as when a note lost its
+        // anki_note_id and got a fresh card) waits for a decision instead.
+        final linked = ownerId == null ? null : present[ownerId];
+        if (linked != null && state.reviews <= linked.reviews) {
           if (preview) {
             duplicatesRetired++;
             continue;
@@ -736,12 +739,8 @@ class AnkiSyncService {
   ]) {
     final noteDisplayName = p.basenameWithoutExtension(note.sourcePath);
     final obsUri = obsidianUri(vaultPath, note.sourcePath);
-    final obsLinkHtml =
-        '<div style="text-align:right;font-size:0.75em;margin-bottom:6px;opacity:0.6;">'
-        '<a href="$obsUri">$noteDisplayName ↗</a>'
-        '</div>';
     final front =
-        obsLinkHtml +
+        CardSourceHeader.html(obsUri, noteDisplayName) +
         _markdownToAnkiHtml(note.front ?? '', vaultPath, linkTargets);
     final back = _markdownToAnkiHtml(note.back ?? '', vaultPath, linkTargets);
     return (front, back);

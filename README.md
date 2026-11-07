@@ -36,9 +36,10 @@ sync updates the card in place. Adding `collection:` withdraws the card.
 One screen says whether the vault and Anki match. Opening it previews what a
 sync would change, writing nothing; the Sync button (or the Problem Notes
 plugin's ribbon button, which fires `interest://sync-anki`) applies it. When
-the plugin's button is tapped with a note open, only that note is synced
-and Interest hands straight back to AnkiDroid, so fixing a card mid-review
-costs about a second and one tap. Cards
+the plugin's button is tapped, Interest syncs every note changed since the
+last sync (by you on any device, or by Perspirator in bulk) and hands
+straight back to AnkiDroid, so fixing cards mid-review costs about a second
+and one tap. Its "Sync whole vault" command still checks everything. Cards
 that need a decision appear in a swipeable pager, one card per page, with the
 card's deck, review history, problem and conjecture, so you can judge what
 removing or re-creating it means. Settings shows the vault, the Anki target

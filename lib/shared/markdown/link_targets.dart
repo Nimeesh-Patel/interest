@@ -27,8 +27,7 @@ class LinkTargetBuildResult {
 }
 
 Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
-  final names = <String, Set<String>>{};
-  final aliases = <String, Set<String>>{};
+  final aliasesByNote = <String, List<String>>{};
   final errors = <String>[];
 
   final scanned = await CurrentVaultContent.scan(vaultPath);
@@ -36,14 +35,7 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
   for (final file in scanned.files) {
     final relative = p
         .relative(file.path, from: vaultPath)
-        .replaceAll('\\', '/');
-    final canonical =
-        relative.endsWith('.md')
-            ? relative.substring(0, relative.length - 3)
-            : relative;
-    for (final key in {canonical, p.basenameWithoutExtension(file.path)}) {
-      names.putIfAbsent(key.toLowerCase(), () => <String>{}).add(canonical);
-    }
+        .replaceAll(r'\', '/');
     String content;
     try {
       content = await file.readAsString();
@@ -54,15 +46,38 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
       );
       continue;
     }
-    for (final alias in parseAliases(splitFrontmatter(content).frontmatter)) {
+    aliasesByNote[relative] = parseAliases(splitFrontmatter(content).frontmatter);
+  }
+  return LinkTargetBuildResult(
+    targets: resolveLinkTargets(aliasesByNote),
+    errors: errors,
+  );
+}
+
+/// The pure resolution behind [buildLinkTargets]: [aliasesByNote] maps every
+/// current note's vault-relative path (with `.md`) to its declared aliases.
+/// Callers that already hold those facts (a scan, the sync manifest) resolve
+/// without reading the vault again.
+Map<String, String> resolveLinkTargets(Map<String, List<String>> aliasesByNote) {
+  final names = <String, Set<String>>{};
+  final aliases = <String, Set<String>>{};
+  aliasesByNote.forEach((relative, declared) {
+    final canonical =
+        relative.endsWith('.md')
+            ? relative.substring(0, relative.length - 3)
+            : relative;
+    for (final key in {canonical, p.basename(canonical)}) {
+      names.putIfAbsent(key.toLowerCase(), () => <String>{}).add(canonical);
+    }
+    for (final alias in declared) {
       final key =
           alias
-              .replaceAll('\\', '/')
+              .replaceAll(r'\', '/')
               .replaceAll(RegExp(r'\.md$'), '')
               .toLowerCase();
       aliases.putIfAbsent(key, () => <String>{}).add(canonical);
     }
-  }
+  });
 
   final resolved = <String, String>{};
   names.forEach((key, values) {
@@ -73,5 +88,5 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
       resolved[key] = values.first;
     }
   });
-  return LinkTargetBuildResult(targets: resolved, errors: errors);
+  return resolved;
 }

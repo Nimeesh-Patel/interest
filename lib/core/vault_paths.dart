@@ -11,8 +11,8 @@ class VaultPaths {
   static String syncLock(String vaultPath) =>
       p.join(interestDir(vaultPath), 'anki-sync.lock');
 
-  /// Wikilink targets as the last whole-vault sync resolved them, so a
-  /// one-note sync need not read every note again for aliases.
-  static String linkTargets(String vaultPath) =>
-      p.join(interestDir(vaultPath), 'link-targets.json');
+  /// The vault as Anki last received it (`SyncManifest`), so a sync after a
+  /// few edits reads only the changed files.
+  static String syncManifest(String vaultPath) =>
+      p.join(interestDir(vaultPath), 'sync-manifest.json');
 }

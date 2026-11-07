@@ -862,7 +862,7 @@ void main() {
       expect(result.added, 1);
       final (deck, front, back, _) = transport.addCalls.single;
       expect(deck, 'English');
-      expect(front, contains('IPA ʃ (shoe) ↗'));
+      expect(front, contains('IPA ʃ (shoe)</span>'));
       expect(back.trim(), isEmpty);
     },
   );

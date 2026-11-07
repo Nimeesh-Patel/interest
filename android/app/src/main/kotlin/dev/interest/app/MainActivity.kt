@@ -23,14 +23,14 @@ class MainActivity : FlutterActivity() {
     /// hasn't yet picked it up (cold start). Consumed by `getInitialSyncAnki`.
     private var pendingSyncAnki = false
 
-    /// The vault-relative note named by `?note=`, when the link came from a
-    /// note being edited: Flutter then syncs only that note.
-    private var pendingNote: String? = null
+    /// True when the link asked for the whole vault (`?all=1`) rather than
+    /// the notes changed since the last sync.
+    private var pendingAll = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingSyncAnki = isSyncAnki(intent)
-        pendingNote = if (pendingSyncAnki) noteOf(intent) else null
+        pendingAll = pendingSyncAnki && wantsAll(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -38,7 +38,7 @@ class MainActivity : FlutterActivity() {
         setIntent(intent)
         if (isSyncAnki(intent)) {
             flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
-                MethodChannel(messenger, deeplinkChannelName).invokeMethod("syncAnki", noteOf(intent))
+                MethodChannel(messenger, deeplinkChannelName).invokeMethod("syncAnki", mapOf("all" to wantsAll(intent)))
             }
         }
     }
@@ -62,9 +62,9 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, deeplinkChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getInitialSyncAnki" -> {
-                    result.success(mapOf("sync" to pendingSyncAnki, "note" to pendingNote))
+                    result.success(mapOf("sync" to pendingSyncAnki, "all" to pendingAll))
                     pendingSyncAnki = false
-                    pendingNote = null
+                    pendingAll = false
                 }
                 else -> result.notImplemented()
             }
@@ -83,8 +83,8 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    private fun noteOf(intent: Intent): String? =
-        intent.data?.getQueryParameter("note")?.takeIf { it.isNotBlank() }
+    private fun wantsAll(intent: Intent): Boolean =
+        intent.data?.getQueryParameter("all") == "1"
 
     private fun isSyncAnki(intent: Intent): Boolean {
         if (intent.action != Intent.ACTION_VIEW) return false

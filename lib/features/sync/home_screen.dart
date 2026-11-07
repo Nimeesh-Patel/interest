@@ -21,10 +21,10 @@ enum _Phase { checking, ready, syncing, unavailable, failed }
 /// Interest's one screen, ordered like the journey it serves: notes are
 /// written in Obsidian, the sync panel brings Anki in step, the review panel
 /// hands over to Anki for studying. Opening the app previews; the Obsidian
-/// ribbon (`interest://sync-anki`) syncs straight away. When the link names
-/// the note being edited (`?note=`), only that note is synced and a clean
-/// result hands straight back to the Anki app: the edit cycle of a review
-/// session should cost seconds, not a whole-vault sync and two taps.
+/// ribbon (`interest://sync-anki`) syncs what changed since the last sync
+/// and, when that is clean, hands straight back to the Anki app: the edit
+/// cycle of a review session should cost a second, not a whole-vault sync
+/// and two taps. `?all=1` syncs the whole vault instead.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -49,9 +49,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<int> _busy = {};
   bool _showChanged = false;
 
-  /// The note a one-note sync is about, vault-relative; null for a
-  /// whole-vault preview or sync.
-  String? _note;
+  /// True while showing a changed-notes sync rather than the whole vault.
+  bool _changedOnly = false;
 
   @override
   void initState() {
@@ -59,8 +58,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _deeplink.setMethodCallHandler((call) async {
       if (call.method != 'syncAnki' || !mounted) return;
-      final note = call.arguments;
-      note is String ? _syncNote(note) : _sync();
+      final args = call.arguments;
+      args is Map && args['all'] == true ? _sync() : _syncChanged();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       Object? initial;
@@ -70,13 +69,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         initial = null; // desktop builds have no deep-link channel
       }
       final link = initial is Map ? initial : const {};
-      final note = link['note'];
       if (link['sync'] != true) {
         _preview();
-      } else if (note is String) {
-        _syncNote(note);
-      } else {
+      } else if (link['all'] == true) {
         _sync();
+      } else {
+        _syncChanged();
       }
     });
   }
@@ -128,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _loadLocal();
     setState(() {
       _phase = _Phase.checking;
-      _note = null;
+      _changedOnly = false;
     });
     if (!await _ready()) return;
     final result = await AnkiSyncController.sync(
@@ -143,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _loadLocal();
     setState(() {
       _phase = _Phase.syncing;
-      _note = null;
+      _changedOnly = false;
     });
     if (!await _ready()) return;
     final result = await AnkiSyncController.sync(_target.transport);
@@ -154,24 +152,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _show(result);
   }
 
-  /// The edit cycle: one note changed in Obsidian. A clean result returns to
-  /// the Anki app at once; anything that needs Nimeesh (an error, a missing
-  /// card to decide on) keeps Interest open to show it.
-  Future<void> _syncNote(String note) async {
+  /// The edit cycle: sync whatever changed since the last sync. A clean
+  /// result returns to the Anki app at once; anything that needs Nimeesh (an
+  /// error, a card to decide on) keeps Interest open to show it.
+  Future<void> _syncChanged() async {
     if (_phase == _Phase.syncing) return;
     await _loadLocal();
     setState(() {
       _phase = _Phase.syncing;
-      _note = note;
+      _changedOnly = true;
     });
     if (!await _ready()) return;
-    final result = await AnkiSyncController.syncNote(_target.transport, note);
+    final result = await AnkiSyncController.syncChanged(_target.transport);
     if (result != null && result.completed) {
       await SyncMemory.recordSync(result);
       _last = await SyncMemory.lastSync();
     }
     _show(result);
-    if (result != null && result.isSuccessful && !result.needsDecision) {
+    if (mounted &&
+        result != null &&
+        result.isSuccessful &&
+        _decisions.isEmpty) {
       await _openAnki();
     }
   }
@@ -360,9 +361,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         Icons.sync_rounded,
         AppColors.accent,
         'Syncing',
-        _note == null
-            ? 'Writing only the cards that changed.'
-            : 'Updating the card for ${p.basenameWithoutExtension(_note!)}.',
+        _changedOnly
+            ? 'Reading only the notes changed since the last sync.'
+            : 'Writing only the cards that changed.',
       ),
       _Phase.unavailable => (
         Icons.block_rounded,
@@ -388,15 +389,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : '${state.pending} changes to sync',
         _changeSummary(state),
       ),
-      _Phase.ready when _note != null => (
+      _Phase.ready when _changedOnly => (
         Icons.check_circle_outline_rounded,
         AppColors.success,
-        state != null && state.added > 0
-            ? 'Card created'
-            : 'Card up to date',
-        '${p.basenameWithoutExtension(_note!)} matches its note in '
-            '${_target.name}. The rest of the vault was not checked; pull down '
-            'to check everything.',
+        _changedStatement(state),
+        'Every note changed since the last sync now matches ${_target.name}. '
+            'Pull down to check the whole vault.',
       ),
       _Phase.ready => (
         Icons.check_circle_outline_rounded,
@@ -477,6 +475,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return _changesWaiting || _phase == _Phase.failed
         ? FilledButton(onPressed: busy ? null : _sync, child: Text(label))
         : OutlinedButton(onPressed: busy ? null : _sync, child: Text(label));
+  }
+
+  static String _changedStatement(AnkiSyncResult? s) {
+    final written = s == null ? 0 : s.added + s.updated + s.retired;
+    return switch (written) {
+      0 => 'Nothing had changed',
+      1 => '1 card synced',
+      _ => '$written cards synced',
+    };
   }
 
   String _changeSummary(AnkiSyncResult s) => [
