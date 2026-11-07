@@ -85,6 +85,32 @@ class AnkiDroidTransport extends AnkiTransport {
   }
 
   @override
+  Future<ReviewLoad?> reviewLoad() async {
+    try {
+      final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'reviewLoad',
+      );
+      if (raw == null) return null;
+      return ReviewLoad(
+        learning: (raw['learn'] as num).toInt(),
+        review: (raw['review'] as num).toInt(),
+        newCards: (raw['new'] as num).toInt(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> openApp() async {
+    try {
+      return await _channel.invokeMethod<bool>('openAnkiDroid') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Future<AnkiCollectionSnapshot> snapshot() async {
     final Map<Object?, Object?>? raw;
     try {

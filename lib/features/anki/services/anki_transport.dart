@@ -54,10 +54,34 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
   /// reason to silently leave category and deck out of sync.
   Future<bool> moveToDeck(int noteId, String deckName);
 
+  /// Today's study load as the Anki app itself shows it, or null when it
+  /// cannot be read. Read-only; never touches the scheduler.
+  Future<ReviewLoad?> reviewLoad() async => null;
+
+  /// Brings the Anki app to the front so review can start. False when it
+  /// could not be opened.
+  Future<bool> openApp() async => false;
+
   /// Retire only a note carrying this exact Obsidian source link. True means
   /// confirmed absence after deletion (or an already absent projection).
   /// Unknown identity/availability must fail and keep the local Anki id.
   Future<bool> retireNote(int noteId, String expectedSourceUri) async => false;
+}
+
+/// Cards waiting today, with each deck's daily limits applied, summed over
+/// top-level decks (a parent deck already includes its subdecks).
+class ReviewLoad {
+  final int learning;
+  final int review;
+  final int newCards;
+
+  const ReviewLoad({
+    required this.learning,
+    required this.review,
+    required this.newCards,
+  });
+
+  int get total => learning + review + newCards;
 }
 
 /// One Anki note as the collection currently holds it.

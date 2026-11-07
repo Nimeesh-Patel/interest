@@ -56,7 +56,7 @@ Expected failure crosses a service boundary as an explicit result, including whe
 
 ## Subsystem constraints
 
-**Screens** — `HomeScreen` (state, preview, sync, decisions, last sync) and `SettingsScreen` are the whole app; `VaultSetupScreen` runs once. One primary action per screen, and its emphasis follows state. Decisions are one card per page in `DecisionPager`, never stacked modal dialogs.
+**Screens** — `HomeScreen` (sync panel, review panel, decisions, last sync) and `SettingsScreen` are the whole app; `VaultSetupScreen` runs once. The home screen follows the journey Obsidian → sync → Anki review; exactly one button is filled, chosen by the next step (see docs/ui.md). Obsidian is reached through links on specific notes. Decisions are one card per page in `DecisionPager`, never stacked modal dialogs. Review counts come only from `AnkiTransport.reviewLoad()`, which is read-only.
 
 **Device memory** — SharedPreferences holds `vault_path`, the last sync summary and kept card ids (`SyncMemory`). There is no vault configuration file.
 

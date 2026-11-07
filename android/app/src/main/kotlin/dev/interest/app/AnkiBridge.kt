@@ -156,6 +156,19 @@ class AnkiBridge(private val activity: Activity) {
 
             "snapshotNotes" -> result.success(snapshotNotes())
 
+            "reviewLoad" -> result.success(reviewLoad())
+
+            "openAnkiDroid" -> {
+                val launch = ctx.packageManager.getLaunchIntentForPackage("com.ichi2.anki")
+                if (launch == null) {
+                    result.success(false)
+                } else {
+                    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    activity.startActivity(launch)
+                    result.success(true)
+                }
+            }
+
             "noteExists" -> {
                 val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
                 result.success(readNoteFront(noteId) != null)
@@ -280,6 +293,33 @@ class AnkiBridge(private val activity: Activity) {
             "notes" to notes.values.toList(),
             "elapsed_ms" to (System.nanoTime() - started) / 1_000_000,
         )
+    }
+
+    /// What AnkiDroid would show on its deck list today: learning, review and
+    /// new cards, with each deck's daily limits applied. Only top-level decks
+    /// are summed, because a parent deck's counts already include its
+    /// subdecks.
+    private fun reviewLoad(): Map<String, Any?> {
+        val cursor = ctx.contentResolver.query(
+            FlashCardsContract.Deck.CONTENT_ALL_URI,
+            arrayOf(FlashCardsContract.Deck.DECK_NAME, FlashCardsContract.Deck.DECK_COUNTS),
+            null, null, null,
+        ) ?: throw IllegalStateException("AnkiDroid deck list unavailable")
+        var learn = 0L
+        var review = 0L
+        var new = 0L
+        cursor.use { c ->
+            val nameIndex = c.getColumnIndexOrThrow(FlashCardsContract.Deck.DECK_NAME)
+            val countsIndex = c.getColumnIndexOrThrow(FlashCardsContract.Deck.DECK_COUNTS)
+            while (c.moveToNext()) {
+                if (c.getString(nameIndex)?.contains("::") != false) continue
+                val counts = org.json.JSONArray(c.getString(countsIndex) ?: "[0,0,0]")
+                learn += counts.getLong(0)
+                review += counts.getLong(1)
+                new += counts.getLong(2)
+            }
+        }
+        return mapOf("learn" to learn, "review" to review, "new" to new)
     }
 
     private fun getBuiltInBasicModel(api: AddContentApi): Long? {

@@ -92,8 +92,9 @@ class AnkiSyncResult {
   final List<AnkiMissingCard> missing;
   final List<AnkiOrphanCard> orphans;
 
-  /// Titles of the notes whose cards were (or, in a preview, would be) added
-  /// or changed, so the outcome can be read, not just counted.
+  /// Vault-relative paths (without `.md`) of the notes whose cards were (or,
+  /// in a preview, would be) added or changed, so the outcome can be read
+  /// and each note opened, not just counted.
   final List<String> changed;
 
   /// True when nothing was written: the counts describe what a sync would do.
@@ -327,8 +328,11 @@ class AnkiSyncService {
     final missing = <AnkiMissingCard>[];
     final orphans = <AnkiOrphanCard>[];
     final changed = <String>[];
-    String titleOf(AnkiProblemNote note) =>
-        p.basenameWithoutExtension(note.sourceFile);
+    // Vault-relative path without extension: displayable by its last
+    // segment and openable in Obsidian.
+    String titleOf(AnkiProblemNote note) => p
+        .withoutExtension(p.relative(note.sourcePath, from: vaultPath))
+        .replaceAll('\\', '/');
 
     for (final note in retirements) {
       try {

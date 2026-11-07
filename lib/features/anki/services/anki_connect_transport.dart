@@ -148,6 +148,38 @@ class AnkiConnectTransport extends AnkiTransport {
   }
 
   @override
+  Future<ReviewLoad?> reviewLoad() async {
+    try {
+      final names = await _invoke('deckNames');
+      if (names is! List) return null;
+      final topLevel =
+          names.cast<String>().where((name) => !name.contains('::')).toList();
+      final stats = await _invoke('getDeckStats', {'decks': topLevel});
+      if (stats is! Map) return null;
+      var learning = 0, review = 0, newCards = 0;
+      for (final deck in stats.values) {
+        if (deck is! Map) return null;
+        learning += (deck['learn_count'] as num).toInt();
+        review += (deck['review_count'] as num).toInt();
+        newCards += (deck['new_count'] as num).toInt();
+      }
+      return ReviewLoad(learning: learning, review: review, newCards: newCards);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> openApp() async {
+    try {
+      await _invoke('guiDeckBrowser');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Future<AnkiCollectionSnapshot> snapshot() async {
     try {
       final ids = await _invoke('findNotes', {'query': 'note:Basic'});

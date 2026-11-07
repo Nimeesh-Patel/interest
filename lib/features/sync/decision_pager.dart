@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../../shared/constants/app_text_styles.dart';
 import '../../shared/constants/app_theme.dart';
@@ -24,6 +25,9 @@ class Decision {
   final AnkiOrphanCard? orphan;
   final AnkiMissingCard? missing;
 
+  /// Vault-relative path (without `.md`) of the note, when one exists.
+  final String? notePath;
+
   const Decision._({
     required this.id,
     required this.title,
@@ -40,6 +44,7 @@ class Decision {
     required this.destructive,
     this.orphan,
     this.missing,
+    this.notePath,
   });
 
   factory Decision.orphan(AnkiOrphanCard card) => Decision._(
@@ -59,7 +64,11 @@ class Decision {
     orphan: card,
   );
 
-  factory Decision.missing(AnkiMissingCard item, String target) => Decision._(
+  factory Decision.missing(
+    AnkiMissingCard item,
+    String target,
+    String? vaultPath,
+  ) => Decision._(
     id: item.ankiNoteId,
     title: item.title,
     reason: "This note's card is missing from $target",
@@ -74,6 +83,12 @@ class Decision {
     actLabel: 'Re-create',
     destructive: false,
     missing: item,
+    notePath:
+        vaultPath == null
+            ? null
+            : p
+                .withoutExtension(p.relative(item.sourcePath, from: vaultPath))
+                .replaceAll('\\', '/'),
   );
 }
 
@@ -86,6 +101,7 @@ class DecisionPager extends StatefulWidget {
   final Set<int> busy;
   final void Function(Decision) onKeep;
   final void Function(Decision) onAct;
+  final void Function(String notePath) onOpenNote;
 
   const DecisionPager({
     super.key,
@@ -93,6 +109,7 @@ class DecisionPager extends StatefulWidget {
     required this.busy,
     required this.onKeep,
     required this.onAct,
+    required this.onOpenNote,
   });
 
   @override
@@ -174,7 +191,10 @@ class _DecisionPagerState extends State<DecisionPager> {
             itemBuilder:
                 (_, index) => Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: _DecisionCard(decision: decisions[index]),
+                  child: _DecisionCard(
+                    decision: decisions[index],
+                    onOpenNote: widget.onOpenNote,
+                  ),
                 ),
           ),
         ),
@@ -226,7 +246,8 @@ class _DecisionPagerState extends State<DecisionPager> {
 
 class _DecisionCard extends StatelessWidget {
   final Decision decision;
-  const _DecisionCard({required this.decision});
+  final void Function(String notePath) onOpenNote;
+  const _DecisionCard({required this.decision, required this.onOpenNote});
 
   @override
   Widget build(BuildContext context) {
@@ -247,14 +268,23 @@ class _DecisionCard extends StatelessWidget {
             Expanded(
               child: _Sides(decision: d, problemLines: 4, conjectureLines: 3),
             ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                onPressed: () => _showFullCard(context, d),
-                icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                label: const Text('Read the full card'),
-              ),
+            Wrap(
+              spacing: Space.lg,
+              children: [
+                TextButton.icon(
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                  onPressed: () => _showFullCard(context, d),
+                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                  label: const Text('Read the full card'),
+                ),
+                if (d.notePath != null)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                    onPressed: () => onOpenNote(d.notePath!),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text('Open note'),
+                  ),
+              ],
             ),
           ],
         ),

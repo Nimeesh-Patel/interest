@@ -31,19 +31,27 @@ references:
 3. **Two voices.** IBM Plex Sans for the app's own words, IBM Plex Serif for
    the author's: a card's problem and conjecture. Nothing is smaller than 13 px
    or set in all caps.
-4. **One primary action per screen, and its emphasis follows state.** "Sync"
-   is a filled button only when changes are waiting or a sync failed. In sync,
-   it is outlined.
-5. **State is a sentence.** The status panel always says one thing ("Everything
+4. **The screen follows the journey, and emphasis follows the next step.** The
+   journey is Obsidian (write) → sync → Anki (review), so the home screen
+   stacks a sync panel above a review panel. Exactly one button is filled: Sync
+   while changes are waiting or a sync failed; "Review in AnkiDroid" once
+   everything is in sync and cards are due. Obsidian, the step you came from,
+   is reached through links on specific notes (changed notes, a missing card's
+   note) plus a header icon, not a competing button.
+5. **Counts match the app they describe.** The review panel's numbers are
+   AnkiDroid's own deck counts with daily limits ("192 cards due: 100 to
+   review, 85 new, 7 learning"), summed over top-level decks, so what Interest
+   says is what AnkiDroid will show.
+6. **State is a sentence.** The status panel always says one thing ("Everything
    is in sync", "3 changes to sync", "Sync didn't finish") and what it means.
-6. **Decisions are cards, one per page.** The pager shows a peek of the next
+7. **Decisions are cards, one per page.** The pager shows a peek of the next
    card, arrows and a count, and dots. Each card shows the reason, the title,
    deck, review history and creation date, then the problem and conjecture as
    fixed-length previews separated by the `***` divider, the design's one
    signature element. "Read the full card" opens the whole card in a sheet.
    Destructive actions use the danger colour on a tinted fill, never a
    saturated red block.
-7. **Copy** is sentence case, active and specific ("Remove", "Re-create",
+8. **Copy** is sentence case, active and specific ("Remove", "Re-create",
    "Allow access"), with no "please", "successfully" or exclamation marks.
 
 ## Checking a change

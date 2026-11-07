@@ -76,6 +76,10 @@ The transport is chosen by platform (`SyncTarget.forPlatform`): AnkiDroid on And
 
 `dart run tool/sync_anki_notes.dart --vault <path> --file <note.md> [--file ...] [--url <AnkiConnect URL>]` uses the same scanner, renderer, sync core and AnkiConnect transport. It requires exact file arguments, rejects paths outside the vault, and never classifies unlinked cards, because its notes are a subset of the vault.
 
+### Review hand-over
+
+`AnkiTransport.reviewLoad()` reads today's learning, review and new counts as the Anki app shows them: AnkiDroid's `FlashCardsContract.Deck.DECK_COUNTS` (daily limits applied, top-level decks summed, because a parent includes its subdecks), or AnkiConnect `getDeckStats`. It is read-only and never touches the scheduler. `openApp()` launches AnkiDroid (its launch intent) or shows Anki desktop's deck browser (`guiDeckBrowser`). On 2026-11-07 the AnkiDroid counts (7 learning, 100 review, 85 new) matched AnkiDroid's own "192 cards due".
+
 ## The deep-link sync contract (Android)
 
 `interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin. The plugin's sync button fires it, and Interest **opens to the foreground** and syncs there. Opening Interest any other way previews instead.
