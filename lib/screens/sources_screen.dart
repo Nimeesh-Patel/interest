@@ -192,7 +192,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
         return;
       }
       final result = await AnkiSyncController.sync(transport);
-      if (mounted) showAnkiSyncResult(context, transport, result);
+      if (mounted) await showAnkiSyncResult(context, transport, result);
     } catch (error) {
       if (mounted) showSnack(context, 'Sync could not start: $error');
     } finally {

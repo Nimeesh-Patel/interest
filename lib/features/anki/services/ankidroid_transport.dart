@@ -85,14 +85,34 @@ class AnkiDroidTransport extends AnkiTransport {
   }
 
   @override
-  Future<bool?> noteExists(int noteId) async {
+  Future<AnkiCollectionSnapshot> snapshot() async {
+    final Map<Object?, Object?>? raw;
     try {
-      return await _channel.invokeMethod<bool>('noteExists', {
-        'noteId': noteId,
-      });
-    } catch (_) {
-      return null;
+      raw = await _channel.invokeMethod<Map<Object?, Object?>>('snapshotNotes');
+    } on PlatformException catch (e) {
+      throw AnkiSyncAbort(
+        'Could not read the AnkiDroid collection: ${e.message ?? e.code}',
+      );
     }
+    final notes = raw?['notes'];
+    if (notes is! List) {
+      throw const AnkiSyncAbort('AnkiDroid returned no collection snapshot');
+    }
+    final byId = <int, AnkiNoteState>{};
+    for (final entry in notes) {
+      if (entry is! Map) {
+        throw const AnkiSyncAbort('AnkiDroid returned a malformed note');
+      }
+      final id = (entry['id'] as num).toInt();
+      byId[id] = AnkiNoteState(
+        id: id,
+        front: entry['front'] as String,
+        back: entry['back'] as String,
+        tags: parseAnkiTags(entry['tags'] as String),
+        decks: (entry['decks'] as List).cast<String>().toSet(),
+      );
+    }
+    return AnkiCollectionSnapshot(byId);
   }
 
   @override

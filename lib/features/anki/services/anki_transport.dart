@@ -42,10 +42,11 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
     List<String> tags,
   );
 
-  /// Whether [noteId] exists, or null when the transport could not establish
-  /// the fact. Treating an unavailable observation as "missing" would create a
-  /// duplicate note.
-  Future<bool?> noteExists(int noteId);
+  /// One complete observation of every "Basic" note in the collection. The
+  /// sync core compares the vault against it, so a note absent from the
+  /// snapshot is read as absent from Anki: an incomplete or unavailable
+  /// observation must throw [AnkiSyncAbort], never return a partial map.
+  Future<AnkiCollectionSnapshot> snapshot();
 
   /// Idempotently places the note's card(s) in [deckName], creating the deck if
   /// absent. Returns whether the requested projection was applied. Never
@@ -58,6 +59,46 @@ abstract class AnkiTransport implements ExternalProjectionTransport {
   /// Unknown identity/availability must fail and keep the local Anki id.
   Future<bool> retireNote(int noteId, String expectedSourceUri) async => false;
 }
+
+/// One Anki note as the collection currently holds it.
+class AnkiNoteState {
+  final int id;
+  final String front;
+  final String back;
+  final Set<String> tags;
+
+  /// Deck name of each of the note's cards.
+  final Set<String> decks;
+
+  const AnkiNoteState({
+    required this.id,
+    required this.front,
+    required this.back,
+    required this.tags,
+    required this.decks,
+  });
+
+  /// Deck lookup is case-insensitive in both backends, so placement is too.
+  bool isInDeck(String deckName) =>
+      decks.isNotEmpty &&
+      decks.every((deck) => deck.toLowerCase() == deckName.toLowerCase());
+
+  bool holds(String front, String back, List<String> tags) =>
+      this.front == front &&
+      this.back == back &&
+      this.tags.length == tags.toSet().length &&
+      this.tags.containsAll(tags);
+}
+
+/// A complete observation of the collection's "Basic" notes, by note id.
+class AnkiCollectionSnapshot {
+  final Map<int, AnkiNoteState> notes;
+  const AnkiCollectionSnapshot(this.notes);
+}
+
+/// Splits Anki's space-separated tag field into a set.
+Set<String> parseAnkiTags(String raw) =>
+    raw.split(RegExp(r'\s+')).where((tag) => tag.isNotEmpty).toSet();
 
 /// Match the exact source href, accepting the renderer's original form and
 /// HTML-escaped ampersands. Mere text mentioning a source is not ownership.

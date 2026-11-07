@@ -7,6 +7,7 @@ import 'package:people_tracker/features/anki/models/anki_problem_note.dart';
 import 'package:people_tracker/features/anki/services/anki_problem_note_scanner.dart';
 import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
 import 'package:people_tracker/features/anki/services/anki_transport.dart';
+import 'package:people_tracker/shared/markdown/md_utils.dart';
 
 // Locks the transport-agnostic sync core across the AnkiDroid/AnkiConnect
 // split: add vs update vs re-add decisions, the anki_note_id write-back, the
@@ -22,7 +23,12 @@ class FakeTransport extends AnkiTransport {
   final List<(int id, String front, String back)> updateCalls = [];
 
   final List<(int id, String deck)> moveCalls = [];
-  bool noteExistsUnavailable = false;
+  final List<int> snapshotCalls = [];
+
+  /// What the fake collection holds for each id; ids in [existingIds] without
+  /// an entry hold an unknown (empty) card in no deck.
+  final Map<int, AnkiNoteState> stored = {};
+  bool snapshotUnavailable = false;
   bool moveSucceeds = true;
   bool retireSucceeds = true;
   final List<(int, String)> retireCalls = [];
@@ -55,6 +61,13 @@ class FakeTransport extends AnkiTransport {
     addCalls.add((deckName, front, back, tags));
     final id = _nextId++;
     existingIds.add(id);
+    stored[id] = AnkiNoteState(
+      id: id,
+      front: front,
+      back: back,
+      tags: tags.toSet(),
+      decks: const {}, // placed only by a successful moveToDeck
+    );
     await afterAdd?.call();
     return id;
   }
@@ -67,17 +80,50 @@ class FakeTransport extends AnkiTransport {
     List<String> tags,
   ) async {
     updateCalls.add((noteId, front, back));
+    stored[noteId] = AnkiNoteState(
+      id: noteId,
+      front: front,
+      back: back,
+      tags: tags.toSet(),
+      decks: stored[noteId]?.decks ?? const {},
+    );
     await afterUpdate?.call();
     return true;
   }
 
   @override
-  Future<bool?> noteExists(int noteId) async =>
-      noteExistsUnavailable ? null : existingIds.contains(noteId);
+  Future<AnkiCollectionSnapshot> snapshot() async {
+    snapshotCalls.add(existingIds.length);
+    if (snapshotUnavailable) {
+      throw const AnkiSyncAbort('Could not read the fake collection');
+    }
+    return AnkiCollectionSnapshot({
+      for (final id in existingIds)
+        id:
+            stored[id] ??
+            AnkiNoteState(
+              id: id,
+              front: '',
+              back: '',
+              tags: const {},
+              decks: const {},
+            ),
+    });
+  }
 
   @override
   Future<bool> moveToDeck(int noteId, String deckName) async {
     moveCalls.add((noteId, deckName));
+    final state = stored[noteId];
+    if (moveSucceeds && state != null) {
+      stored[noteId] = AnkiNoteState(
+        id: noteId,
+        front: state.front,
+        back: state.back,
+        tags: state.tags,
+        decks: {deckName},
+      );
+    }
     return moveSucceeds;
   }
 
@@ -86,6 +132,7 @@ class FakeTransport extends AnkiTransport {
     retireCalls.add((noteId, expectedSourceUri));
     if (!retireSucceeds) return false;
     existingIds.remove(noteId);
+    stored.remove(noteId);
     await afterRetire?.call();
     return true;
   }
@@ -297,18 +344,51 @@ void main() {
       expect(await fileContent(note), before);
     });
 
-    test('note deleted from Anki is re-added and the id overwritten', () async {
-      final transport = FakeTransport(firstId: 2000);
-      final note = await problemNote('Gone', ankiNoteId: '555');
+    test(
+      'a linked card absent from Anki is reported, and re-created only on confirmation',
+      () async {
+        final transport = FakeTransport(firstId: 2000);
+        final note = await problemNote('Gone', ankiNoteId: '555');
 
+        final result = await AnkiSyncService.syncVault(transport, [
+          note,
+        ], vault.path);
+
+        expect(result.added, 0);
+        expect(transport.addCalls, isEmpty);
+        expect(result.missing.single.ankiNoteId, 555);
+        expect(result.isSuccessful, isTrue);
+        expect(await fileContent(note), contains('anki_note_id: 555'));
+
+        final resolved = await AnkiSyncService.resolve(
+          transport,
+          [note],
+          vault.path,
+          recreate: result.missing,
+        );
+        expect(resolved.added, 1);
+        final content = await fileContent(note);
+        expect(content, contains('anki_note_id: 2000'));
+        expect(content, isNot(contains('anki_note_id: 555')));
+      },
+    );
+
+    test('a missing card that arrived meanwhile is not re-created', () async {
+      final transport = FakeTransport(firstId: 2000);
+      final note = await problemNote('Late', ankiNoteId: '555');
       final result = await AnkiSyncService.syncVault(transport, [
         note,
       ], vault.path);
-
-      expect(result.added, 1);
-      final content = await fileContent(note);
-      expect(content, contains('anki_note_id: 2000'));
-      expect(content, isNot(contains('anki_note_id: 555')));
+      transport.existingIds.add(555); // AnkiWeb delivered it
+      final resolved = await AnkiSyncService.resolve(
+        transport,
+        [note],
+        vault.path,
+        recreate: result.missing,
+      );
+      expect(resolved.added, 0);
+      expect(resolved.unchanged, 1);
+      expect(transport.addCalls, isEmpty);
     });
 
     test('AnkiSyncAbort stops the sync and records the message', () async {
@@ -346,18 +426,202 @@ void main() {
       expect(result.errors.single, 'Bad.md: deck was not found: X');
     });
 
-    test('unavailable identity observation does not re-add the note', () async {
-      final transport = FakeTransport()..noteExistsUnavailable = true;
-      final note = await problemNote('Unknown', ankiNoteId: '555');
+    test('an unavailable collection observation changes no cards', () async {
+      final transport = FakeTransport()..snapshotUnavailable = true;
+      final linked = await problemNote('Unknown', ankiNoteId: '555');
+      final fresh = await problemNote('Fresh');
 
       final result = await AnkiSyncService.syncVault(transport, [
-        note,
+        linked,
+        fresh,
       ], vault.path);
 
-      expect(result.failed, 1);
-      expect(result.errors.single, contains('could not verify whether'));
+      expect(result.completed, isFalse);
+      expect(result.errors.single, contains('No cards were changed'));
+      expect(result.missing, isEmpty);
       expect(transport.addCalls, isEmpty);
       expect(transport.updateCalls, isEmpty);
+    });
+  });
+
+  group('collection reconciliation', () {
+    String ownedFront(String name) =>
+        '<div><a href="${obsidianUri(vault.path, p.join(vault.path, '$name.md'))}">$name</a></div><p>Q</p>';
+
+    AnkiNoteState owned(int id, String name) => AnkiNoteState(
+      id: id,
+      front: ownedFront(name),
+      back: '',
+      tags: const {},
+      decks: const {'Default'},
+    );
+
+    test('an unchanged card costs no write', () async {
+      final transport = FakeTransport();
+      final note = await problemNote('Steady', category: 'Deck');
+      await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      transport.updateCalls.clear();
+      transport.moveCalls.clear();
+
+      final second = await AnkiSyncService.syncVault(
+        transport,
+        scan.notes,
+        vault.path,
+      );
+
+      expect(second.unchanged, 1);
+      expect(second.updated, 0);
+      expect(transport.updateCalls, isEmpty);
+      expect(transport.moveCalls, isEmpty);
+      expect(transport.snapshotCalls, hasLength(2));
+    });
+
+    test('a category change moves the card without rewriting it', () async {
+      final transport = FakeTransport();
+      final note = await problemNote('Mover', category: 'Old');
+      await AnkiSyncService.syncVault(transport, [note], vault.path);
+      final file = File(note.sourcePath);
+      await file.writeAsString(
+        (await file.readAsString()).replaceFirst(
+          'category: Old',
+          'category: New',
+        ),
+      );
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      transport.updateCalls.clear();
+
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        scan.notes,
+        vault.path,
+      );
+
+      expect(result.updated, 1);
+      expect(transport.updateCalls, isEmpty);
+      expect(transport.moveCalls.last, (1000, 'New'));
+    });
+
+    test(
+      'whole-vault sync removes a duplicate whose note keeps its linked card',
+      () async {
+        final transport = FakeTransport();
+        final note = await problemNote('Twice');
+        await AnkiSyncService.syncVault(transport, [note], vault.path);
+        transport.existingIds.add(77);
+        transport.stored[77] = owned(77, 'Twice');
+        final scan = await AnkiProblemNoteScanner.scan(vault.path);
+
+        final bounded = await AnkiSyncService.syncVault(
+          transport,
+          scan.notes,
+          vault.path,
+        );
+        expect(bounded.duplicatesRetired, 0);
+        expect(transport.retireCalls, isEmpty);
+
+        final whole = await AnkiSyncService.syncVault(
+          transport,
+          scan.notes,
+          vault.path,
+          reconcileCollection: true,
+        );
+        expect(whole.duplicatesRetired, 1);
+        expect(transport.retireCalls.single.$1, 77);
+        expect(transport.existingIds, {1000});
+        expect(whole.orphans, isEmpty);
+      },
+    );
+
+    test(
+      'a duplicate from the earlier +-encoding renderer is recognised',
+      () async {
+        final transport = FakeTransport();
+        final note = await problemNote('Two words');
+        await AnkiSyncService.syncVault(transport, [note], vault.path);
+        final vaultName = p.basename(vault.path).replaceAll(' ', '+');
+        final legacy = 'obsidian://open?vault=$vaultName&file=Two+words';
+        transport.existingIds.add(66);
+        transport.stored[66] = AnkiNoteState(
+          id: 66,
+          front: '<div><a href="$legacy">Two words</a></div>',
+          back: '',
+          tags: const {},
+          decks: const {'Default'},
+        );
+        final scan = await AnkiProblemNoteScanner.scan(vault.path);
+
+        final result = await AnkiSyncService.syncVault(
+          transport,
+          scan.notes,
+          vault.path,
+          reconcileCollection: true,
+        );
+
+        expect(result.duplicatesRetired, 1);
+        expect(transport.retireCalls.single, (66, legacy));
+        expect(result.orphans, isEmpty);
+      },
+    );
+
+    test(
+      'a card whose note is gone is offered, and removed only on confirmation',
+      () async {
+        final transport = FakeTransport();
+        transport.existingIds.addAll([88, 99]);
+        transport.stored[88] = owned(88, 'Deleted note');
+        transport.stored[99] = const AnkiNoteState(
+          id: 99,
+          front: 'Made by hand, no source link',
+          back: '',
+          tags: {},
+          decks: {'Default'},
+        );
+
+        final result = await AnkiSyncService.syncVault(
+          transport,
+          const [],
+          vault.path,
+          reconcileCollection: true,
+        );
+        expect(result.orphans.single.ankiNoteId, 88);
+        expect(result.orphans.single.noteName, 'Deleted note');
+        expect(result.orphans.single.problem, 'Q');
+        expect(result.orphans.single.title, 'Deleted note');
+        expect(transport.retireCalls, isEmpty);
+
+        final resolved = await AnkiSyncService.resolve(
+          transport,
+          const [],
+          vault.path,
+          retire: result.orphans,
+        );
+        expect(resolved.retired, 1);
+        expect(transport.existingIds, {99});
+      },
+    );
+
+    test('an orphan that a note links again is not removed', () async {
+      final transport = FakeTransport();
+      transport.existingIds.add(88);
+      transport.stored[88] = owned(88, 'Arrived');
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        const [],
+        vault.path,
+        reconcileCollection: true,
+      );
+      final arrived = await problemNote('Arrived', ankiNoteId: '88');
+
+      final resolved = await AnkiSyncService.resolve(
+        transport,
+        [arrived],
+        vault.path,
+        retire: result.orphans,
+      );
+      expect(resolved.retired, 0);
+      expect(resolved.unchanged, 1);
+      expect(transport.retireCalls, isEmpty);
     });
   });
 

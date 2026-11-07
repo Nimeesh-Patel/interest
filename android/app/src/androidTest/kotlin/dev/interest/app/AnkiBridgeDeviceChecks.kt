@@ -23,11 +23,13 @@ import java.util.concurrent.TimeUnit
 class AnkiBridgeDeviceChecks : Instrumentation() {
     private var requestedDeck: String? = null
     private var readOnlyState = false
+    private var snapshotOnly = false
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         requestedDeck = arguments?.getString("deckName")
         readOnlyState = arguments?.getString("mode") == "card-state"
+        snapshotOnly = arguments?.getString("mode") == "snapshot"
         start()
     }
 
@@ -73,6 +75,46 @@ class AnkiBridgeDeviceChecks : Instrumentation() {
                 while (c.moveToNext()) ids.add(c.getLong(c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)))
                 ids
             }
+        }
+        if (snapshotOnly) {
+            // Read-only: one bulk snapshot, cross-checked note by note against
+            // the per-note provider reads the sync used before.
+            try {
+                check(context.checkSelfPermission(AnkiBridge.PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+                    "Grant Interest AnkiDroid permission through the normal app flow first"
+                }
+                val snap = call("snapshotNotes") as Map<*, *>
+                val notes = snap["notes"] as List<*>
+                check(notes.isNotEmpty()) { "Snapshot returned no notes" }
+                var owned = 0
+                for (raw in notes) {
+                    val n = raw as Map<*, *>
+                    val id = (n["id"] as Number).toLong()
+                    val front = n["front"] as String
+                    if (front.contains("obsidian://open?")) owned++
+                    val uri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, id.toString())
+                    val single = context.contentResolver.query(uri,
+                        arrayOf(FlashCardsContract.Note.FLDS), null, null, null)
+                        ?: error("Per-note query unavailable")
+                    single.use { c ->
+                        check(c.moveToFirst()) { "Snapshot note $id absent from per-note read" }
+                        val fields = c.getString(0).split('\u001f')
+                        check(fields[0] == front && fields[1] == n["back"]) { "Snapshot fields differ for $id" }
+                    }
+                    val decks = (n["decks"] as List<*>).toSet()
+                    val expected = deckIds(id).toSet().size
+                    check(decks.isNotEmpty() && decks.size <= expected) { "Snapshot decks differ for $id" }
+                }
+                report.putString("notes", notes.size.toString())
+                report.putString("owned_notes", owned.toString())
+                report.putString("snapshot_ms", snap["elapsed_ms"].toString())
+                report.putString("result", "PASS: bulk snapshot matches per-note reads; no mutations")
+            } catch (e: Throwable) {
+                report.putString("result", "FAIL")
+                report.putString("error", e.stackTraceToString())
+            }
+            finish(Activity.RESULT_OK, report)
+            return
         }
         if (readOnlyState) {
             try {

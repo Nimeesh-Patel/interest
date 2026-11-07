@@ -46,7 +46,7 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state disc
 | `requestPermission` | `com.ichi2.anki.permission.READ_WRITE_DATABASE` | `requestPermission` → `granted` |
 | `addNote` | `addNote` (creates deck if absent) | `createDeck` (idempotent) then `addNote` |
 | `updateNote` | `updateNoteFields` + `updateNoteTags` | `updateNoteFields` + `updateNoteTags` |
-| `noteExists` | `getNote(noteId) != null` | `notesInfo` → non-empty object |
+| `snapshot` | `snapshotNotes`: one note search and one card search over the Basic model | `findNotes note:Basic` → `notesInfo` → `cardsInfo` |
 | `moveToDeck` | `moveNoteToDeck` (ContentProvider card `DECK_ID` update) | `createDeck` then `changeDeck` |
 | `retireNote` | Exact note query, source-link guard, ContentProvider delete, absence verification | `notesInfo`, source-link guard, `deleteNotes`, `notesInfo` absence verification |
 
@@ -59,7 +59,7 @@ local vault-id patches can be rolled back in-process, but Anki mutations cannot.
 The operation names are open strings, so a future projection can add a
 capability without changing a closed enum in the core.
 
-Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFailure(message)` (recorded against the note, sync continues); collection-level fatal conditions throw `AnkiSyncAbort(message)` (recorded as a failure, remaining notes counted unattempted, sync incomplete). `noteExists` is tri-state: `false` is a confirmed absence, while `null` is an unavailable observation and never triggers re-addition. These exceptions are consumed only by `AnkiSyncService.syncVault`.
+Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFailure(message)` (recorded against the note, sync continues); collection-level fatal conditions throw `AnkiSyncAbort(message)` (recorded as a failure, remaining notes counted unattempted, sync incomplete). `snapshot` is all-or-nothing: an unavailable or inconsistent observation throws `AnkiSyncAbort` and the run changes no cards, because a note absent from the snapshot is read as absent from Anki. These exceptions are consumed only by `AnkiSyncService.syncVault`.
 
 ## Triggers
 
@@ -103,16 +103,28 @@ Only `anki_note_id` is written or removed in a vault file. Creation/recovery use
 anki_note_id: 1234567890   # collection note id (epoch-millis Long)
 ```
 
-The id is an Anki *collection's* note id, which AnkiWeb preserves when syncing a collection between AnkiDroid and Anki desktop. A note first pushed through one transport updates through the other only after the two Anki collections share that identity. A confirmed absence in the active collection follows the same re-add path as deletion; an unavailable identity observation stops that note without mutation. If two eligible vault notes claim one ID, discovery stops before any card mutation.
+The id is an Anki *collection's* note id, which AnkiWeb preserves when syncing a collection between AnkiDroid and Anki desktop. A note first pushed through one transport updates through the other only after the two Anki collections share that identity. A linked id absent from the active collection is reported as missing, never re-added automatically (see below). If two eligible vault notes claim one ID, discovery stops before any card mutation.
 
 ### Update vs. first push
 
-| `anki_note_id` present? | Note exists in Anki? | Action |
+Every run starts from one complete `snapshot` of the collection and writes only differences, so its native cost scales with what changed, not with the vault (measured 2026-11-07 on the Moto G45: the bulk read takes about 0.5 s for 426 notes; the former per-note path took about 25 s for an unchanged vault).
+
+| `anki_note_id` present? | In the snapshot? | Action |
 |---|---|---|
 | No | — | `addNote` → write ID back to frontmatter |
-| Yes | Yes | `updateNote` (fields + tags), then move the card if its deck changed |
-| Yes | Confirmed no (deleted / collection never synced) | `addNote` → overwrite ID in frontmatter |
-| Yes | Unknown / unavailable | Fail that note without adding or updating |
+| Yes | Yes, fields/tags and deck match | nothing (`unchanged`) |
+| Yes | Yes, but differs | `updateNote` only if fields/tags differ; `moveToDeck` only if the deck differs |
+| Yes | No | reported in `missing`; re-created only on confirmation |
+| Snapshot unavailable | — | the run stops; no card changes |
+
+**Why missing cards are not re-created.** Nimeesh creates, edits and deletes cards only from Obsidian. A missing card was therefore never deliberately deleted in Anki: it is either lost or still travelling through AnkiWeb from the other device. Re-creating an undelivered card makes a duplicate, which is how the 11 duplicates observed on 2026-11-07 arose. Only Nimeesh can tell the cases apart, so the UI asks, and the CLI requires `--recreate-missing`.
+
+**Collection reconciliation (whole-vault UI syncs only).** An Interest-owned card is one whose front carries this vault's `obsidian://open` source link. An owned card that no current eligible note or collection withdrawal links is either:
+
+- a **duplicate**, when its source note links a different card that is present. It is retired automatically through the source-guarded `retireNote`; the note keeps its card; or
+- an **orphan**, otherwise: its note was deleted, is no longer a Problem Note, or has not reached this device through Obsidian Sync yet. One device cannot distinguish these, so orphans are offered for confirmation.
+
+A file-bounded run never classifies unreferenced cards, because its notes are a subset of the vault. Confirmations go through `AnkiSyncService.resolve`, which re-reads the vault and the collection: a card that arrived meanwhile is not re-created, and an orphan a current note links again is not removed. Cards without this vault's source link are never touched.
 
 ## Deck mapping
 
@@ -172,7 +184,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 - Endpoint default `http://127.0.0.1:8765`, overridable via an `## AnkiConnect` section in `Interesting/System/integrations.md` (`url: http://…`) — hand-edited; no in-app editor. A LAN URL lets an Android build push to a desktop Anki.
 - Request shape: `POST {action, version: 6, params}` → `{result, error}`; HTTP status is always 200, failures arrive in `error`.
 - `addNote` uses `options.allowDuplicate: true` — duplicate policy stays Interest's (one card per vault note via `anki_note_id`).
-- `noteExists` reads `notesInfo`: a missing id comes back as an **empty object** (`false`); transport/protocol failure returns `null`.
+- `snapshot` reads `findNotes` (`note:Basic`), then `notesInfo` and `cardsInfo` for every result; a count mismatch or malformed entry aborts the run.
 - `Connection: close` is forced — AnkiConnect closes the socket after each response without advertising it, so a reused keep-alive connection breaks every second request.
 - The wire contract is pinned by `test/anki_connect_transport_test.dart` against a fake server; the sync core by `test/anki_sync_service_test.dart`.
 
@@ -188,7 +200,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 | `requestPermission` | — | `bool` (true if already granted, else requests via the Activity and resolves on the result) |
 | `addNote` | `deckName, front, back, tags` | Positive `Long` noteId, or explicit error |
 | `updateNote` | `noteId, front, back, tags` | `bool` |
-| `noteExists` | `noteId` | `bool`; unavailable or invalid observation is an error |
+| `snapshotNotes` | — | `{notes: [{id, front, back, tags, decks}], elapsed_ms}`; any inconsistency is an error, never a partial list |
 | `moveNoteToDeck` | `noteId, deckName` | `bool` |
 | `retireNote` | `noteId, expectedSourceUri` | `true` only after verified absence; source mismatch is an error |
 
@@ -207,6 +219,8 @@ adb -s DEVICE install -r ../build/app/outputs/apk/androidTest/debug/app-debug-an
 adb -s DEVICE shell am instrument -w -e deckName Vocabulary dev.interest.app.test/dev.interest.app.AnkiBridgeDeviceChecks
 adb -s DEVICE uninstall dev.interest.app.test
 ```
+
+`-e mode snapshot` is read-only: it reads the whole collection through `snapshotNotes`, cross-checks every note's fields and decks against per-note provider reads, and reports the note count and bulk-read time. On 2026-11-07 it passed against AnkiDroid 2.25.3 with 426 notes in 538 ms.
 
 Install the matching debug app first. Check `INSTRUMENTATION_RESULT: result=PASS`; the shell command's exit code alone is insufficient. On 2026-10-14, these checks passed on the user's Moto G45 with AnkiDroid 2.25.1 against the existing Vocabulary deck. Both temporary notes were verified absent, and the test package was removed. The updated Interest app remains installed with its permission retained. Whole-vault sync and first-time permission/deep-link delivery were not invoked by these device checks.
 

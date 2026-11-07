@@ -31,10 +31,49 @@ class AnkiSyncController {
         scanned.notes,
         vaultPath,
         retirements: scanned.retirements,
+        reconcileCollection: true,
       );
     } catch (error) {
       return AnkiSyncResult.incomplete(
         errors: ['Anki sync could not start: $error'],
+      );
+    }
+  }
+
+  /// Applies a confirmation of [AnkiSyncResult.missing] / [orphans] against a
+  /// fresh whole-vault discovery, so nothing acts on a stale view.
+  static Future<AnkiSyncResult?> resolve(
+    AnkiTransport transport, {
+    List<AnkiMissingCard> recreate = const [],
+    List<AnkiOrphanCard> retire = const [],
+  }) async {
+    try {
+      final vaultPath = await VaultService.getVaultPath();
+      if (vaultPath == null) return null;
+      final config = await IntegrationsConfigService.load(vaultPath);
+      final scanned = await AnkiProblemNoteScanner.scan(
+        vaultPath,
+        excludedFolders: config.excludedFolders,
+      );
+      if (!scanned.isComplete) {
+        return AnkiSyncResult.incomplete(
+          errors: [
+            'Problem Note discovery did not complete; no cards were changed.',
+            ...scanned.errors,
+          ],
+        );
+      }
+      return await AnkiSyncService.resolve(
+        transport,
+        scanned.notes,
+        vaultPath,
+        retirements: scanned.retirements,
+        recreate: recreate,
+        retire: retire,
+      );
+    } catch (error) {
+      return AnkiSyncResult.incomplete(
+        errors: ['Anki confirmation could not start: $error'],
       );
     }
   }

@@ -11,7 +11,7 @@ It exists because plain Markdown files are the durable artifact and apps are not
 
 ## The Problem Note
 
-A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card for every such note without a `collection:` key, even when either side (or both) is still empty: the card front always carries the note's title link, so a blank template is already a reviewable problem. Collection membership opts out of Anki even if the body still has `***` or a deck category.
+A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card for every such note without a `collection:` key, even when either side (or both) is still empty: the card front always carries the note's title link, so a blank template is already a reviewable problem. Cards are created, changed and deleted only from Obsidian: each sync reads the Anki collection once, writes only what differs, removes duplicate cards automatically, and asks before re-creating a missing card or removing a card whose note is gone. Collection membership opts out of Anki even if the body still has `***` or a deck category.
 
 ```markdown
 What makes Interest a good Obsidian-to-Anki bridge?

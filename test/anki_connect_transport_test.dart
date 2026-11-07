@@ -265,32 +265,52 @@ void main() {
     );
   });
 
-  group('noteExists', () {
-    test(
-      'malformed or mismatched identity is unknown rather than missing',
-      () async {
-        anki.handlers['notesInfo'] = (_) => [];
-        expect(await transport.noteExists(123), isNull);
-        anki.handlers['notesInfo'] =
-            (_) => [
-              {'noteId': 456},
-            ];
-        expect(await transport.noteExists(123), isNull);
-      },
-    );
-    test('empty object means missing (AnkiConnect convention)', () async {
-      anki.handlers['notesInfo'] = (_) => [<String, Object?>{}];
-      expect(await transport.noteExists(123), isFalse);
-    });
-
-    test('populated info means present', () async {
+  group('snapshot', () {
+    test('reads every Basic note with fields, tags and card decks', () async {
+      anki.handlers['findNotes'] = (_) => [1, 2];
       anki.handlers['notesInfo'] =
           (_) => [
-            {'noteId': 123, 'modelName': 'Basic'},
+            {
+              'noteId': 1,
+              'fields': {
+                'Front': {'value': 'F1'},
+                'Back': {'value': 'B1'},
+              },
+              'tags': ['a', 'b'],
+              'cards': [11],
+            },
+            {
+              'noteId': 2,
+              'fields': {
+                'Front': {'value': 'F2'},
+                'Back': {'value': ''},
+              },
+              'tags': <String>[],
+              'cards': [21],
+            },
           ];
-      expect(await transport.noteExists(123), isTrue);
-      final params = anki.requests.single['params'] as Map<String, dynamic>;
-      expect(params['notes'], [123]);
+      anki.handlers['cardsInfo'] =
+          (_) => [
+            {'cardId': 11, 'note': 1, 'deckName': 'English'},
+            {'cardId': 21, 'note': 2, 'deckName': 'Default'},
+          ];
+      final snapshot = await transport.snapshot();
+      expect(snapshot.notes.keys, {1, 2});
+      expect(snapshot.notes[1]!.holds('F1', 'B1', ['b', 'a']), isTrue);
+      expect(snapshot.notes[1]!.isInDeck('english'), isTrue);
+      expect(snapshot.notes[2]!.back, '');
+      expect(anki.requests.first['params'], {'query': 'note:Basic'});
     });
+
+    test(
+      'an incomplete observation aborts instead of implying absence',
+      () async {
+        anki.handlers['findNotes'] = (_) => [1, 2];
+        anki.handlers['notesInfo'] = (_) => [<String, Object?>{}];
+        await expectLater(transport.snapshot(), throwsA(isA<AnkiSyncAbort>()));
+        anki.handlers['findNotes'] = (_) => throw 'collection unavailable';
+        await expectLater(transport.snapshot(), throwsA(isA<AnkiSyncAbort>()));
+      },
+    );
   });
 }

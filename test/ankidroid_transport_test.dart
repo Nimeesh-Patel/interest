@@ -66,7 +66,10 @@ void main() {
           message: 'AnkiDroid note query unavailable',
         );
       });
-      expect(await AnkiDroidTransport().noteExists(555), isNull);
+      await expectLater(
+        AnkiDroidTransport().snapshot(),
+        throwsA(isA<AnkiSyncAbort>()),
+      );
       await expectLater(
         AnkiDroidTransport().retireNote(
           555,
@@ -81,7 +84,10 @@ void main() {
     'an empty native response is an unknown identity, not a missing card',
     () async {
       messenger.setMockMethodCallHandler(channel, (_) async => null);
-      expect(await AnkiDroidTransport().noteExists(555), isNull);
+      await expectLater(
+        AnkiDroidTransport().snapshot(),
+        throwsA(isA<AnkiSyncAbort>()),
+      );
       expect(
         await AnkiDroidTransport().retireNote(
           555,

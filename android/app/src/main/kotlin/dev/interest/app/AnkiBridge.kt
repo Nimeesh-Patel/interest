@@ -154,6 +154,8 @@ class AnkiBridge(private val activity: Activity) {
                 result.success(fieldsOk && tagsOk)
             }
 
+            "snapshotNotes" -> result.success(snapshotNotes())
+
             "noteExists" -> {
                 val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
                 result.success(readNoteFront(noteId) != null)
@@ -212,6 +214,69 @@ class AnkiBridge(private val activity: Activity) {
             check(!c.moveToNext()) { "AnkiDroid returned ambiguous note identity" }
             return fields.substringBefore('\u001f')
         }
+    }
+
+    /// One bulk observation of every "Basic" note: identity, both fields, tags
+    /// and the deck of each card. Two provider searches regardless of
+    /// collection size. Any inconsistency fails the whole observation, because
+    /// the sync core reads a note absent from this snapshot as absent from the
+    /// collection; a partial view must never look like absence.
+    private fun snapshotNotes(): Map<String, Any?> {
+        val started = System.nanoTime()
+        val api = AddContentApi(ctx)
+        val modelId = getBuiltInBasicModel(api)
+            ?: throw IllegalStateException("No \"Basic\" note type in AnkiDroid")
+        val deckNames = api.getDeckList()
+            ?: throw IllegalStateException("Could not list AnkiDroid decks")
+        val search = "mid:$modelId"
+        val notes = linkedMapOf<Long, MutableMap<String, Any?>>()
+        val noteCursor = ctx.contentResolver.query(
+            FlashCardsContract.Note.CONTENT_URI,
+            arrayOf(FlashCardsContract.Note._ID, FlashCardsContract.Note.FLDS, FlashCardsContract.Note.TAGS),
+            search, null, null,
+        ) ?: throw IllegalStateException("AnkiDroid note search unavailable")
+        noteCursor.use { c ->
+            val idIndex = c.getColumnIndexOrThrow(FlashCardsContract.Note._ID)
+            val fieldsIndex = c.getColumnIndexOrThrow(FlashCardsContract.Note.FLDS)
+            val tagsIndex = c.getColumnIndexOrThrow(FlashCardsContract.Note.TAGS)
+            while (c.moveToNext()) {
+                val id = c.getLong(idIndex)
+                check(id > 0 && id !in notes) { "AnkiDroid returned an invalid or repeated note identity" }
+                val fields = (c.getString(fieldsIndex)
+                    ?: throw IllegalStateException("AnkiDroid returned no fields for note $id"))
+                    .split('\u001f')
+                check(fields.size == 2) { "Basic note $id does not have exactly two fields" }
+                notes[id] = mutableMapOf(
+                    "id" to id, "front" to fields[0], "back" to fields[1],
+                    "tags" to (c.getString(tagsIndex) ?: ""), "decks" to mutableListOf<String>(),
+                )
+            }
+            check(notes.size == c.count) { "AnkiDroid note search was truncated" }
+        }
+        val cardCursor = ctx.contentResolver.query(
+            Uri.withAppendedPath(FlashCardsContract.AUTHORITY_URI, "cards"),
+            arrayOf(FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID),
+            search, null, null,
+        ) ?: throw IllegalStateException("AnkiDroid card search unavailable")
+        cardCursor.use { c ->
+            val noteIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.NOTE_ID)
+            val deckIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)
+            while (c.moveToNext()) {
+                val note = notes[c.getLong(noteIndex)]
+                    ?: throw IllegalStateException("AnkiDroid card search returned a card outside the note search")
+                val deck = deckNames[c.getLong(deckIndex)]
+                    ?: throw IllegalStateException("AnkiDroid card is in an unlisted deck")
+                @Suppress("UNCHECKED_CAST")
+                (note["decks"] as MutableList<String>).add(deck)
+            }
+        }
+        check(notes.values.all { (it["decks"] as List<*>).isNotEmpty() }) {
+            "An AnkiDroid note has no observable cards"
+        }
+        return mapOf(
+            "notes" to notes.values.toList(),
+            "elapsed_ms" to (System.nanoTime() - started) / 1_000_000,
+        )
     }
 
     private fun getBuiltInBasicModel(api: AddContentApi): Long? {

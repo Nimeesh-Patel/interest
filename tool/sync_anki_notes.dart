@@ -11,16 +11,21 @@ const _usage = '''
 Target selected vault Problem Notes through Interest's canonical Anki renderer.
 
 Usage:
-  dart run tool/sync_anki_notes.dart --vault <path> --file <relative-note.md> [--file ...] [--url <AnkiConnect URL>]
+  dart run tool/sync_anki_notes.dart --vault <path> --file <relative-note.md> [--file ...] [--url <AnkiConnect URL>] [--recreate-missing]
 
 The command is intentionally file-bounded. Use Interest's UI for a whole-vault
 sync. Each --file path must resolve inside the supplied vault.
+
+A selected note whose linked card is absent from Anki is listed, not
+re-created: it may still be travelling through AnkiWeb from another device.
+Pass --recreate-missing after confirming the card is genuinely lost.
 ''';
 
 Future<void> main(List<String> args) async {
   String? vaultArgument;
   String? url;
   final requestedFiles = <String>[];
+  var recreateMissing = false;
 
   for (var index = 0; index < args.length; index++) {
     switch (args[index]) {
@@ -32,6 +37,9 @@ Future<void> main(List<String> args) async {
         break;
       case '--url':
         url = _valueAfter(args, ++index, '--url');
+        break;
+      case '--recreate-missing':
+        recreateMissing = true;
         break;
       case '--help':
       case '-h':
@@ -108,7 +116,7 @@ Future<void> main(List<String> args) async {
     _fail('AnkiConnect denied permission.');
   }
 
-  final result = await AnkiSyncService.syncVault(
+  var result = await AnkiSyncService.syncVault(
     transport,
     selected,
     vault.path,
@@ -116,8 +124,40 @@ Future<void> main(List<String> args) async {
   );
   stdout.writeln(
     'synced ${selected.length} notes '
-    '(${result.added} added, ${result.updated} updated, ${result.retired} removed, ${result.failed} failed)',
+    '(${result.added} added, ${result.updated} updated, ${result.unchanged} unchanged, '
+    '${result.retired} removed, ${result.failed} failed)',
   );
+  if (result.missing.isNotEmpty && recreateMissing) {
+    final missingCount = result.missing.length;
+    final rescanned = await AnkiProblemNoteScanner.scan(
+      vault.path,
+      excludedFolders: config.excludedFolders,
+    );
+    if (!rescanned.isComplete) {
+      _fail(
+        'Rescan before re-creation did not complete: ${rescanned.errors.join('; ')}',
+      );
+    }
+    result = await AnkiSyncService.resolve(
+      transport,
+      rescanned.notes,
+      vault.path,
+      retirements: rescanned.retirements,
+      recreate: result.missing,
+    );
+    stdout.writeln(
+      're-created ${result.added} of $missingCount missing cards '
+      '(${result.unchanged} had arrived, ${result.failed} failed)',
+    );
+  } else if (result.missing.isNotEmpty) {
+    stdout.writeln(
+      '${result.missing.length} linked cards are absent from Anki and were not '
+      're-created (rerun with --recreate-missing if they are lost):',
+    );
+    for (final item in result.missing) {
+      stdout.writeln('  ${item.sourceFile} (anki_note_id ${item.ankiNoteId})');
+    }
+  }
   for (final error in result.errors) {
     stderr.writeln(error);
   }

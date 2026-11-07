@@ -148,20 +148,57 @@ class AnkiConnectTransport extends AnkiTransport {
   }
 
   @override
-  Future<bool?> noteExists(int noteId) async {
+  Future<AnkiCollectionSnapshot> snapshot() async {
     try {
-      final result = await _invoke('notesInfo', {
-        'notes': [noteId],
-      });
-      if (result is! List || result.length != 1 || result.single is! Map) {
-        return null;
+      final ids = await _invoke('findNotes', {'query': 'note:Basic'});
+      if (ids is! List) throw const AnkiSyncAbort('findNotes returned no list');
+      final infos = await _invoke('notesInfo', {'notes': ids});
+      if (infos is! List || infos.length != ids.length) {
+        throw const AnkiSyncAbort('notesInfo did not return every note');
       }
-      // Missing notes come back as empty objects, not an error.
-      final info = result.first;
-      if ((info as Map).isEmpty) return false;
-      return info['noteId'] == noteId ? true : null;
-    } catch (_) {
-      return null;
+      final cardIds = <int>[];
+      final partial = <int, (String, String, Set<String>)>{};
+      for (final info in infos) {
+        if (info is! Map || info['noteId'] is! int) {
+          throw const AnkiSyncAbort('notesInfo returned a malformed note');
+        }
+        final fields = info['fields'] as Map;
+        String field(String name) => ((fields[name] as Map)['value'] as String);
+        partial[info['noteId'] as int] = (
+          field('Front'),
+          field('Back'),
+          (info['tags'] as List).cast<String>().toSet(),
+        );
+        cardIds.addAll((info['cards'] as List).cast<int>());
+      }
+      final cards = await _invoke('cardsInfo', {'cards': cardIds});
+      if (cards is! List || cards.length != cardIds.length) {
+        throw const AnkiSyncAbort('cardsInfo did not return every card');
+      }
+      final decks = <int, Set<String>>{};
+      for (final card in cards) {
+        if (card is! Map ||
+            card['note'] is! int ||
+            card['deckName'] is! String) {
+          throw const AnkiSyncAbort('cardsInfo returned a malformed card');
+        }
+        decks.putIfAbsent(card['note'] as int, () => {}).add(card['deckName']);
+      }
+      return AnkiCollectionSnapshot({
+        for (final MapEntry(key: id, value: (front, back, tags))
+            in partial.entries)
+          id: AnkiNoteState(
+            id: id,
+            front: front,
+            back: back,
+            tags: tags,
+            decks: decks[id] ?? const {},
+          ),
+      });
+    } on AnkiSyncAbort {
+      rethrow;
+    } catch (error) {
+      throw AnkiSyncAbort('Could not read the Anki desktop collection: $error');
     }
   }
 
