@@ -23,7 +23,7 @@ This file is a **constraint registry**, not a narrative. Keep it precise over co
 
 **1. Markdown is the database.** No rival editable store for authored Markdown. Anki owns scheduling and review state; a user-requested AnkiDroid JSON export is dated evidence, not a store. WHY: two owners of authored knowledge diverge without a canonical answer.
 
-**2. The sync's only vault write is `anki_note_id`.** Through `patchFrontmatterField` / `MarkdownFile`, preserving the body byte for byte. Interest creates no other vault files except the device-local `.interest/anki-sync.lock`. WHY: an earlier version rebuilt note bodies from its own model and destroyed prose, including a Problem Note's `***` halves.
+**2. The sync's only vault write is `anki_note_id`.** Through `patchFrontmatterField` / `MarkdownFile`, preserving the body byte for byte. Interest creates no other vault files except, in the device-local `.interest/` folder, the sync lock and `link-targets.json`, a disposable cache rebuilt by every whole-vault sync (`LinkTargetCache`). WHY: an earlier version rebuilt note bodies from its own model and destroyed prose, including a Problem Note's `***` halves.
 
 **3. Structural roles and Anki eligibility are separate.** A Problem Note is the first qualifying `***` split (empty sides allowed); `collection:` presence opts a note out of Anki and withdraws a linked card. `category:` names the deck (absent or empty → Default; a singleton text list is one deck; anything ambiguous is refused). WHY: changing collection identity must withdraw the projection, not move it to Default.
 
@@ -62,7 +62,7 @@ Expected failure crosses a service boundary as an explicit result, including whe
 
 **Anki state observation** — read-only. It must not invoke the scheduler, answer cards, select decks or call sync. Save uses the chosen document URI and verifies written bytes. Full contract: docs/anki.md.
 
-**Deep link (Android)** — `interest://sync-anki` is a VIEW intent on `MainActivity` (`launchMode=singleTop`): cold start stores `pendingSyncAnki`; a running app receives `onNewIntent` → `syncAnki`. `HomeScreen` syncs immediately on it and previews on a normal open. A headless trampoline was tried and never synced on-device; don't reintroduce it.
+**Deep link (Android)** — `interest://sync-anki` is a VIEW intent on `MainActivity` (`launchMode=singleTop`): cold start stores `pendingSyncAnki` and `pendingNote`; a running app receives `onNewIntent` → `syncAnki(note)`. With `?note=` `HomeScreen` syncs only that note (`AnkiSyncController.syncNote`) and a clean result reopens the Anki app; without it, the whole vault; a normal open previews. The one-note path must never pass `reconcileCollection: true` and must read link targets only through `LinkTargetCache`. A headless trampoline was tried and never synced on-device; don't reintroduce it.
 
 **State management** — `setState` only.
 

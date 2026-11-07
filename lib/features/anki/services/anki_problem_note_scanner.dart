@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/current_vault_content.dart';
@@ -48,57 +50,102 @@ class AnkiProblemNoteScanner {
       final scanned = await CurrentVaultContent.scan(vaultPath);
       errors.addAll(scanned.errors);
       for (final entry in scanned.files) {
-        try {
-          final content = await readPreservingUtf8(entry);
-          final split = splitFrontmatter(
-            content.startsWith('\uFEFF') ? content.substring(1) : content,
-          );
-          final yaml = parseYamlMap(split.frontmatter);
-          if (yaml == null && split.frontmatter?.trim().isNotEmpty == true) {
-            throw const FormatException(
-              'frontmatter must be a valid YAML mapping',
-            );
-          }
-          final ankiNoteId = yaml?['anki_note_id']?.toString();
-          if (yaml?.containsKey('collection') == true) {
-            if (ankiNoteId != null && ankiNoteId.isNotEmpty) {
-              retirements.add(
-                AnkiNoteRetirement(
-                  sourcePath: entry.path,
-                  sourceFile: p.basename(entry.path),
-                  ankiNoteId: ankiNoteId,
-                ),
-              );
-            }
-            continue;
-          }
-          if (yaml != null && yaml['exclude_resurface'] == true) continue;
-          final fb = splitFrontBack(split.body);
-          if (fb == null) continue; // not a problem note
-          notes.add(
-            AnkiProblemNote(
-              sourcePath: entry.path,
-              sourceFile: p.basename(entry.path),
-              front: fb.front,
-              back: fb.back,
-              category: _deckCategory(yaml?['category']),
-              tags:
-                  yaml != null && yaml['tags'] is List
-                      ? (yaml['tags'] as List).whereType<String>().toList()
-                      : const [],
-              ankiNoteId: ankiNoteId,
-              sourceContent: content,
-            ),
-          );
-        } catch (error) {
-          final relative = p.relative(entry.path, from: vaultPath);
-          errors.add('Could not read Problem Note "$relative": $error');
-        }
+        await _read(vaultPath, entry, notes, retirements, errors);
       }
     } catch (error) {
       errors.add('Problem Note discovery failed: $error');
     }
+    return _withoutConflicts(vaultPath, notes, retirements, errors);
+  }
 
+  /// Discovers only [paths] (absolute, inside [vaultPath]), for the edit
+  /// cycle: one note changed in Obsidian, so only it is read. A path that is
+  /// not a current eligible note is an error, never a silent skip. Duplicate
+  /// identities are checked among [paths] only; the whole-vault [scan] owns
+  /// the vault-wide check.
+  static Future<AnkiProblemNoteScanResult> scanPaths(
+    String vaultPath,
+    List<String> paths,
+  ) async {
+    final notes = <AnkiProblemNote>[];
+    final retirements = <AnkiNoteRetirement>[];
+    final errors = <String>[];
+    for (final path in paths) {
+      final relative = p.relative(path, from: vaultPath);
+      if (!path.toLowerCase().endsWith('.md') ||
+          !CurrentVaultContent.isEligible(vaultPath, path)) {
+        errors.add('"$relative" is not a current note of this vault');
+        continue;
+      }
+      final file = File(path);
+      if (!await file.exists()) {
+        errors.add('"$relative" does not exist on this device yet');
+        continue;
+      }
+      await _read(vaultPath, file, notes, retirements, errors);
+    }
+    return _withoutConflicts(vaultPath, notes, retirements, errors);
+  }
+
+  static Future<void> _read(
+    String vaultPath,
+    File entry,
+    List<AnkiProblemNote> notes,
+    List<AnkiNoteRetirement> retirements,
+    List<String> errors,
+  ) async {
+    try {
+      final content = await readPreservingUtf8(entry);
+      final split = splitFrontmatter(
+        content.startsWith('﻿') ? content.substring(1) : content,
+      );
+      final yaml = parseYamlMap(split.frontmatter);
+      if (yaml == null && split.frontmatter?.trim().isNotEmpty == true) {
+        throw const FormatException('frontmatter must be a valid YAML mapping');
+      }
+      final ankiNoteId = yaml?['anki_note_id']?.toString();
+      if (yaml?.containsKey('collection') == true) {
+        if (ankiNoteId != null && ankiNoteId.isNotEmpty) {
+          retirements.add(
+            AnkiNoteRetirement(
+              sourcePath: entry.path,
+              sourceFile: p.basename(entry.path),
+              ankiNoteId: ankiNoteId,
+            ),
+          );
+        }
+        return;
+      }
+      if (yaml != null && yaml['exclude_resurface'] == true) return;
+      final fb = splitFrontBack(split.body);
+      if (fb == null) return; // not a problem note
+      notes.add(
+        AnkiProblemNote(
+          sourcePath: entry.path,
+          sourceFile: p.basename(entry.path),
+          front: fb.front,
+          back: fb.back,
+          category: _deckCategory(yaml?['category']),
+          tags:
+              yaml != null && yaml['tags'] is List
+                  ? (yaml['tags'] as List).whereType<String>().toList()
+                  : const [],
+          ankiNoteId: ankiNoteId,
+          sourceContent: content,
+        ),
+      );
+    } catch (error) {
+      final relative = p.relative(entry.path, from: vaultPath);
+      errors.add('Could not read Problem Note "$relative": $error');
+    }
+  }
+
+  static AnkiProblemNoteScanResult _withoutConflicts(
+    String vaultPath,
+    List<AnkiProblemNote> notes,
+    List<AnkiNoteRetirement> retirements,
+    List<String> errors,
+  ) {
     final candidateCount = notes.length;
     final byExternalId = <String, List<String>>{};
     for (final note in notes) {

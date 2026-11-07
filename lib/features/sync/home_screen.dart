@@ -21,7 +21,10 @@ enum _Phase { checking, ready, syncing, unavailable, failed }
 /// Interest's one screen, ordered like the journey it serves: notes are
 /// written in Obsidian, the sync panel brings Anki in step, the review panel
 /// hands over to Anki for studying. Opening the app previews; the Obsidian
-/// ribbon (`interest://sync-anki`) syncs straight away.
+/// ribbon (`interest://sync-anki`) syncs straight away. When the link names
+/// the note being edited (`?note=`), only that note is synced and a clean
+/// result hands straight back to the Anki app: the edit cycle of a review
+/// session should cost seconds, not a whole-vault sync and two taps.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -46,22 +49,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<int> _busy = {};
   bool _showChanged = false;
 
+  /// The note a one-note sync is about, vault-relative; null for a
+  /// whole-vault preview or sync.
+  String? _note;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _deeplink.setMethodCallHandler((call) async {
-      if (call.method == 'syncAnki' && mounted) _sync();
+      if (call.method != 'syncAnki' || !mounted) return;
+      final note = call.arguments;
+      note is String ? _syncNote(note) : _sync();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      bool fromRibbon = false;
+      Object? initial;
       try {
-        fromRibbon =
-            await _deeplink.invokeMethod<bool>('getInitialSyncAnki') ?? false;
+        initial = await _deeplink.invokeMethod<Object>('getInitialSyncAnki');
       } on MissingPluginException {
-        fromRibbon = false; // desktop builds have no deep-link channel
+        initial = null; // desktop builds have no deep-link channel
       }
-      fromRibbon ? _sync() : _preview();
+      final link = initial is Map ? initial : const {};
+      final note = link['note'];
+      if (link['sync'] != true) {
+        _preview();
+      } else if (note is String) {
+        _syncNote(note);
+      } else {
+        _sync();
+      }
     });
   }
 
@@ -110,7 +126,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _preview() async {
     await _loadLocal();
-    setState(() => _phase = _Phase.checking);
+    setState(() {
+      _phase = _Phase.checking;
+      _note = null;
+    });
     if (!await _ready()) return;
     final result = await AnkiSyncController.sync(
       _target.transport,
@@ -122,7 +141,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _sync() async {
     if (_phase == _Phase.syncing) return;
     await _loadLocal();
-    setState(() => _phase = _Phase.syncing);
+    setState(() {
+      _phase = _Phase.syncing;
+      _note = null;
+    });
     if (!await _ready()) return;
     final result = await AnkiSyncController.sync(_target.transport);
     if (result != null && result.completed) {
@@ -130,6 +152,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _last = await SyncMemory.lastSync();
     }
     _show(result);
+  }
+
+  /// The edit cycle: one note changed in Obsidian. A clean result returns to
+  /// the Anki app at once; anything that needs Nimeesh (an error, a missing
+  /// card to decide on) keeps Interest open to show it.
+  Future<void> _syncNote(String note) async {
+    if (_phase == _Phase.syncing) return;
+    await _loadLocal();
+    setState(() {
+      _phase = _Phase.syncing;
+      _note = note;
+    });
+    if (!await _ready()) return;
+    final result = await AnkiSyncController.syncNote(_target.transport, note);
+    if (result != null && result.completed) {
+      await SyncMemory.recordSync(result);
+      _last = await SyncMemory.lastSync();
+    }
+    _show(result);
+    if (result != null && result.isSuccessful && !result.needsDecision) {
+      await _openAnki();
+    }
   }
 
   void _show(AnkiSyncResult? result) {
@@ -316,7 +360,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         Icons.sync_rounded,
         AppColors.accent,
         'Syncing',
-        'Writing only the cards that changed.',
+        _note == null
+            ? 'Writing only the cards that changed.'
+            : 'Updating the card for ${p.basenameWithoutExtension(_note!)}.',
       ),
       _Phase.unavailable => (
         Icons.block_rounded,
@@ -341,6 +387,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? '1 change to sync'
             : '${state.pending} changes to sync',
         _changeSummary(state),
+      ),
+      _Phase.ready when _note != null => (
+        Icons.check_circle_outline_rounded,
+        AppColors.success,
+        state != null && state.added > 0
+            ? 'Card created'
+            : 'Card up to date',
+        '${p.basenameWithoutExtension(_note!)} matches its note in '
+            '${_target.name}. The rest of the vault was not checked; pull down '
+            'to check everything.',
       ),
       _Phase.ready => (
         Icons.check_circle_outline_rounded,

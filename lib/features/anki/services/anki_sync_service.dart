@@ -4,6 +4,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
 
 import '../../../shared/markdown/current_vault_content.dart';
+import '../../../shared/markdown/link_target_cache.dart';
 import '../../../shared/markdown/link_targets.dart';
 import '../../../shared/markdown/md_io.dart';
 import '../../../shared/markdown/md_utils.dart';
@@ -168,6 +169,7 @@ class AnkiSyncService {
     List<AnkiNoteRetirement> retirements = const [],
     bool reconcileCollection = false,
     bool preview = false,
+    Map<String, String>? linkTargets,
   }) => _leased(
     vaultPath,
     problemNotes.length + retirements.length,
@@ -178,6 +180,7 @@ class AnkiSyncService {
       retirements: retirements,
       reconcileCollection: reconcileCollection,
       preview: preview,
+      suppliedTargets: linkTargets,
     ),
   );
 
@@ -239,8 +242,9 @@ class AnkiSyncService {
     List<AnkiProblemNote> problemNotes,
     List<AnkiNoteRetirement> retirements,
     String vaultPath,
-    int operations,
-  ) async {
+    int operations, {
+    Map<String, String>? linkTargets,
+  }) async {
     final ineligible =
         [
               ...problemNotes.map((note) => note.sourcePath),
@@ -264,26 +268,30 @@ class AnkiSyncService {
     }
     // Built once per run: an alias like [[speed of progress]] must reach the
     // note that declares it, not a note of that name that does not exist.
-    final builtLinkTargets = await buildLinkTargets(vaultPath);
-    if (!builtLinkTargets.isComplete) {
-      return (
-        null,
-        AnkiSyncResult.incomplete(
-          skipped: operations,
-          errors: [
-            'Wikilink-target discovery did not complete; no cards were changed.',
-            ...builtLinkTargets.errors,
-          ],
-        ),
-      );
+    // A one-note sync supplies the few targets its note needs instead
+    // ([LinkTargetCache]); every whole-vault build refreshes that cache.
+    var targets = linkTargets;
+    if (targets == null) {
+      final built = await buildLinkTargets(vaultPath);
+      if (!built.isComplete) {
+        return (
+          null,
+          AnkiSyncResult.incomplete(
+            skipped: operations,
+            errors: [
+              'Wikilink-target discovery did not complete; no cards were changed.',
+              ...built.errors,
+            ],
+          ),
+        );
+      }
+      targets = built.targets;
+      await LinkTargetCache.save(vaultPath, targets);
     }
     try {
       final snapshot = await transport.snapshot();
       return (
-        (
-          linkTargets: builtLinkTargets.targets,
-          present: Map.of(snapshot.notes),
-        ),
+        (linkTargets: targets, present: Map.of(snapshot.notes)),
         null,
       );
     } on AnkiSyncAbort catch (error) {
@@ -304,6 +312,7 @@ class AnkiSyncService {
     required List<AnkiNoteRetirement> retirements,
     required bool reconcileCollection,
     required bool preview,
+    Map<String, String>? suppliedTargets,
   }) async {
     final (prepared, stopped) = await _prepare(
       transport,
@@ -311,6 +320,7 @@ class AnkiSyncService {
       retirements,
       vaultPath,
       problemNotes.length + retirements.length,
+      linkTargets: suppliedTargets,
     );
     if (stopped != null) return stopped;
     final linkTargets = prepared!.linkTargets;

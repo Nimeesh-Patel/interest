@@ -65,7 +65,8 @@ Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFail
 
 | Trigger | Path |
 |---|---|
-| **`interest://sync-anki` deep link** (the primary path, fired by the Problem Notes plugin) | `MainActivity` (VIEW intent) → deeplink channel → `HomeScreen._sync` → `AnkiSyncController.sync(transport)`; the result appears on the home screen |
+| **`interest://sync-anki?note=<path>`** (the edit cycle, fired by the Problem Notes plugin with a note open) | `MainActivity` → deeplink channel → `HomeScreen._syncNote` → `AnkiSyncController.syncNote(transport, path)`; a clean result reopens the Anki app, anything needing a decision stays on the home screen |
+| **`interest://sync-anki`** (no note open, or the plugin's "Sync whole vault" command) | `MainActivity` (VIEW intent) → deeplink channel → `HomeScreen._sync` → `AnkiSyncController.sync(transport)`; the result appears on the home screen |
 | **Opening Interest** | `HomeScreen._preview` → `AnkiSyncController.sync(transport, preview: true)`: the same outcome computed without writing, so the home screen can say what a sync would change |
 | **Sync button** | `HomeScreen._sync`, the same path as the deep link |
 | **Per-card decision** | `HomeScreen._act` → `AnkiSyncController.resolve` for that one card, re-checked against a fresh scan and snapshot |
@@ -85,15 +86,19 @@ The transport is chosen by platform (`SyncTarget.forPlatform`): AnkiDroid on And
 `interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin. The plugin's sync button fires it, and Interest **opens to the foreground** and syncs there. Opening Interest any other way previews instead.
 
 ```
-interest://sync-anki  (VIEW intent on MainActivity, launchMode=singleTop)
-  ├─ cold start → onCreate sets pendingSyncAnki
-  │                Flutter pulls it once via deeplink.getInitialSyncAnki
-  └─ running app → onNewIntent → deeplink.invokeMethod("syncAnki")
-  → HomeScreen._sync()  (lib/features/sync/home_screen.dart)
-      SyncTarget.prepare: availability, then permission
-      AnkiSyncController.sync(transport)
+interest://sync-anki[?note=<vault-relative path>]  (VIEW intent, launchMode=singleTop)
+  ├─ cold start → onCreate sets pendingSyncAnki and pendingNote
+  │                Flutter pulls {sync, note} once via deeplink.getInitialSyncAnki
+  └─ running app → onNewIntent → deeplink.invokeMethod("syncAnki", note)
+  → note given:  HomeScreen._syncNote(note)
+      AnkiSyncController.syncNote: scanPaths([note]), LinkTargetCache.forTexts,
+      syncVault(subset, linkTargets:) against one complete snapshot
+      clean result → openApp() hands back to AnkiDroid
+  → no note:     HomeScreen._sync()  (whole vault, reconcileCollection: true)
       result, decisions and last sync shown on the home screen
 ```
+
+**The edit cycle.** In a review session a card looks wrong; its source link opens the note in Obsidian; the plugin's button saves the editor (Obsidian writes edits on a delay, Interest reads the file) and fires the link with `?note=`. Only that note is read. Its wikilinks resolve through `.interest/link-targets.json`, which every whole-vault target build rewrites; an entry is used only if its target file still exists, otherwise the link keeps its own text and Obsidian resolves it by name, so a stale cache can lose an alias but never point at a note that is gone. A one-note sync never classifies unreferenced cards and checks duplicate `anki_note_id`s only within itself: those need the whole vault, which opening Interest (a preview) or a whole-vault sync still provides. Measured on the phone (2026-11-08, ~415 notes): whole-vault sync 5.8 s inside the app, 7.4 s from the intent; one-note sync about 0.3–0.45 s inside the app, 1.1–1.6 s from the plugin tap until AnkiDroid is back in front. Both paths print their phase timings to logcat (`flutter` tag).
 
 The sync logic itself is unchanged from any other trigger; only *how it starts* differs. `AnkiBridge` (the AnkiDroid ContentProvider bridge) is registered on `MainActivity`; `MainActivity.onRequestPermissionsResult` forwards into `AnkiBridge.onRequestPermissionsResult`, so the first-run `READ_WRITE_DATABASE` grant completes through the normal Activity permission flow. `MainActivity` uses `launchMode=singleTop`, so a deep link to a running app arrives via `onNewIntent` rather than relaunching.
 
@@ -206,7 +211,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 | `moveNoteToDeck` | `noteId, deckName` | `bool` |
 | `retireNote` | `noteId, expectedSourceUri` | `true` only after verified absence; source mismatch is an error |
 
-**`dev.interest.app/deeplink`** (`MainActivity`): `getInitialSyncAnki` → `bool` (Flutter pulls a cold-start `interest://sync-anki` once); native→Flutter `syncAnki` invoked from `onNewIntent` when a running app receives the deep link.
+**`dev.interest.app/deeplink`** (`MainActivity`): `getInitialSyncAnki` → `{sync: bool, note: String?}` (Flutter pulls a cold-start `interest://sync-anki` once); native→Flutter `syncAnki(note)` invoked from `onNewIntent` when a running app receives the deep link, with the `?note=` path or null.
 
 Android implementation uses `AddContentApi` and `FlashCardsContract` from `com.github.ankidroid:Anki-Android:api-v1.1.0`, as pinned in `android/app/build.gradle.kts`.
 

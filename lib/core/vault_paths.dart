@@ -10,4 +10,9 @@ class VaultPaths {
 
   static String syncLock(String vaultPath) =>
       p.join(interestDir(vaultPath), 'anki-sync.lock');
+
+  /// Wikilink targets as the last whole-vault sync resolved them, so a
+  /// one-note sync need not read every note again for aliases.
+  static String linkTargets(String vaultPath) =>
+      p.join(interestDir(vaultPath), 'link-targets.json');
 }
