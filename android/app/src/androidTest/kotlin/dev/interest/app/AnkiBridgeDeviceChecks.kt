@@ -107,6 +107,10 @@ class AnkiBridgeDeviceChecks : Instrumentation() {
                 }
                 report.putString("notes", notes.size.toString())
                 report.putString("owned_notes", owned.toString())
+                val reviews = notes.sumOf { ((it as Map<*, *>)["reviews"] as Number).toLong() }
+                val reviewed = notes.count { ((it as Map<*, *>)["reviews"] as Number).toLong() > 0 }
+                report.putString("reviews_total", reviews.toString())
+                report.putString("notes_reviewed", reviewed.toString())
                 report.putString("snapshot_ms", snap["elapsed_ms"].toString())
                 report.putString("result", "PASS: bulk snapshot matches per-note reads; no mutations")
             } catch (e: Throwable) {

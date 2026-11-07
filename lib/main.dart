@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'screens/home_screen.dart';
-import 'core/vault_setup_screen.dart';
 import 'core/vault_service.dart';
+import 'core/vault_setup_screen.dart';
+import 'features/sync/home_screen.dart';
+import 'shared/constants/app_text_styles.dart';
 import 'shared/constants/app_theme.dart';
-import 'shared/widgets/progress.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,16 +24,21 @@ class InterestApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Interest',
+      debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       darkTheme: buildAppTheme(),
       themeMode: ThemeMode.dark,
       home: _StoragePermissionGate(
-        child: initialVaultPath == null ? const VaultSetupScreen() : const HomeScreen(),
+        child:
+            initialVaultPath == null
+                ? const VaultSetupScreen()
+                : const HomeScreen(),
       ),
     );
   }
 }
 
+/// Android needs All Files Access before the vault can be read at all.
 class _StoragePermissionGate extends StatefulWidget {
   final Widget child;
   const _StoragePermissionGate({required this.child});
@@ -76,43 +81,40 @@ class _StoragePermissionGateState extends State<_StoragePermissionGate>
   @override
   Widget build(BuildContext context) {
     if (_granted == null) {
-      return const Scaffold(body: LoadingState());
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_granted == true) return widget.child;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Storage Permission Required'),
-      ),
       body: SafeArea(
-        top: false,
         child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This app needs "All Files Access" to read and write Markdown notes '
-              'in your Obsidian vault folder.',
-              style: TextStyle(fontSize: 15),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Tap "Open Settings", enable "All Files Access" for this app, '
-              'then return here.',
-              style: TextStyle(fontSize: 14),
-            ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Permission.manageExternalStorage.request(),
-                child: const Text('Open Settings'),
+          padding: const EdgeInsets.all(Space.gutter),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Spacer(),
+              const Icon(
+                Icons.folder_open_rounded,
+                size: 40,
+                color: AppColors.accent,
               ),
-            ),
-          ],
+              const SizedBox(height: Space.lg),
+              Text('Allow access to your vault', style: AppTextStyles.title),
+              const SizedBox(height: Space.md),
+              Text(
+                'Interest reads your Obsidian notes to build Anki cards. '
+                'Android calls this All Files Access. Turn it on for '
+                'Interest, then come back.',
+                style: AppTextStyles.bodyMuted,
+              ),
+              const Spacer(flex: 2),
+              FilledButton(
+                onPressed: () => Permission.manageExternalStorage.request(),
+                child: const Text('Open Android settings'),
+              ),
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 }

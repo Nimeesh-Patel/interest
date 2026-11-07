@@ -22,9 +22,11 @@ class AnkiMissingCard {
   final String sourceFile;
   final int ankiNoteId;
 
-  /// The note's two sides as authored, so a confirmation shows the card.
+  /// The note's two sides as authored, and its deck, so a confirmation
+  /// shows the card.
   final String problem;
   final String conjecture;
+  final String deck;
 
   const AnkiMissingCard({
     required this.sourcePath,
@@ -32,6 +34,7 @@ class AnkiMissingCard {
     required this.ankiNoteId,
     this.problem = '',
     this.conjecture = '',
+    this.deck = 'Default',
   });
 
   String get title => p.basenameWithoutExtension(sourceFile);
@@ -53,15 +56,24 @@ class AnkiOrphanCard {
   final String problem;
   final String conjecture;
 
+  /// Decks holding its cards, and its total reviews: what removal discards.
+  final Set<String> decks;
+  final int reviews;
+
   const AnkiOrphanCard({
     required this.ankiNoteId,
     required this.sourceUri,
     required this.noteName,
     this.problem = '',
     this.conjecture = '',
+    this.decks = const {},
+    this.reviews = 0,
   });
 
   String get title => p.basename(noteName);
+
+  /// Anki note ids are creation times in milliseconds.
+  DateTime get created => DateTime.fromMillisecondsSinceEpoch(ankiNoteId);
 }
 
 class AnkiSyncResult {
@@ -80,6 +92,13 @@ class AnkiSyncResult {
   final List<AnkiMissingCard> missing;
   final List<AnkiOrphanCard> orphans;
 
+  /// Titles of the notes whose cards were (or, in a preview, would be) added
+  /// or changed, so the outcome can be read, not just counted.
+  final List<String> changed;
+
+  /// True when nothing was written: the counts describe what a sync would do.
+  final bool preview;
+
   final List<String> errors;
   final bool completed;
 
@@ -93,9 +112,14 @@ class AnkiSyncResult {
     this.duplicatesRetired = 0,
     this.missing = const [],
     this.orphans = const [],
+    this.changed = const [],
+    this.preview = false,
     required this.errors,
     this.completed = true,
   });
+
+  /// Cards a sync would add, change or remove.
+  int get pending => added + updated + retired + duplicatesRetired;
 
   bool get isSuccessful => completed && failed == 0 && errors.isEmpty;
 
@@ -134,12 +158,15 @@ class AnkiSyncService {
   /// classifying unreferenced cards as duplicates or orphans is meaningful
   /// only when [problemNotes] is every eligible note, never for a
   /// file-bounded subset.
+  ///
+  /// [preview] computes the same outcome without writing to Anki or the vault.
   static Future<AnkiSyncResult> syncVault(
     AnkiTransport transport,
     List<AnkiProblemNote> problemNotes,
     String vaultPath, {
     List<AnkiNoteRetirement> retirements = const [],
     bool reconcileCollection = false,
+    bool preview = false,
   }) => _leased(
     vaultPath,
     problemNotes.length + retirements.length,
@@ -149,6 +176,7 @@ class AnkiSyncService {
       vaultPath,
       retirements: retirements,
       reconcileCollection: reconcileCollection,
+      preview: preview,
     ),
   );
 
@@ -217,14 +245,7 @@ class AnkiSyncService {
               ...problemNotes.map((note) => note.sourcePath),
               ...retirements.map((note) => note.sourcePath),
             ]
-            .where(
-              (path) =>
-                  !CurrentVaultContent.isEligible(
-                    vaultPath,
-                    path,
-                    use: CurrentVaultUse.ankiProblemNote,
-                  ),
-            )
+            .where((path) => !CurrentVaultContent.isEligible(vaultPath, path))
             .map((path) => p.relative(path, from: vaultPath))
             .toList()
           ..sort();
@@ -281,6 +302,7 @@ class AnkiSyncService {
     String vaultPath, {
     required List<AnkiNoteRetirement> retirements,
     required bool reconcileCollection,
+    required bool preview,
   }) async {
     final (prepared, stopped) = await _prepare(
       transport,
@@ -304,10 +326,13 @@ class AnkiSyncService {
     final errors = <String>[];
     final missing = <AnkiMissingCard>[];
     final orphans = <AnkiOrphanCard>[];
+    final changed = <String>[];
+    String titleOf(AnkiProblemNote note) =>
+        p.basenameWithoutExtension(note.sourceFile);
 
     for (final note in retirements) {
       try {
-        await _retireCollectionNote(transport, note, vaultPath);
+        if (!preview) await _retireCollectionNote(transport, note, vaultPath);
         present.remove(int.parse(note.ankiNoteId));
         retired++;
       } catch (error) {
@@ -325,6 +350,11 @@ class AnkiSyncService {
         final idText = note.ankiNoteId;
 
         if (idText == null) {
+          changed.add(titleOf(note));
+          if (preview) {
+            added++;
+            continue;
+          }
           final current = await _currentSource(note);
           await _addAndLink(
             transport,
@@ -353,6 +383,7 @@ class AnkiSyncService {
               ankiNoteId: id,
               problem: (note.front ?? '').trim(),
               conjecture: (note.back ?? '').trim(),
+              deck: deckName,
             ),
           );
           continue;
@@ -362,6 +393,11 @@ class AnkiSyncService {
         final deckHeld = state.isInDeck(deckName);
         if (fieldsHeld && deckHeld) {
           unchanged++;
+          continue;
+        }
+        changed.add(titleOf(note));
+        if (preview) {
+          updated++;
           continue;
         }
         final current = await _currentSource(note);
@@ -415,6 +451,10 @@ class AnkiSyncService {
           owners[obsidianUriForName(vaultPath, noteName)]?.ankiNoteId ?? '',
         );
         if (ownerId != null && present.containsKey(ownerId)) {
+          if (preview) {
+            duplicatesRetired++;
+            continue;
+          }
           try {
             if (await transport.retireNote(state.id, sourceUri)) {
               duplicatesRetired++;
@@ -436,6 +476,8 @@ class AnkiSyncService {
               noteName: noteName,
               problem: _plainText(state.front),
               conjecture: _plainText(state.back),
+              decks: state.decks,
+              reviews: state.reviews,
             ),
           );
         }
@@ -452,6 +494,8 @@ class AnkiSyncService {
       duplicatesRetired: duplicatesRetired,
       missing: missing,
       orphans: orphans,
+      changed: changed,
+      preview: preview,
       errors: errors,
       completed: completed,
     );

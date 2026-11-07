@@ -1,10 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../features/sync/home_screen.dart';
+import '../shared/constants/app_text_styles.dart';
+import '../shared/constants/app_theme.dart';
 import 'vault_service.dart';
-import '../screens/home_screen.dart';
-import '../shared/widgets/progress.dart';
 
+/// First run: choose the Obsidian vault. Interest creates nothing in it.
 class VaultSetupScreen extends StatefulWidget {
   const VaultSetupScreen({super.key});
 
@@ -13,83 +15,73 @@ class VaultSetupScreen extends StatefulWidget {
 }
 
 class _VaultSetupScreenState extends State<VaultSetupScreen> {
-  String? _selectedPath;
-  bool _isLoading = false;
+  String? _path;
 
-  Future<void> _pickFolder() async {
+  Future<void> _pick() async {
     final path = await FilePicker.platform.getDirectoryPath();
-    if (path != null && mounted) {
-      setState(() => _selectedPath = path);
-    }
+    if (path != null && mounted) setState(() => _path = path);
   }
 
   Future<void> _confirm() async {
-    if (_selectedPath == null) return;
-    setState(() => _isLoading = true);
-    try {
-      await VaultService.ensureVaultDirectories(_selectedPath!);
-      await VaultService.setVaultPath(_selectedPath!);
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    final path = _path;
+    if (path == null) return;
+    await VaultService.setVaultPath(path);
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final path = _path;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Choose Vault'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
       body: SafeArea(
-        top: false,
         child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select the folder where your Markdown notes will be stored. '
-              'This is typically your Obsidian vault folder.',
-              style: TextStyle(fontSize: 15),
-            ),
-            const SizedBox(height: 24),
-            OutlinedButton.icon(
-              onPressed: _pickFolder,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
-            ),
-            if (_selectedPath != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _selectedPath!,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          padding: const EdgeInsets.all(Space.gutter),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              const Icon(
+                Icons.style_outlined,
+                size: 40,
+                color: AppColors.accent,
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: Space.lg),
               Text(
-                'Will create: Interesting/Inbox.md  ·  Interesting/Projects  ·  Interesting/Templates  ·  Interesting/System',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                'Keep Anki in step with your notes',
+                style: AppTextStyles.title,
+              ),
+              const SizedBox(height: Space.md),
+              Text(
+                'Choose your Obsidian vault. Every note with a *** line '
+                'becomes a card, and Interest keeps the cards matching the '
+                'notes.',
+                style: AppTextStyles.bodyMuted,
+              ),
+              const SizedBox(height: Space.xl),
+              OutlinedButton.icon(
+                onPressed: _pick,
+                icon: const Icon(Icons.folder_open_rounded),
+                label: Text(
+                  path == null ? 'Choose vault folder' : 'Choose another',
+                ),
+              ),
+              if (path != null) ...[
+                const SizedBox(height: Space.md),
+                Text(path, style: AppTextStyles.small),
+              ],
+              const Spacer(flex: 2),
+              FilledButton(
+                onPressed: path == null ? null : _confirm,
+                child: const Text('Continue'),
               ),
             ],
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: (_selectedPath == null || _isLoading) ? null : _confirm,
-                child: _isLoading
-                    ? const InlineSpinner(size: 20, color: Colors.white)
-                    : const Text('Get Started'),
-              ),
-            ),
-          ],
+          ),
         ),
-      )),
+      ),
     );
   }
 }

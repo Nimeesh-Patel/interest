@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:people_tracker/shared/markdown/frontmatter_patch.dart';
 import 'package:people_tracker/shared/markdown/md_io.dart';
-import 'package:people_tracker/features/entities/services/entity_file_writer.dart';
-import 'package:people_tracker/features/entities/models/entity.dart';
 import 'package:yaml/yaml.dart';
 
 void main() {
@@ -41,21 +39,6 @@ void main() {
     expect(
       patchFrontmatterText(body, {'anki_note_id': '123'}),
       '---\nanki_note_id: 123\n---\n$body',
-    );
-  });
-
-  test('entity patch preserves nested metadata, comments, ID and body', () {
-    const before =
-        '---\n# original\ncollection: Old # grouping\n'
-        'custom:\n  nested: [true, 2]\n  text: |\n    exact prose\n'
-        'anki_note_id: 123\n# important unowned comment\n---\n\n    code\n';
-    final entity = Entity(id: 'x', name: 'X', collection: 'New', createdAt: 0);
-    expect(
-      EntityFileWriter.patchFrontmatter(
-        existingContent: before,
-        entity: entity,
-      ),
-      before.replaceFirst('collection: Old', 'collection: New'),
     );
   });
 
@@ -115,14 +98,5 @@ void main() {
       ),
       throwsA(isA<YamlException>()),
     );
-  });
-
-  test('collection strings preserve YAML types', () {
-    final entity = Entity(id: 'x', name: 'X', collection: 'true', createdAt: 0);
-    final out = EntityFileWriter.patchFrontmatter(
-      existingContent: '---\ncollection: Old\n---\nbody',
-      entity: entity,
-    );
-    expect(out, contains('collection: "true"'));
   });
 }

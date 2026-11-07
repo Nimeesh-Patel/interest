@@ -444,6 +444,42 @@ void main() {
     });
   });
 
+  test('a preview reports what a sync would do and writes nothing', () async {
+    final transport = FakeTransport();
+    final linked = await problemNote('Linked', category: 'Old');
+    await AnkiSyncService.syncVault(transport, [linked], vault.path);
+    final linkedFile = File(linked.sourcePath);
+    await linkedFile.writeAsString(
+      (await linkedFile.readAsString()).replaceFirst(
+        'category: Old',
+        'category: New',
+      ),
+    );
+    final fresh = await problemNote('Fresh');
+    final freshBefore = await File(fresh.sourcePath).readAsString();
+    final scan = await AnkiProblemNoteScanner.scan(vault.path);
+    transport.addCalls.clear();
+    transport.moveCalls.clear();
+
+    final preview = await AnkiSyncService.syncVault(
+      transport,
+      scan.notes,
+      vault.path,
+      reconcileCollection: true,
+      preview: true,
+    );
+
+    expect(preview.preview, isTrue);
+    expect(preview.added, 1);
+    expect(preview.updated, 1);
+    expect(preview.pending, 2);
+    expect(preview.changed.toSet(), {'Fresh', 'Linked'});
+    expect(transport.addCalls, isEmpty);
+    expect(transport.moveCalls, isEmpty);
+    expect(transport.updateCalls, isEmpty);
+    expect(await File(fresh.sourcePath).readAsString(), freshBefore);
+  });
+
   group('collection reconciliation', () {
     String ownedFront(String name) =>
         '<div><a href="${obsidianUri(vault.path, p.join(vault.path, '$name.md'))}">$name</a></div><p>Q</p>';

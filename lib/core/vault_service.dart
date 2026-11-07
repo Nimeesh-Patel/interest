@@ -1,9 +1,7 @@
-import 'dart:io';
-
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'vault_paths.dart';
-
+/// The chosen vault folder. It must be known before the vault can be read, so
+/// it lives in SharedPreferences rather than in the vault.
 class VaultService {
   static const _key = 'vault_path';
 
@@ -16,28 +14,4 @@ class VaultService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, path);
   }
-
-  static Future<void> clearVaultPath() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
-  }
-
-  static Future<void> ensureVaultDirectories(String vaultPath) async {
-    final tdir = Directory(templatesPath(vaultPath));
-    if (!await tdir.exists()) await tdir.create(recursive: true);
-    final sysdir = Directory(systemPath(vaultPath));
-    if (!await sysdir.exists()) await sysdir.create(recursive: true);
-    final prdir = Directory(projectsPath(vaultPath));
-    if (!await prdir.exists()) await prdir.create(recursive: true);
-  }
-
-  static String templatesPath(String vaultPath) =>
-      VaultPaths.templates(vaultPath);
-
-  static String systemPath(String vaultPath) => VaultPaths.system(vaultPath);
-
-  static String projectsPath(String vaultPath) =>
-      VaultPaths.projects(vaultPath);
-
-  static String inboxPath(String vaultPath) => VaultPaths.inbox(vaultPath);
 }

@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:path/path.dart' as p;
+import '../../../core/vault_paths.dart';
 
 /// One mutation lease per physical vault, shared by UI, deep link and CLI.
 /// The empty lock file is retained so processes cannot lock rival file identities.
@@ -15,9 +15,7 @@ class AnkiSyncLock {
     if (!_active.add(key)) return null;
     RandomAccessFile? file;
     try {
-      final path = File(
-        p.join(resolved, 'Interesting', 'System', '.anki-sync.lock'),
-      );
+      final path = File(VaultPaths.syncLock(resolved));
       await path.parent.create(recursive: true);
       file = await path.open(mode: FileMode.append);
       await file.lock(FileLock.exclusive);

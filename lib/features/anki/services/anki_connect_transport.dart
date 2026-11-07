@@ -176,13 +176,17 @@ class AnkiConnectTransport extends AnkiTransport {
         throw const AnkiSyncAbort('cardsInfo did not return every card');
       }
       final decks = <int, Set<String>>{};
+      final reviews = <int, int>{};
       for (final card in cards) {
         if (card is! Map ||
             card['note'] is! int ||
             card['deckName'] is! String) {
           throw const AnkiSyncAbort('cardsInfo returned a malformed card');
         }
-        decks.putIfAbsent(card['note'] as int, () => {}).add(card['deckName']);
+        final note = card['note'] as int;
+        decks.putIfAbsent(note, () => {}).add(card['deckName']);
+        reviews[note] =
+            (reviews[note] ?? 0) + ((card['reps'] as num?) ?? 0).toInt();
       }
       return AnkiCollectionSnapshot({
         for (final MapEntry(key: id, value: (front, back, tags))
@@ -193,6 +197,7 @@ class AnkiConnectTransport extends AnkiTransport {
             back: back,
             tags: tags,
             decks: decks[id] ?? const {},
+            reviews: reviews[id] ?? 0,
           ),
       });
     } on AnkiSyncAbort {

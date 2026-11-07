@@ -249,18 +249,20 @@ class AnkiBridge(private val activity: Activity) {
                 notes[id] = mutableMapOf(
                     "id" to id, "front" to fields[0], "back" to fields[1],
                     "tags" to (c.getString(tagsIndex) ?: ""), "decks" to mutableListOf<String>(),
+                    "reviews" to 0L,
                 )
             }
             check(notes.size == c.count) { "AnkiDroid note search was truncated" }
         }
         val cardCursor = ctx.contentResolver.query(
             Uri.withAppendedPath(FlashCardsContract.AUTHORITY_URI, "cards"),
-            arrayOf(FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID),
+            arrayOf(FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID, "reps"),
             search, null, null,
         ) ?: throw IllegalStateException("AnkiDroid card search unavailable")
         cardCursor.use { c ->
             val noteIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.NOTE_ID)
             val deckIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)
+            val repsIndex = c.getColumnIndexOrThrow("reps")
             while (c.moveToNext()) {
                 val note = notes[c.getLong(noteIndex)]
                     ?: throw IllegalStateException("AnkiDroid card search returned a card outside the note search")
@@ -268,6 +270,7 @@ class AnkiBridge(private val activity: Activity) {
                     ?: throw IllegalStateException("AnkiDroid card is in an unlisted deck")
                 @Suppress("UNCHECKED_CAST")
                 (note["decks"] as MutableList<String>).add(deck)
+                note["reviews"] = (note["reviews"] as Long) + c.getLong(repsIndex)
             }
         }
         check(notes.values.all { (it["decks"] as List<*>).isNotEmpty() }) {

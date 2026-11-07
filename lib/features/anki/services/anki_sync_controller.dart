@@ -1,21 +1,19 @@
-import '../../../core/integrations_config_service.dart';
 import '../../../core/vault_service.dart';
 import 'anki_problem_note_scanner.dart';
 import 'anki_sync_service.dart';
 import 'anki_transport.dart';
 
 class AnkiSyncController {
-  /// Returns null when no vault is configured.
-  /// Otherwise returns the AnkiSyncResult from AnkiSyncService.syncVault.
-  static Future<AnkiSyncResult?> sync(AnkiTransport transport) async {
+  /// Whole-vault sync, or with [preview] the same outcome computed without
+  /// writing. Returns null when no vault is configured.
+  static Future<AnkiSyncResult?> sync(
+    AnkiTransport transport, {
+    bool preview = false,
+  }) async {
     try {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return null;
-      final config = await IntegrationsConfigService.load(vaultPath);
-      final scanned = await AnkiProblemNoteScanner.scan(
-        vaultPath,
-        excludedFolders: config.excludedFolders,
-      );
+      final scanned = await AnkiProblemNoteScanner.scan(vaultPath);
       if (!scanned.isComplete) {
         return AnkiSyncResult.incomplete(
           failed: scanned.conflictedRecords,
@@ -32,6 +30,7 @@ class AnkiSyncController {
         vaultPath,
         retirements: scanned.retirements,
         reconcileCollection: true,
+        preview: preview,
       );
     } catch (error) {
       return AnkiSyncResult.incomplete(
@@ -50,11 +49,7 @@ class AnkiSyncController {
     try {
       final vaultPath = await VaultService.getVaultPath();
       if (vaultPath == null) return null;
-      final config = await IntegrationsConfigService.load(vaultPath);
-      final scanned = await AnkiProblemNoteScanner.scan(
-        vaultPath,
-        excludedFolders: config.excludedFolders,
-      );
+      final scanned = await AnkiProblemNoteScanner.scan(vaultPath);
       if (!scanned.isComplete) {
         return AnkiSyncResult.incomplete(
           errors: [

@@ -2,163 +2,70 @@ Focus on creating progressively better abstractions: implementation should becom
 
 # Project
 
-Filesystem-native companion to an Obsidian vault. All data lives as Markdown files in a user-chosen vault. The app does four narrow things: **Collections**, one persistent **Inbox**, **Projects**, and **Anki integration** (one-way content projection plus explicit read-only state export). Problem Note review/editing and full graph traversal live in **Obsidian**; Collections has one read-only entity-body view whose wikilinks open Obsidian. Vault-root integrations patch frontmatter only; Inbox and Projects are Interest-owned Markdown bodies under `Interesting/`. Architectural rationale: [README.md](README.md). This file states constraints and their enforcement points.
+Interest is a single-purpose Anki sync console for an Obsidian vault: it keeps Anki cards matching the vault's `***` Problem Notes. Android talks to AnkiDroid; Windows talks to Anki desktop through AnkiConnect. Note viewing and editing live in Obsidian; tasks live in ClickUp; templates are a vault-wide Obsidian feature. Architectural story: [README.md](README.md). This file states constraints and their enforcement points.
 
 ## Documentation philosophy
 
-This file is a **constraint registry**, not a narrative. Keep it:
-- **Precise over complete** — capture the constraint that prevents a mistake, not the full story.
-- **Hard-to-vary** — a rule that can be rephrased arbitrarily has no explanatory power.
-- **Current** — stale constraints erode trust in the rest.
-
-`README.md` is the architectural story (what + why). `CLAUDE.md` is the enforcement layer (do/don't + where). `docs/*.md` holds full subsystem detail. Don't duplicate across layers.
-
-**Update `README.md` and `CLAUDE.md` when:** a new write path appears, an architectural invariant changes, an identity anchor is added, or a service standard changes. Don't update for UI layout changes, sort options, or internal refactors that preserve external behavior.
-
----
+This file is a **constraint registry**, not a narrative. Keep it precise over complete, hard-to-vary, and current. `README.md` is the story (what + why), `CLAUDE.md` the enforcement layer (do/don't + where), `docs/*.md` the subsystem detail. Don't duplicate across layers. Update `README.md` and `CLAUDE.md` when a write path, invariant, identity anchor or service standard changes.
 
 ## Traversal guide
 
-Start here based on task class:
-
 | Task | Read first |
 |------|-----------|
-| Modifying the Anki sync (either transport) | [docs/anki.md](docs/anki.md), then `AnkiSyncService` + the `AnkiTransport` impls (`lib/features/anki/`) |
-| Modifying problem-note discovery (what gets synced) | `AnkiProblemNoteScanner` (`lib/features/anki/services/`) |
-| Modifying the deep-link sync trigger | [docs/anki.md](docs/anki.md) § deep-link contract, then `MainActivity.kt` + `HomeScreen._syncAnkiFromDeeplink` |
-| Modifying entity files or collections | [docs/entities.md](docs/entities.md), then `MarkdownStorageService` |
-| Modifying the Projects subsystem | [docs/projects.md](docs/projects.md), then `ProjectStorageService` |
-| Modifying Inbox capture or query scope | [docs/inbox.md](docs/inbox.md), then `InboxStorageService` + `OpenInboxQueryService` |
-| Modifying integration config storage | CLAUDE.md § Configuration ownership, then `IntegrationsConfigService` |
-| Adding a new sort option | CLAUDE.md § Sorting, then `MarkdownStorageService.sortEntities()` |
-| Adding a new screen | [docs/mobile_ux.md](docs/mobile_ux.md) |
-| Touching shared Markdown utilities | `lib/shared/markdown/md_utils.dart` (pure, no I/O) |
-| Running the automated test suite | Run `flutter test` from the repo root. Interest uses `flutter_test`; bare `dart test` is not the suite entrypoint. |
-| Understanding save/cancel/snapshot semantics | CLAUDE.md § Save semantics, then `entity_screen.dart` |
-| Modifying the Quick Add Sheet | `lib/shared/widgets/quick_add_sheet.dart` |
-| Modifying UI tokens, typography, or color palette | [docs/ui.md](docs/ui.md), then `app_theme.dart` + `app_text_styles.dart` |
-| Modifying the Sources screen | `lib/screens/sources_screen.dart` |
-
----
+| Changing the sync (either transport) | [docs/anki.md](docs/anki.md), then `AnkiSyncService` and the `AnkiTransport` implementations in `lib/features/anki/` |
+| Changing what counts as a card source | `AnkiProblemNoteScanner`, then `CurrentVaultContent` |
+| Changing the deep link | [docs/anki.md](docs/anki.md) § deep-link contract, then `MainActivity.kt` and `HomeScreen` |
+| Changing any screen, colour or type | [docs/ui.md](docs/ui.md), then `app_theme.dart` and `app_text_styles.dart` |
+| Running the tests | `flutter test` from the repo root (bare `dart test` is not the entrypoint) |
+| Checking native AnkiDroid behaviour | [docs/anki.md](docs/anki.md) § device verification (`AnkiBridgeDeviceChecks`; `-e mode snapshot` is read-only) |
 
 ## Architectural invariants
 
-These rules define the system's identity. Violating any changes what it fundamentally is.
+**1. Markdown is the database.** No rival editable store for authored Markdown. Anki owns scheduling and review state; a user-requested AnkiDroid JSON export is dated evidence, not a store. WHY: two owners of authored knowledge diverge without a canonical answer.
 
-**1. Markdown is the database.**
-No rival editable store for authored Markdown. A user-requested AnkiDroid JSON export is dated native evidence, not a semantic database; scheduling state remains authoritative in Anki. WHY: two independent owners of authored knowledge diverge without a canonical answer.
+**2. The sync's only vault write is `anki_note_id`.** Through `patchFrontmatterField` / `MarkdownFile`, preserving the body byte for byte. Interest creates no other vault files except the device-local `.interest/anki-sync.lock`. WHY: an earlier version rebuilt note bodies from its own model and destroyed prose, including a Problem Note's `***` halves.
 
-**2. An entity is a note with `collection:`.**
-Discovery keys on the `collection:` frontmatter key alone (`EntityFileParser.isEntityFrontmatter`). `alias`, `category`, and body shape are orthogonal to entity-ness. WHY: `category:` is a Problem-Note property (the Anki deck); keying entity discovery on it conflated the two sets and caused the June 2026 corruption. Enforcement: `isEntityFrontmatter` in `entity_file_parser.dart`, used by every scan in `markdown_storage_service.dart`.
+**3. Structural roles and Anki eligibility are separate.** A Problem Note is the first qualifying `***` split (empty sides allowed); `collection:` presence opts a note out of Anki and withdraws a linked card. `category:` names the deck (absent or empty → Default; a singleton text list is one deck; anything ambiguous is refused). WHY: changing collection identity must withdraw the projection, not move it to Default.
 
-**3. Vault-root integrations patch frontmatter, never the body.**
-Entity writes go through `EntityFileWriter.patchFrontmatter` (owned keys only: `collection`, `tags`, `score`) or `buildNewEntity`; the Anki sync writes only `anki_note_id` via `patchFrontmatterField`. In every case an existing vault-root note body is preserved byte-for-byte. Interest-owned Inbox and Project files under `Interesting/` are the explicit body-write boundary. WHY: rebuilding user-authored vault-root bodies destroyed content (including a Problem Note's `***` front/back).
+**4. Anki mirrors the vault, and the vault decides.** Cards are created, changed and deleted only from Obsidian. A linked id absent from the collection is `missing` and is never re-added without confirmation; an owned card that no current note links is an `orphan` and is never removed without confirmation; a duplicate (its note links a different card that is present) is retired automatically through the source-guarded `retireNote`. Only `reconcileCollection: true` (complete whole-vault discovery) classifies unreferenced cards. WHY: Obsidian Sync and AnkiWeb settle independently, so "absent here" can mean "not delivered yet".
 
-**4. Structural note roles and Anki eligibility are separate.**
-Problem Note structure is the first qualifying `***` split; entity membership is `collection:` presence. Collection notes opt out of Anki even with a separator or a category. Every other Problem Note syncs, including ones with an empty side; absent/empty category uses Default and a singleton text list names one deck. WHY: changing collection identity must withdraw the Anki projection rather than move it to Default. Enforcement: scanner separates active sources and linked withdrawals; the sync preserves source bodies and checks native source ownership before retirement.
+**5. Full-body wikilink scan.** `rewriteWikilinksToHtml` scans the whole body. WHY: narrowing the scan makes link relationships location-dependent.
 
-**5. Full-body wikilink scan.**
-`extractWikilinks(body)` / `rewriteWikilinksToHtml(body, …)` scan the whole Markdown body. WHY: narrowing the scan makes link relationships location-dependent — moving a `[[link]]` between sections silently drops it. Enforcement: `EntityFileParser.parseEntityFile` and `AnkiSyncService._markdownToAnkiHtml`. There is no stored or in-memory edge list.
+## Sync mechanics
 
-## The vault-write safety invariant (Anki sync)
-
-The only sync-owned vault field is anki_note_id. Discovery captures the exact source; a vault lease excludes overlapping UI/CLI mutations. Source-span ID patches and collection removals use the shared staged MarkdownFile byte transaction. Native retirement retains its exact-source guard. Unsupported local patches are refused before external creation/deletion, and edits during an external operation remain explicit partial outcomes. The renderer stays self-contained under lib/features/anki/.
+Each run starts from one complete `AnkiTransport.snapshot()` and writes only differences; an incomplete snapshot changes nothing. `preview: true` computes the same outcome without writing. Confirmations go through `AnkiSyncService.resolve`, which re-checks each item against a fresh scan and snapshot. A filesystem lease (`AnkiSyncLock`) excludes overlapping runs on one physical vault. Discovery captures exact source text; a source that changed before a write is refused rather than overwritten.
 
 ## Service standard
 
-Expected failure must cross a service boundary as an explicit result, including whether an observation was complete. `AnkiProblemNoteScanner`, `AnkiSyncService`, and entity discovery expose errors rather than returning an ordinary empty/partial success. `AnkiTransport` implementations may throw `AnkiSyncAbort` / `AnkiNoteFailure`, consumed only by `AnkiSyncService.syncVault`. Several older storage services still use nullable or `Future<void>` catch boundaries; do not infer success from those return shapes.
-
-## Save semantics
-
-- **Per-file writes only.** Each mutation touches exactly one file; there is no bulk "save all" path (that pattern caused the June 2026 corruption).
-- **Frontmatter edit** (collection, tags, score) in `EntityScreen` edit mode → `_saveEdit()` → `MarkdownStorageService.saveEntity(entity)`, which patches that one file's frontmatter and preserves its body. `Cancel` restores the pre-edit snapshot in memory (no I/O).
-- **There is no in-app vault-root note-body editor.** Body editing for user-authored vault-root notes lives in Obsidian. The explicit exceptions are Interest-owned Inbox and Project files under `Interesting/`.
-- **New entity**: `saveEntity` creates a file with **only `collection:` frontmatter** and an **empty body** — no imposed `# Name`, no timestamps — at vault root, then sets `Entity.sourcePath`. **Delete**: `deleteEntity` removes that one file. **Collection rename**: `renameCollection` patches each member file, then reloads.
-- The app neither requires nor stamps `created_at`/`updated_at`; if a note already has them they are preserved, never added.
-
-## Write paths
-
-Each storage path co-owns specific files. Vault-root integrations preserve note bodies; Inbox and Project editing is bounded to Interest-owned files under `Interesting/`.
-
-| Storage layer | Writes |
-|---|---|
-| `MarkdownStorageService` | vault-root entity notes (`collection:`); per-file frontmatter patch via `saveEntity`, body never rewritten |
-| `AnkiSyncService` | `anki_note_id` only, via `patchFrontmatterField` — the sole vault write of the sync (see safety invariant) |
-| `ProjectStorageService` | `Interesting/Projects/` |
-| `InboxStorageService` | Creates `Interesting/Inbox.md` once; never rebuilds or migrates an existing Inbox |
-| `TaskStorageService` | Shared checkbox-outline parser/editor for `Interesting/Inbox.md` and todo-style files in `Interesting/Projects/`; no path of its own |
-| `IntegrationsConfigService` | `Interesting/System/integrations.md` — vault-native integration config |
-| Anki state export | One JSON document explicitly chosen through Android’s save dialog; no automatic vault write. Only verified bytes are reported saved. |
-| `TemplatesScreen` / `TemplateEditorScreen` | `Interesting/Templates/` — direct screen writes |
+Expected failure crosses a service boundary as an explicit result, including whether an observation was complete. `AnkiProblemNoteScanner`, `AnkiSyncService` and the transports expose errors rather than returning an ordinary empty or partial success. Transports may throw `AnkiSyncAbort` / `AnkiNoteFailure`, consumed only inside `AnkiSyncService`.
 
 ## Identity anchors
 
-| Type | Anchor | Mutability | Delete |
-|---|---|---|---|
-| Entity | `collection:` presence = membership; identity = note name (filename); `alias:` optional, used as `id` when present else filename slug | filename can change | Hard (delete the file) |
-| Problem note | `anki_note_id` (frontmatter) | Written on first sync; stable | Hard |
-| Inbox item / Task / Project file | None | — | Items hard-delete; the Inbox file itself has a fixed path and no delete/rename UI |
+| Type | Anchor | Mutability |
+|---|---|---|
+| Problem Note ↔ card | `anki_note_id` frontmatter | Written on first sync; stable across edits and renames |
+| Card ownership | the `obsidian://open?vault=…&file=…` source link in the card front (older `+`-encoded links are recognised) | Rewritten by every update |
 
 ## Shared utilities — do not duplicate
 
-- **Markdown parsing and YAML serialization** — `lib/shared/markdown/md_utils.dart` (pure, no I/O): frontmatter splitting, `splitFrontBack` (the `***` predicate; separator presence alone, empty sides allowed), section parsing, wikilink extraction + `rewriteWikilinksToHtml`, `obsidianUri`/`obsidianUriForName`, `slugify`, `sanitizeFilename`, timestamp helpers, `buildFrontmatterBlock(fields, knownOrder)` (canonical YAML frontmatter builder). Never reimplement in services or screens.
-- **Note identity** — `noteKey(filePathOrFilename)` in `md_utils.dart` (lowercase basename without extension) is the canonical note identity. Apply `noteKey` only to paths/filenames (it strips after the last dot), never to bare wikilink targets — lowercase those directly.
-- **Vault iteration and current-state eligibility** — `VaultScanner.scanResult()` in `lib/shared/markdown/vault_scanner.dart` is the sole recursive `Directory.list` site and exposes incomplete traversal. `CurrentVaultContent` in `lib/shared/markdown/current_vault_content.dart` is the sole path-eligibility owner for cards, entities, and link targets. It permanently excludes rollback/history, trash, templates, attachments, Basic Memory, and Interest system config; Anki additionally excludes all `Interesting/` content and accepts additive configured exclusions. Root notes and `Clippings/` remain current authored surfaces. `lib/shared/markdown/md_io.dart` holds `patchFrontmatterField` (the body-safe write primitive used for `anki_note_id`).
-- **UI primitives** — `lib/shared/widgets/`: `showInputDialog()`, `showConfirmDialog()`, `showBottomSheetMenu()`, `showQuickAddSheet()`, `showSnack()`, `SectionHeader`, `EmptyState`, `LoadingState`, `InlineSpinner`, `ErrorRetryState`, `AppFab`, `SelectChip`, `ListRow`, `BusyButton`, `AccentButton`, `WikilinkText`. Never inline `AlertDialog+TextField`, raw `showModalBottomSheet`, direct `ScaffoldMessenger…showSnackBar`, raw `FloatingActionButton`, `Center(child: CircularProgressIndicator())`, or a hand-built bottom-bordered tappable row. Screen bodies have exactly three placeholder states: `LoadingState`, `EmptyState`, `ErrorRetryState`.
-- **Date display** — `lib/shared/utils/date_format.dart`: `formatRelative(msEpoch)`, `formatMonthDay`, `formatMonthDayYear`. The month-abbreviation table lives only here.
-- **Shared note view** — `lib/shared/widgets/note_markdown.dart` (`noteMarkdownBody` / `noteMarkdownStyle` / `onNoteLinkTap` — render Markdown with tappable `[[wikilinks]]`). Used by `EntityScreen` (the only in-app note view). Wikilink taps route to Obsidian; there is no in-app backlinks panel or note-detail screen.
-- **Quick Add Sheet** — `lib/shared/widgets/quick_add_sheet.dart`: `showQuickAddSheet(context, entities:, collections:, storage:, onCreated:, initialCollection?)`. Free-text Collection field (existing collections shown as chips); any value creates/uses a collection. Requires a name and a collection. Creates the file via `storage.saveEntity`; persists last-used collection in `SharedPreferences` key `last_used_collection`.
-- **Text styles** — `lib/shared/constants/app_text_styles.dart`: `AppTextStyles` static getters for every named role (IBM Plex Sans/Serif). Never hardcode `GoogleFonts.ibmPlex…` inline.
-- **Colors** — `lib/shared/constants/app_theme.dart` `AppColors`: all color constants including `borderMid` (#282828). No hex literals inline.
-- **Spacing** — `lib/shared/constants/app_spacing.dart`: `kFabListBottomPad` (88.0), `kScreenHPad` (16.0). No magic numbers.
-
-## Configuration ownership
-
-Integration configuration lives in `Interesting/System/integrations.md` (vault-canonical), managed by `IntegrationsConfigService` in `lib/core/`. SharedPreferences owns only settings that must be known before the vault is accessible or that are local UI state:
-
-| Key | Location | Rationale |
-|---|---|---|
-| `vault_path` | SharedPreferences | Must be known before vault is accessible |
-| AnkiConnect URL override | `integrations.md` (`## AnkiConnect`) | Hand-edited only (no in-app editor); null = `http://127.0.0.1:8765` |
-| Additional excluded folders (Anki scan scope) | `integrations.md` (`## Resurface`) | Portable additive exclusions. System/history exclusions are invariant in `CurrentVaultContent` and cannot be removed by config. The old section name remains for compatibility. |
+- **Markdown parsing** — `lib/shared/markdown/md_utils.dart` (pure): frontmatter splitting, `splitFrontBack`, wikilinks, `obsidianUri` / `obsidianUriForName`, `noteKey`.
+- **Eligibility** — `CurrentVaultContent` is the one path rule for card sources and link targets. `VaultScanner.scanResult()` is the sole recursive directory walk and exposes incomplete traversal.
+- **Safe writes** — `MarkdownFile` / `patchFrontmatterField` in `lib/shared/markdown/`.
+- **Design tokens** — `AppColors`, `Space`, `Radii` in `app_theme.dart`; `AppTextStyles` in `app_text_styles.dart`. No hex literals, magic spacing or inline fonts in screens. Every text colour must clear 4.5:1 on its surface (ratios are noted beside the tokens).
+- **Feedback** — `showSnack()` for transient messages.
 
 ## Subsystem constraints
 
-**Anki state observation** — a separate read-only browser search in the existing native bridge, followed by bounded exact card details and selected note source fields. It must not invoke the scheduler/`schedule` endpoint, answer cards, select decks or call sync. Exports retain per-query timing, counts, partial/unavailable status and raw queue/due values; they are not a promised future session or review-event log. Save uses the actual chosen document URI and verifies written bytes; cancellation and unverified/failed writes cannot become verified success. Full contract: docs/anki.md.
+**Screens** — `HomeScreen` (state, preview, sync, decisions, last sync) and `SettingsScreen` are the whole app; `VaultSetupScreen` runs once. One primary action per screen, and its emphasis follows state. Decisions are one card per page in `DecisionPager`, never stacked modal dialogs.
 
-**Anki sync** - one canonical scanner and renderer for Android, desktop UI and exact-file CLI. Each run starts from one complete `AnkiTransport.snapshot()` and writes only differences; an incomplete snapshot changes nothing. A linked id absent from the snapshot is `missing` and is never re-added without confirmation (`resolve`). Only `reconcileCollection: true` (complete whole-vault discovery) classifies unreferenced owned cards: duplicates are retired, orphans await confirmation. Never classify from a file-bounded subset. Config errors cannot become defaults or lost exclusions; CLI loads the same authored config. Exact snapshots invalidate stale projections; filesystem leases exclude simultaneous mutation of one physical vault. Source hrefs retain subfolder identity. Collection withdrawal and scalar/singleton-list category rules remain as adopted. Native observations distinguish absence from uncertainty. See docs/anki.md.
+**Device memory** — SharedPreferences holds `vault_path`, the last sync summary and kept card ids (`SyncMemory`). There is no vault configuration file.
 
-**Deep-link sync (Android)** — `interest://sync-anki` is a VIEW intent on `MainActivity` (`launchMode=singleTop`): cold start stores `pendingSyncAnki`, while `onNewIntent` sends `syncAnki` over `dev.interest.app/deeplink`. Flutter runs the same foreground `runAnkiDroidSync` path used by Sources → AnkiDroid. `AnkiBridge` is registered on `MainActivity`, which forwards permission results. Compilation covers the dispatch contract; native bridge operations are verified by the opt-in device runner. Obsidian → URI → foreground sync delivery was observed on the Moto G45 on 2026-11-07; first-run permission prompts remain unobserved.
+**Anki state observation** — read-only. It must not invoke the scheduler, answer cards, select decks or call sync. Save uses the chosen document URI and verifies written bytes. Full contract: docs/anki.md.
 
-**Projects** - Markdown remains canonical under Interesting/Projects/. Flat-list edits change only owned item lines; unknown metadata, prose and code remain. Ambiguous rich-item deletion/reorder is refused. Task outlines and flat lists share MarkdownFile staging, exact-source preconditions and one title/filename rename. Editors follow the returned path and expose failures. Current scope has no scheduling or productivity metadata. See docs/projects.md.
+**Deep link (Android)** — `interest://sync-anki` is a VIEW intent on `MainActivity` (`launchMode=singleTop`): cold start stores `pendingSyncAnki`; a running app receives `onNewIntent` → `syncAnki`. `HomeScreen` syncs immediately on it and previews on a normal open. A headless trampoline was tried and never synced on-device; don't reintroduce it.
 
-**Inbox** — the deliberately loose, persistent `Interesting/Inbox.md`; arbitrary Markdown is valid capture, while checkbox open/closed semantics and attached prose are optional editor affordances. Completion toggles in place; drag/completed regrouping is disabled. Every UI write requires the exact strict-UTF-8 byte snapshot still to match and uses same-ID staged/backup siblings for a flushed, verified replacement with recovery; stale or ambiguous outcomes reload without retrying. This is recoverable but not an atomic cross-process CAS. First creation writes a verified sibling marker before exclusively creating/appending the canonical bytes; a leftover marker accepts the canonical only on an exact match. On restart, owned recovery artifacts block empty creation and their exact paths surface for inspection; mutation recovery never replaces an existing canonical. Missing/unreadable/invalid UTF-8 is an error, not an empty Inbox. `OpenInboxQueryService` is read-only and scans this exact file only; top-level `records` contains its one coherent complete Markdown document, while unchecked checkboxes appear only in a non-exhaustive `derived_hints` outcome whose failure cannot discard or downgrade that document. Both carry the exact `Interesting/Inbox` Obsidian locator; a changing/incoherent observation emits neither. Every Project and every other vault checkbox is explicitly outside this provider's responsibility. Full details: [docs/inbox.md](docs/inbox.md).
-
-**Tasks (parser)** — `TaskStorageService.parseNodes()` powers both Inbox and Project outline editing. `parseNodes()` is pure and excludes metadata/code from task recognition; `_collapsed` is session-only; `guardedDeleteBlock` hard-deletes. Project root completion/reordering remains available, but nested completion always toggles in place. Inbox uses the guarded snapshot mutations and disables every reorder surface. No due dates, reminders, or notifications. Full details: [docs/tasks.md](docs/tasks.md).
-
-**Grokipedia** — never writes to vault; no caching; state lives only in `_EntityScreenState`.
-
-**Navigation shell** — `home_screen.dart` is a 3-tab `BottomNavigationBar`: 0=Collections (landing), 1=Inbox, 2=Projects. Inbox has its persistent bottom capture field rather than a FAB. FAB shows on Collections and Projects. AppBar actions: Sources (`sensors`), and a popup (Settings, Templates, Open Obsidian).
-
-**Sources screen** — `sources_screen.dart`, pushed from the `sensors` AppBar icon. Rows: Obsidian, AnkiDroid projection, explicit Android card-state capture/export, and Anki desktop projection. The two Anki rows are mutually exclusive (`_ankiBusy`) — both write `anki_note_id` to the same files. The AnkiDroid row and the `interest://sync-anki` deep link share `runAnkiDroidSync`.
-
-**Android widget** - reads `flutter.vault_path`; new captures still carry `collection: Quick Capture` and an optional `category: Default` deck preference. Collection membership opts them out of Anki; category matters only if that membership is later removed. It stamps created/updated times and builds the body from `Interesting/Templates/default.md`, the existing native-side capture exception. It does not override Anki eligibility.
-
-**State management** — `setState` only. No `Provider`, `Riverpod`, `Bloc`.
-
-**Sorting** — all entity list sorting routes through `MarkdownStorageService.sortEntities(entities, sortOrder)`. Add new sort options there first, then `DropdownMenuItem` entries in screens. Entity pickers are pre-sorted A→Z inline.
-
-**Entity model** — `Entity` is a thin projection over a current eligible note's frontmatter: `id` (alias or filename slug), `name`, `collection`, `tags`, `score`, `sourcePath`, plus in-memory timestamps. Duplicate active IDs are withheld and surfaced as discovery errors rather than guessed. The body is read on demand and rendered via `noteMarkdownBody`. The app owns only `EntityFileWriter._knownOrder` (`collection`, `alias`, `tags`, `score`); other frontmatter keys are preserved on save.
-
-## Mobile UX conventions
-
-Full reference: [docs/mobile_ux.md](docs/mobile_ux.md). Enforcement rules:
-
-- Every `Scaffold` body: `SafeArea(top: false)` (AppBar handles top; SafeArea handles gesture nav bar bottom)
-- Every list behind a FAB: `padding: const EdgeInsets.only(bottom: kFabListBottomPad)`
-- Scrollable search sheets (`isScrollControlled: true`): `screenHeight * fraction` for height, never fixed pixels
-- Every `TextField`: declare `textInputAction` (`next` / `done` / `newline` / `send`)
+**State management** — `setState` only.
 
 ## Targeted Anki CLI
 
-`tool/sync_anki_notes.dart` exists for file-bounded restructuring transactions. It must reuse `AnkiProblemNoteScanner`, `AnkiSyncService`, and `AnkiConnectTransport`; it must require explicit `--file` arguments, reject paths outside the vault, and never duplicate card rendering or imply a whole-vault sync.
+`tool/sync_anki_notes.dart` must reuse `AnkiProblemNoteScanner`, `AnkiSyncService` and `AnkiConnectTransport`, require explicit `--file` arguments, reject paths outside the vault, never classify unlinked cards, and re-create missing cards only with `--recreate-missing`.

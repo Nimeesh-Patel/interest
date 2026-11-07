@@ -1,18 +1,13 @@
 import 'package:path/path.dart' as p;
 
-/// Pure filesystem layout shared by Flutter UI code and standalone Dart tools.
+/// Interest's only footprint in a vault: a hidden, device-local `.interest/`
+/// folder. Obsidian Sync does not carry dot-folders, which is what the sync
+/// lock needs: it guards one physical copy of the vault, never another device.
 class VaultPaths {
   VaultPaths._();
 
-  static String templates(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Templates');
+  static String interestDir(String vaultPath) => p.join(vaultPath, '.interest');
 
-  static String system(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'System');
-
-  static String projects(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Projects');
-
-  static String inbox(String vaultPath) =>
-      p.join(vaultPath, 'Interesting', 'Inbox.md');
+  static String syncLock(String vaultPath) =>
+      p.join(interestDir(vaultPath), 'anki-sync.lock');
 }

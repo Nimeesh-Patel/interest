@@ -70,12 +70,16 @@ class AnkiNoteState {
   /// Deck name of each of the note's cards.
   final Set<String> decks;
 
+  /// Total reviews across the note's cards: what removing it would discard.
+  final int reviews;
+
   const AnkiNoteState({
     required this.id,
     required this.front,
     required this.back,
     required this.tags,
     required this.decks,
+    this.reviews = 0,
   });
 
   /// Deck lookup is case-insensitive in both backends, so placement is too.

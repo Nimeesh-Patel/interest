@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:people_tracker/core/integrations_config_service.dart';
 
 import 'package:people_tracker/features/anki/services/anki_connect_transport.dart';
 import 'package:people_tracker/features/anki/services/anki_problem_note_scanner.dart';
@@ -69,17 +68,7 @@ Future<void> main(List<String> args) async {
     wanted.add(candidate);
   }
 
-  final IntegrationsConfig config;
-  try {
-    config = await IntegrationsConfigService.load(vault.path);
-  } catch (error) {
-    _fail('Could not read integration configuration: $error');
-  }
-  url ??= config.ankiConnectUrl;
-  final scanned = await AnkiProblemNoteScanner.scan(
-    vault.path,
-    excludedFolders: config.excludedFolders,
-  );
+  final scanned = await AnkiProblemNoteScanner.scan(vault.path);
   if (!scanned.isComplete) {
     _fail(
       'Problem Note discovery did not complete: ${scanned.errors.join('; ')}',
@@ -129,10 +118,7 @@ Future<void> main(List<String> args) async {
   );
   if (result.missing.isNotEmpty && recreateMissing) {
     final missingCount = result.missing.length;
-    final rescanned = await AnkiProblemNoteScanner.scan(
-      vault.path,
-      excludedFolders: config.excludedFolders,
-    );
+    final rescanned = await AnkiProblemNoteScanner.scan(vault.path);
     if (!rescanned.isComplete) {
       _fail(
         'Rescan before re-creation did not complete: ${rescanned.errors.join('; ')}',

@@ -15,9 +15,8 @@ import 'md_utils.dart';
 /// fails to open, because it silently sends the reader to another note.
 ///
 /// The only I/O is [CurrentVaultContent.scan]; the parsing it feeds is pure.
-/// A link target may live anywhere a current authored note lives, so this is
-/// deliberately wider than the Anki scan: `Interesting/` is not synced to Anki
-/// but a card may still link into a non-system Interest document.
+/// A link target may be any current authored note, including one without a
+/// `***` separator that never becomes a card itself.
 class LinkTargetBuildResult {
   final Map<String, String> targets;
   final List<String> errors;
@@ -32,10 +31,7 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
   final aliases = <String, Set<String>>{};
   final errors = <String>[];
 
-  final scanned = await CurrentVaultContent.scan(
-    vaultPath,
-    use: CurrentVaultUse.linkTarget,
-  );
+  final scanned = await CurrentVaultContent.scan(vaultPath);
   errors.addAll(scanned.errors);
   for (final file in scanned.files) {
     final relative = p

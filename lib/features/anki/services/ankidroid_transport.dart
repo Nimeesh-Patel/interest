@@ -110,6 +110,7 @@ class AnkiDroidTransport extends AnkiTransport {
         back: entry['back'] as String,
         tags: parseAnkiTags(entry['tags'] as String),
         decks: (entry['decks'] as List).cast<String>().toSet(),
+        reviews: (entry['reviews'] as num? ?? 0).toInt(),
       );
     }
     return AnkiCollectionSnapshot(byId);

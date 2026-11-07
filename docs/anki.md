@@ -22,12 +22,12 @@ Problem notes with a `***` split and no `collection:` key are pushed to Anki as 
 
 The vault owns authored content; Anki owns its native scheduling and review state. Ordinary projection updates do not read or rewrite scheduling, ease factors or due dates. Retirement deliberately deletes the native note and its cards, including their review history; a source-link mismatch or unavailable observation refuses that deletion.
 
-The whole sync stack lives self-contained under `lib/features/anki/`, with zero dependency on the Collections entity-body viewer. Obsidian + the Problem Notes plugin own Problem Note editing and review.
+The sync core lives self-contained under `lib/features/anki/`; the app's screens live under `lib/features/sync/`. Obsidian and the Problem Notes plugin own all note viewing and editing.
 
 ## Architecture
 
 ```
-AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state discovery
+AnkiProblemNoteScanner.scan(vaultPath)   ← current-state discovery
   → AnkiProblemNoteScanResult                              ← notes + completeness/errors
   → AnkiSyncController.sync(transport)
   → AnkiSyncService.syncVault(transport, problemNotes, vaultPath)   ← shared core
@@ -36,7 +36,7 @@ AnkiProblemNoteScanner.scan(vaultPath, excludedFolders)   ← current-state disc
             AnkiConnectTransport → HTTP POST     → AnkiConnect → Anki desktop
 ```
 
-`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the shared path-eligibility owner also used by Collections. Root notes and `Clippings/` are current authored surfaces. `.perspirator` rollback/history, `.trash`, `.obsidian`, Templates, Attachments, Basic Memory, and `Interesting/` are never card sources; configured exclusions are additive. Collection notes with an existing ID become retirement candidates even if their former separator has been removed. Other sources honour `exclude_resurface: true` and require a `***` separator (`splitFrontBack`); empty sides are allowed. Duplicate IDs across active and retiring sources, malformed frontmatter, ambiguous category values and traversal/read errors make discovery incomplete; the controller then changes no cards.
+`AnkiProblemNoteScanner` uses `CurrentVaultContent`, the one path-eligibility rule shared with wikilink-target discovery. Root notes and authored subfolders such as `Clippings/` are current. `.perspirator` history, `.trash`, `.obsidian`, any `templates` folder, attachments, Basic Memory (`memory/`) and Interest's device-local `.interest/` are never card sources. Collection notes with an existing ID become retirement candidates even if their former separator has been removed. Other sources honour `exclude_resurface: true` and require a `***` separator (`splitFrontBack`); empty sides are allowed. Duplicate IDs across active and retiring sources, malformed frontmatter, ambiguous category values and traversal/read errors make discovery incomplete; the controller then changes no cards.
 
 `AnkiSyncService` owns everything both transports must agree on — rendering, category/deck mapping, source links, local identity and collection withdrawal — so the same note yields the same projection whichever transport carries it. Transports translate seven operations into their wire protocol:
 
@@ -65,32 +65,30 @@ Transport failures: per-note failures return `-1`/`false` or throw `AnkiNoteFail
 
 | Trigger | Path |
 |---|---|
-| **`interest://sync-anki` deep link** (the primary path — fired by the Problem Notes Obsidian plugin) | `MainActivity` (VIEW intent) → deeplink channel → `HomeScreen._syncAnkiFromDeeplink` → `runAnkiDroidSync` → `AnkiSyncController.sync(AnkiDroidTransport())`; result as a snackbar |
-| **Sources → AnkiDroid** (manual, Android only) | same `runAnkiDroidSync` → `AnkiSyncController.sync(AnkiDroidTransport())` → result snackbar/dialog |
-| **Sources → Anki desktop** (manual) | `AnkiSyncController.sync(AnkiConnectTransport())` → result dialog/snackbar |
+| **`interest://sync-anki` deep link** (the primary path, fired by the Problem Notes plugin) | `MainActivity` (VIEW intent) → deeplink channel → `HomeScreen._sync` → `AnkiSyncController.sync(transport)`; the result appears on the home screen |
+| **Opening Interest** | `HomeScreen._preview` → `AnkiSyncController.sync(transport, preview: true)`: the same outcome computed without writing, so the home screen can say what a sync would change |
+| **Sync button** | `HomeScreen._sync`, the same path as the deep link |
+| **Per-card decision** | `HomeScreen._act` → `AnkiSyncController.resolve` for that one card, re-checked against a fresh scan and snapshot |
 
-The deep link and the Sources AnkiDroid row share `runAnkiDroidSync`, so they behave identically. No background scheduler.
+The transport is chosen by platform (`SyncTarget.forPlatform`): AnkiDroid on Android, AnkiConnect elsewhere. No background scheduler.
 
 ### Targeted desktop CLI
 
-`dart run tool/sync_anki_notes.dart --vault <path> --file <note.md> [--file ...]` uses the same scanner, renderer, sync core, and AnkiConnect transport as Interest. It deliberately requires exact file arguments and rejects paths outside the vault. This gives restructuring transactions a bounded sync without an ad-hoc renderer or an implicit whole-vault push. Whole-vault sync remains an Interest UI operation.
+`dart run tool/sync_anki_notes.dart --vault <path> --file <note.md> [--file ...] [--url <AnkiConnect URL>]` uses the same scanner, renderer, sync core and AnkiConnect transport. It requires exact file arguments, rejects paths outside the vault, and never classifies unlinked cards, because its notes are a subset of the vault.
 
 ## The deep-link sync contract (Android)
 
-`interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin: the plugin's sync button fires it; Interest **opens to the foreground** and runs the whole-vault AnkiDroid push there, reporting via a snackbar. The app surfacing is expected and accepted — viewing stays in Obsidian, but the sync itself runs in Interest's normal UI.
+`interest://sync-anki` is the one contract between Interest and the Problem Notes Obsidian plugin. The plugin's sync button fires it, and Interest **opens to the foreground** and syncs there. Opening Interest any other way previews instead.
 
 ```
 interest://sync-anki  (VIEW intent on MainActivity, launchMode=singleTop)
   ├─ cold start → onCreate sets pendingSyncAnki
   │                Flutter pulls it once via deeplink.getInitialSyncAnki
   └─ running app → onNewIntent → deeplink.invokeMethod("syncAnki")
-  → HomeScreen._syncAnkiFromDeeplink()  (lib/screens/home_screen.dart)
-      snackbar "Syncing problem notes to AnkiDroid…"
-      runAnkiDroidSync(context)  (lib/features/anki/services/anki_sync_runner.dart)
-        AnkiDroidTransport.isAvailable / requestPermission
-        AnkiSyncController.sync(AnkiDroidTransport())
-        showAnkiSyncResult → snackbar on complete success
-                             or an explicit incomplete/failures dialog
+  → HomeScreen._sync()  (lib/features/sync/home_screen.dart)
+      SyncTarget.prepare: availability, then permission
+      AnkiSyncController.sync(transport)
+      result, decisions and last sync shown on the home screen
 ```
 
 The sync logic itself is unchanged from any other trigger; only *how it starts* differs. `AnkiBridge` (the AnkiDroid ContentProvider bridge) is registered on `MainActivity`; `MainActivity.onRequestPermissionsResult` forwards into `AnkiBridge.onRequestPermissionsResult`, so the first-run `READ_WRITE_DATABASE` grant completes through the normal Activity permission flow. `MainActivity` uses `launchMode=singleTop`, so a deep link to a running app arrives via `onNewIntent` rather than relaunching.
@@ -142,7 +140,7 @@ Both transports create notes only on the model literally named **`Basic`** (fiel
 
 ## Explicit phone-state capture
 
-Sources → **Capture Anki state** queries the installed AnkiDroid collection and exports one dated JSON observation through Android’s document chooser. The caller chooses where to save and how to make that file available to Perspirator; ObsidianSync or a continuous phone connection is not assumed. Capture calls no sync or card mutation.
+Settings → **Export Anki state** (Android) queries the installed AnkiDroid collection and exports one dated JSON observation through Android's document chooser. The caller chooses where to save and how to make that file available to Perspirator; ObsidianSync or a continuous phone connection is not assumed. Capture calls no sync or card mutation.
 
 The native query method `queryCardState(query, limit)` uses browser-search `/cards` with an `_id`-only projection, then bounded `/cards/<id>` details and selected exact note fields. It avoids `/schedule`, whose implementation interacts with scheduler queues. Native search still materialises matching IDs: the limit bounds exported details, not the underlying search cost. Runtime support is checked through actual responses; the older compiled API dependency does not prove the installed provider supports newer columns.
 
@@ -181,7 +179,7 @@ Every card's front field is prepended with a right-aligned `obsidian://` link to
 
 ## AnkiConnect specifics
 
-- Endpoint default `http://127.0.0.1:8765`, overridable via an `## AnkiConnect` section in `Interesting/System/integrations.md` (`url: http://…`) — hand-edited; no in-app editor. A LAN URL lets an Android build push to a desktop Anki.
+- Endpoint default `http://127.0.0.1:8765`; the CLI accepts `--url`. There is no vault configuration file.
 - Request shape: `POST {action, version: 6, params}` → `{result, error}`; HTTP status is always 200, failures arrive in `error`.
 - `addNote` uses `options.allowDuplicate: true` — duplicate policy stays Interest's (one card per vault note via `anki_note_id`).
 - `snapshot` reads `findNotes` (`note:Basic`), then `notesInfo` and `cardsInfo` for every result; a count mismatch or malformed entry aborts the run.
@@ -229,7 +227,7 @@ Install the matching debug app first. Check `INSTRUMENTATION_RESULT: result=PASS
 The shared sync core obtains one non-blocking lease per resolved physical vault,
 with an in-process guard and OS file lock. It covers UI, deep link and file CLI
 mutations; it does not coordinate separately mirrored vaults on other devices.
-The empty `Interesting/System/.anki-sync.lock` must not be unlinked while a
+The empty `.interest/anki-sync.lock` (device-local; Obsidian Sync does not carry dot-folders) must not be unlinked while a
 process could hold it. It is coordination state, never knowledge.
 
 Discovery carries the exact source, including BOM/line endings. A changed

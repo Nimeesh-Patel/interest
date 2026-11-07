@@ -1,17 +1,21 @@
 # Interest
 
-Interest is a small Android (and Windows) companion to an Obsidian vault. It does four narrow things over your plain-Markdown files:
+Interest keeps Anki in step with an Obsidian vault. Every note with a `***`
+line becomes one card, and Interest keeps the cards matching the notes: it
+adds what is new, updates what changed, removes duplicates, and asks before
+deleting a card whose note is gone or re-creating one that is missing.
 
-1. **Collections** — browse and tag notes grouped by a `collection:` frontmatter key.
-2. **Inbox** — capture loose Markdown, including unfinished items and tangents, in one persistent `Interesting/Inbox.md` document.
-3. **Projects** — a lightweight todo/project workspace.
-4. **Anki integration** — project `***` Problem Notes to cards, and explicitly capture AnkiDroid card state as dated evidence for Perspirator.
-
-It exists because plain Markdown files are the durable artifact and apps are not: the vault is the database, Interest is a disposable projection over it, and if the app disappears tomorrow your notes are exactly what you wrote. Vault-root note integrations only patch frontmatter; Interest owns the Markdown bodies under `Interesting/` that back Inbox and Projects.
+It runs on Android (AnkiDroid) and Windows (Anki desktop through AnkiConnect).
+Plain Markdown is the durable artifact and the app is not: the vault is the
+database, Interest is a disposable projection over it, and if the app
+disappears tomorrow your notes are exactly what you wrote.
 
 ## The Problem Note
 
-A Problem Note is structurally any Markdown note containing a `***` separator: the situation/problem above, your current best conjecture below. Interest creates a card for every such note without a `collection:` key, even when either side (or both) is still empty: the card front always carries the note's title link, so a blank template is already a reviewable problem. Cards are created, changed and deleted only from Obsidian: each sync reads the Anki collection once, writes only what differs, removes duplicate cards automatically, and asks before re-creating a missing card or removing a card whose note is gone. Collection membership opts out of Anki even if the body still has `***` or a deck category.
+A Problem Note is any Markdown note containing a `***` separator: the problem
+above, your current best conjecture below. Interest makes a card from every
+such note without a `collection:` key, even when a side is still empty, since
+the card front always carries the note's title link.
 
 ```markdown
 What makes Interest a good Obsidian-to-Anki bridge?
@@ -19,60 +23,69 @@ What makes Interest a good Obsidian-to-Anki bridge?
 ***
 
 It pushes one Anki card per note by reading a single `***`
-separator — no plugin syntax, no ID comments, no code added
-to your note. The file stays an ordinary, readable Markdown
-note that works on its own, with or without Anki.
+separator: no plugin syntax, no ID comments, no code added
+to your note.
 ```
 
-That is the entire body format. The note stays a fully readable Markdown file. Optionally a `category:` frontmatter key picks the Anki deck and `tags:` become Anki tags; neither is required. Category accepts a text value or a one-item text list, as Obsidian properties commonly serialize it. An absent or empty category uses Default; ambiguous deck metadata is an error rather than a silent Default fallback.
+Optionally `category:` picks the deck (Default when absent) and `tags:` become
+Anki tags. Both sides keep evolving: edit the note in Obsidian and the next
+sync updates the card in place. Adding `collection:` withdraws the card.
 
-The framing is deliberate: the front is a problem, the back is your current best conjecture, and **both sides keep evolving**. You edit it in Obsidian whenever your thinking moves, and the next sync updates the card in place. Adding `collection:` withdraws an existing Anki projection: sync verifies its source link, removes the native Anki note and cards, confirms absence, then clears `anki_note_id` without changing your body. Offline or uncertain retirement keeps the ID for a retry.
+## The app
 
-## The companion plugin
-
-Editing, backlinks, and tap-to-reveal review of `***` notes live in **Obsidian**. The **Problem Notes** plugin owns that review surface. Interest's Collections screen separately renders an entity note body read-only and sends its wikilinks to Obsidian; it is not a Problem Note reviewer.
-
-The plugin and the app meet at one contract: the plugin's "sync to AnkiDroid" button fires the `interest://sync-anki` deep link. `MainActivity` (`launchMode=singleTop`) receives it — cold start through `pendingSyncAnki`, running app through `onNewIntent` — and **Interest comes to the foreground and runs the sync there**, reporting the result in a snackbar.
+One screen says whether the vault and Anki match. Opening it previews what a
+sync would change, writing nothing; the Sync button (or the Problem Notes
+plugin's ribbon button, which fires `interest://sync-anki`) applies it. Cards
+that need a decision appear in a swipeable pager, one card per page, with the
+card's deck, review history, problem and conjecture, so you can judge what
+removing or re-creating it means. Settings shows the vault, the Anki target
+and its permission, kept cards, the card rules, and an export of AnkiDroid's
+card state for Perspirator.
 
 ## The sync
 
-**Content projection is one-way: vault → Anki.** Markdown owns authored knowledge; Anki owns scheduling and review state. Sources → Capture Anki state separately exports read-only phone observations to a JSON file you choose, for Perspirator to inspect. It is dated evidence, not a second editable store or an automatic phone-to-computer connection. The single thing written back to a note is an `anki_note_id` frontmatter key (a surgical frontmatter patch), so re-syncs update the existing card instead of duplicating it. This is structural, not a setting — **no code path in the sync touches a note body**, so it cannot alter what you wrote. Discovery refuses rollback/history, trash, templates, attachments, Basic Memory, Interest system files, unreadable scans, and duplicate active IDs before changing cards.
+**Content projection is one-way: vault → Anki.** Markdown owns what you wrote;
+Anki owns scheduling and review history. Each sync reads the whole collection
+once and writes only the differences. The only thing written back to a note is
+an `anki_note_id` frontmatter key, through a surgical patch; no code path
+touches a note body. Templates, attachments, trash, history, the `memory/`
+folder and Interest's device-local `.interest/` lock folder are never card
+sources.
 
-Two transports share one sync core and one `anki_note_id`:
+Cards are created, changed and deleted only from Obsidian, so Anki should
+mirror the notes. A linked card that is missing is never re-created
+automatically, because it may still be travelling through AnkiWeb from another
+device. A card whose note is gone is never removed automatically, because the
+note may not have reached this device yet. Both are offered for your
+decision. Duplicates are removed automatically.
 
-- **AnkiDroid** (phone) — through AnkiDroid's ContentProvider API. No desktop Anki, no laptop in the loop, no markers in your prose. Triggered by the `interest://sync-anki` deep link.
-- **AnkiConnect** (desktop) — when the vault is open in Obsidian desktop and Anki desktop is running the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on, the same one-way sync runs over HTTP with identical card semantics. Triggered manually from the Sources screen.
-
-Each synced card's front carries an `obsidian://` link back to its source note, and `[[wikilinks]]` inside a card render as tappable `obsidian://` links — so mid-review you are one tap from the note in Obsidian.
-
-What you give up: one note is one card (no multi-card extraction); cards use Anki's Basic model only (no cloze, no media); sync is a manual trigger, not a background job.
-
-## The three-system model
-
-| System | Owns |
-|---|---|
-| **Obsidian** (+ Problem Notes plugin) | Canonical editing, `***` review rendering, backlinks, and full wikilink traversal. The vault's Markdown files are the only canonical data. |
-| **Interest** | Collections, Inbox, Projects, the Anki projection engine and explicit read-only phone-state capture. |
-| **AnkiDroid / Anki desktop** | Retention. FSRS scheduling and drilling, fed by the one-way push. |
+Each card's front links back to its note, and `[[wikilinks]]` in a card open
+in Obsidian. One note is one card, on Anki's Basic model.
 
 ## Running it
 
-You need Flutter and an Android device, or Windows with the Visual Studio C++ build tools for the desktop build. There are no published releases; build from source:
+You need Flutter and an Android device, or Windows with the Visual Studio C++
+build tools. Build from source:
 
 ```
 flutter pub get
 flutter run -d android    # or: flutter run -d windows
 ```
 
-First launch asks for "All Files Access" (the vault is read straight from disk) and a vault folder — point it at an Obsidian vault or any folder of Markdown files. Interest keeps its own structured data inside an `Interesting/` subtree; everything outside it is yours and is only ever frontmatter-patched, never rebuilt. It is a personal project writing into your vault: try it on a copy first.
+On Android, first launch asks for All Files Access and a vault folder.
+Interest creates nothing in the vault except `anki_note_id` keys and its
+hidden `.interest/` lock.
 
-For the Anki bridge: add `***` to a note, then either tap the Problem Notes plugin's sync button in Obsidian (AnkiDroid), or run Anki desktop with AnkiConnect and tap **Anki desktop** in the Sources screen.
+`dart run tool/sync_anki_notes.dart --vault <path> --file <note.md>` syncs
+chosen notes to Anki desktop from the command line.
 
-## Architecture in brief
+## Architecture
 
-Flutter, `setState` only. Expected failures cross service boundaries as explicit results; pure Markdown/YAML utilities live in `lib/shared/markdown/md_utils.dart`. Structural note roles remain frontmatter/body facts: `collection:` makes a collection member and `***` makes a Problem Note. Anki eligibility is a separate projection rule: a complete Problem Note without collection membership. Vault-root integrations patch frontmatter without replacing user prose; Interest body editing stays bounded to its own Inbox and Project files under `Interesting/`.
-
-Subsystem detail: [docs/](docs/) — [Inbox and its provider](docs/inbox.md), [Anki sync & the deep-link contract](docs/anki.md), [entities & collections](docs/entities.md), [projects](docs/projects.md), [tasks parser](docs/tasks.md), [UI](docs/ui.md), [mobile UX](docs/mobile_ux.md). `CLAUDE.md` is the constraint registry used when working on the code with AI assistance.
+Flutter, `setState` only. `lib/features/anki/` is the sync core: scanner,
+renderer, transports and the snapshot-diff sync. `lib/features/sync/` is the
+app: home, decision pager and settings. Detail: [the sync and deep-link
+contract](docs/anki.md) and [the design system](docs/ui.md). `CLAUDE.md` is
+the constraint registry for working on the code with AI assistance.
 
 ## License
 

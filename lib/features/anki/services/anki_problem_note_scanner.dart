@@ -40,19 +40,12 @@ class AnkiProblemNoteScanResult {
 /// with collection membership opts out; a former Anki link is retired. Other
 /// notes with `exclude_resurface: true` frontmatter are skipped.
 class AnkiProblemNoteScanner {
-  static Future<AnkiProblemNoteScanResult> scan(
-    String vaultPath, {
-    List<String> excludedFolders = const [],
-  }) async {
+  static Future<AnkiProblemNoteScanResult> scan(String vaultPath) async {
     final notes = <AnkiProblemNote>[];
     final retirements = <AnkiNoteRetirement>[];
     final errors = <String>[];
     try {
-      final scanned = await CurrentVaultContent.scan(
-        vaultPath,
-        use: CurrentVaultUse.ankiProblemNote,
-        additionalExcludedFolders: excludedFolders,
-      );
+      final scanned = await CurrentVaultContent.scan(vaultPath);
       errors.addAll(scanned.errors);
       for (final entry in scanned.files) {
         try {

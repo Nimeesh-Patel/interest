@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_theme.dart';
 
-/// Canonical transient feedback. Every snackbar in the app goes through this —
-/// never call ScaffoldMessenger/SnackBar directly in screens.
+/// Canonical transient feedback. Every snackbar in the app goes through this.
 void showSnack(
   BuildContext context,
   String message, {
@@ -12,9 +11,11 @@ void showSnack(
 }) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(message),
+      content: Text(
+        message,
+        style: isError ? const TextStyle(color: AppColors.danger) : null,
+      ),
       duration: duration,
-      backgroundColor: isError ? AppColors.destructive : null,
     ),
   );
 }
