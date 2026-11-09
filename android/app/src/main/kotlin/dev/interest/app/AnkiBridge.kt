@@ -25,6 +25,14 @@ class AnkiBridge(private val activity: Activity) {
         const val CHANNEL = "dev.interest.app/ankidroid"
         const val PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
         const val PERMISSION_REQUEST_CODE = 1001
+
+        /// A documented provider column newer than the api-v1.1.0 compile
+        /// dependency (see AnkiCardStateReader); requested by name.
+        const val ORIGINAL_DECK_ID = "original_deck_id"
+
+        /// The deck a card belongs to: its home deck while a filtered deck holds it.
+        fun homeDeck(deckId: Long, originalDeckId: Long): Long =
+            if (originalDeckId != 0L) originalDeckId else deckId
     }
 
     fun register(messenger: BinaryMessenger) {
@@ -178,6 +186,25 @@ class AnkiBridge(private val activity: Activity) {
                 val noteId = call.argument<Number>("noteId")?.toLong() ?: -1L
                 val deckName = call.argument<String>("deckName") ?: ""
                 val api = AddContentApi(ctx)
+                // AnkiDroid's provider sets a card's current deck and leaves its
+                // home deck alone, so moving a card out of a filtered deck would
+                // strand it. Such a card is moved only after the filtered deck
+                // returns it home.
+                val filtered = readCardDecks(noteId).values.firstOrNull { it.second != 0L }
+                if (filtered != null) {
+                    val names = api.getDeckList() ?: throw IllegalStateException("Could not list AnkiDroid decks")
+                    if (names[filtered.second]?.equals(deckName, ignoreCase = true) == true) {
+                        result.success(true)
+                    } else {
+                        result.error(
+                            "FILTERED",
+                            "its card is in the filtered deck \"${names[filtered.first] ?: filtered.first}\"; " +
+                                "empty that deck in AnkiDroid, then sync again",
+                            null,
+                        )
+                    }
+                    return
+                }
                 val deckId = getOrCreateDeck(api, deckName)
                 if (deckId == null) result.success(false)
                 else result.success(moveCardsToDeck(noteId, deckId))
@@ -269,17 +296,23 @@ class AnkiBridge(private val activity: Activity) {
         }
         val cardCursor = ctx.contentResolver.query(
             Uri.withAppendedPath(FlashCardsContract.AUTHORITY_URI, "cards"),
-            arrayOf(FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID, "reps"),
+            arrayOf(
+                FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID,
+                ORIGINAL_DECK_ID, "reps",
+            ),
             search, null, null,
         ) ?: throw IllegalStateException("AnkiDroid card search unavailable")
         cardCursor.use { c ->
             val noteIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.NOTE_ID)
             val deckIndex = c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)
+            val originalIndex = c.getColumnIndexOrThrow(ORIGINAL_DECK_ID)
             val repsIndex = c.getColumnIndexOrThrow("reps")
             while (c.moveToNext()) {
                 val note = notes[c.getLong(noteIndex)]
                     ?: throw IllegalStateException("AnkiDroid card search returned a card outside the note search")
-                val deck = deckNames[c.getLong(deckIndex)]
+                // A card in a filtered deck (Custom Study included) still belongs
+                // to its home deck, which `category:` names.
+                val deck = deckNames[homeDeck(c.getLong(deckIndex), c.getLong(originalIndex))]
                     ?: throw IllegalStateException("AnkiDroid card is in an unlisted deck")
                 @Suppress("UNCHECKED_CAST")
                 (note["decks"] as MutableList<String>).add(deck)
@@ -335,7 +368,7 @@ class AnkiBridge(private val activity: Activity) {
 
     private fun moveCardsToDeck(noteId: Long, deckId: Long): Boolean {
         return try {
-            val before = readCardDecks(noteId)
+            val before = readCardDecks(noteId).mapValues { it.value.first }
             if (before.isEmpty()) return false
             for ((ord, currentDeck) in before) {
                 if (currentDeck == deckId) continue
@@ -350,25 +383,32 @@ class AnkiBridge(private val activity: Activity) {
             // A zero-row update is not evidence of placement. Check the actual
             // card set and deck after the writes, including idempotent moves.
             val after = readCardDecks(noteId)
-            after.keys == before.keys && after.values.all { it == deckId }
+            after.keys == before.keys && after.values.all { it.first == deckId && it.second == 0L }
         } catch (e: Exception) {
             false
         }
     }
 
-    private fun readCardDecks(noteId: Long): Map<Int, Long> {
-        val cursor = ctx.contentResolver.query(cardsUriFor(noteId), null, null, null, null)
-            ?: throw IllegalStateException("AnkiDroid card query unavailable")
+    /// Each card's (current deck, original deck); the original is 0 unless the
+    /// card sits in a filtered deck.
+    private fun readCardDecks(noteId: Long): Map<Int, Pair<Long, Long>> {
+        val cursor = ctx.contentResolver.query(
+            cardsUriFor(noteId),
+            arrayOf(FlashCardsContract.Card.CARD_ORD, FlashCardsContract.Card.DECK_ID, ORIGINAL_DECK_ID),
+            null, null, null,
+        ) ?: throw IllegalStateException("AnkiDroid card query unavailable")
         return cursor.use { c ->
             val ordIdx = c.getColumnIndexOrThrow(FlashCardsContract.Card.CARD_ORD)
             val deckIdx = c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)
-            val decks = mutableMapOf<Int, Long>()
+            val originalIdx = c.getColumnIndexOrThrow(ORIGINAL_DECK_ID)
+            val decks = mutableMapOf<Int, Pair<Long, Long>>()
             while (c.moveToNext()) {
                 val ord = c.getInt(ordIdx)
                 check(!decks.containsKey(ord)) { "AnkiDroid returned duplicate card ordinals" }
-                decks[ord] = c.getLong(deckIdx)
+                decks[ord] = c.getLong(deckIdx) to c.getLong(originalIdx)
             }
             decks
         }
     }
+
 }

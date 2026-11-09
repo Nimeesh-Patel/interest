@@ -68,11 +68,15 @@ class AnkiBridgeDeviceChecks : Instrumentation() {
         }
         fun deckIds(noteId: Long): List<Long> {
             val uri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, "$noteId/cards")
-            val cursor = context.contentResolver.query(uri, null, null, null, null)
-                ?: error("Native card query unavailable")
+            val cursor = context.contentResolver.query(
+                uri, arrayOf(FlashCardsContract.Card.DECK_ID, AnkiBridge.ORIGINAL_DECK_ID), null, null, null,
+            ) ?: error("Native card query unavailable")
             return cursor.use { c ->
                 val ids = mutableListOf<Long>()
-                while (c.moveToNext()) ids.add(c.getLong(c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)))
+                while (c.moveToNext()) ids.add(AnkiBridge.homeDeck(
+                    c.getLong(c.getColumnIndexOrThrow(FlashCardsContract.Card.DECK_ID)),
+                    c.getLong(c.getColumnIndexOrThrow(AnkiBridge.ORIGINAL_DECK_ID)),
+                ))
                 ids
             }
         }

@@ -150,6 +150,13 @@ class AnkiDroidTransport extends AnkiTransport {
             'deckName': deckName,
           }) ??
           false;
+    } on PlatformException catch (error) {
+      // A card held by a filtered deck cannot be moved without stranding it;
+      // the reason is the note's failure, not an unexplained `false`.
+      if (error.code == 'FILTERED') {
+        throw AnkiNoteFailure(error.message ?? error.code);
+      }
+      return false;
     } catch (_) {
       return false;
     }

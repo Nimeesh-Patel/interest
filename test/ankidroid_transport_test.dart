@@ -35,6 +35,32 @@ void main() {
     },
   );
 
+  test('a card held by a filtered deck fails with its reason', () async {
+    messenger.setMockMethodCallHandler(channel, (_) async {
+      throw PlatformException(
+        code: 'FILTERED',
+        message: 'its card is in the filtered deck "Custom Study Session"',
+      );
+    });
+    await expectLater(
+      AnkiDroidTransport().moveToDeck(555, 'Morality'),
+      throwsA(
+        isA<AnkiNoteFailure>().having(
+          (error) => error.message,
+          'message',
+          contains('filtered deck'),
+        ),
+      ),
+    );
+  });
+
+  test('other native move failures stay a plain false', () async {
+    messenger.setMockMethodCallHandler(channel, (_) async {
+      throw PlatformException(code: 'ANKI_ERROR', message: 'unavailable');
+    });
+    expect(await AnkiDroidTransport().moveToDeck(555, 'Morality'), isFalse);
+  });
+
   test('native source refusal remains a visible failure', () async {
     messenger.setMockMethodCallHandler(channel, (_) async {
       throw PlatformException(
