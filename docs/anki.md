@@ -91,20 +91,34 @@ interest://sync-anki[?all=1]  (VIEW intent, launchMode=singleTop)
   │                Flutter pulls {sync, all} once via deeplink.getInitialSyncAnki
   └─ running app → onNewIntent → deeplink.invokeMethod("syncAnki", {all})
   → plain:  HomeScreen._syncChanged()
-      AnkiSyncController.syncChanged: list + stat every note, compare with
-      SyncManifest, scanPaths(changed), syncVault(subset, linkTargets:)
-      against one complete snapshot; clean result → openApp()
+      AnkiSyncController.syncChanged → AnkiSyncService.syncDiscovered:
+      one lease, one snapshot; list + stat every note against the
+      SyncManifest; add notes whose card changed in Anki and notes whose
+      links now resolve differently; scanPaths; guards; sync the subset
+      against that snapshot; clean result → openApp()
   → all=1:  HomeScreen._sync()  (whole vault, reconcileCollection: true)
       result, decisions and last sync shown on the home screen
 ```
 
 **The edit cycle.** In a review session a card looks wrong; its source link opens the note in Obsidian; the plugin's button saves the editor (Obsidian writes edits on a delay, Interest reads files) and fires the plain link. Interest must sync *everything* changed since Anki last received the vault, not only the open note: Nimeesh edits several notes, and Perspirator edits in bulk on the laptop, arriving through Obsidian Sync.
 
-`SyncManifest` (`.interest/sync-manifest.json`) records, for every current note, the timestamp, size, aliases and `anki_note_id` observed before it was read in the last clean run, and when that run began. A changed sync lists and stats every note (cheap) and reads only files that are new or whose timestamp or size differs. It compares each file with its own recorded timestamp rather than with "the last sync time", because Obsidian Sync delivers other devices' timestamps: a laptop edit can arrive later carrying an older time. Timestamps are coarse, so a file modified within `settleMargin` (2 s) of the recording run's start is never trusted as settled and is read again. Link targets resolve from the manifest's aliases, so they are exact rather than cached guesses; identities are checked vault-wide against it. It falls back to the whole-vault sync when there is no manifest, when a linked note was deleted or renamed (only the whole vault can say what its card now is), or when a changed note's aliases changed (which can change other notes' links). It never classifies unreferenced cards; opening Interest (a preview) or a whole-vault sync does. Every whole-vault sync rewrites the manifest from the facts its scan gathered, which also replaced the second vault read for aliases.
+`SyncManifest` (`.interest/sync-manifest.json`, version 2) records, for every current note: the timestamp and size observed before it was read in the last clean run, its aliases, its `anki_note_id`, the wikilink targets its card uses, and the fingerprint (`cardFingerprint`) of its card as Anki received it; plus when that run began. A changed sync reads only the notes that can need work:
 
-**Lost identities.** If a note that had a card when Anki last received it (per the manifest) now has no `anki_note_id`, both sync paths stop and name the id to restore. Without this, a dropped property or a bulk rewrite that lost frontmatter would create a fresh card, and the next whole-vault sync would retire the studied card as a duplicate. A missed change is never data loss: the whole-vault sync ignores the manifest and compares every note with Anki.
+- **changed files:** new, or timestamp or size differs from the note's own record (not from "the last sync time": Obsidian Sync delivers other devices' timestamps, so a laptop edit can arrive later carrying an older time). Timestamps are coarse, so a file modified within `settleMargin` (2 s) of the recording run's start is never trusted as settled;
+- **cards changed in Anki:** an untouched note whose card is missing from the snapshot, or whose fingerprint differs (edited or deleted in AnkiDroid, rolled back by an AnkiWeb conflict). This needs no file reads, only the snapshot every run takes anyway;
+- **relinked notes:** an untouched note one of whose links resolves differently now than at the last sync, because a note or alias appeared or disappeared (a new `Delta` makes `[[Delta]]` reach `sub/Delta`; a second `Delta` makes it ambiguous).
 
-Measured on the phone (2026-11-08, 946 notes): whole-vault sync 5.4 s inside the app (was 5.8 s with the second read), about 7.5 s from the intent; changed sync with nothing changed 0.54–0.71 s inside the app (listing ~0.3–0.45 s), 1.5–1.6 s from the link until AnkiDroid is back in front. Both paths print their phase timings to logcat (`flutter` tag).
+It falls back to the whole-vault sync when there is no current-format manifest or when a linked note was deleted or renamed (only the whole vault can say what its card now is). An older manifest still supplies remembered card IDs. Only whole-vault discovery classifies unreferenced cards. Discovery, card writes, and recording the result share one lease, with one collection observation (`AnkiSyncService.syncDiscovered`).
+
+The manifest is rewritten only after a clean run. The `anki_note_id`s a run writes are recorded at once, as the notes now hold them (after an unclean run, only for notes the old manifest lists, so a new note's name is never taken as already accounted for in other notes' links). Without this, a note given a card in the last sync was unprotected by the lost-identity guard until a second sync.
+
+**Lost identities.** If a note that had a card when Anki last received it (per the manifest) now has no `anki_note_id`, both sync paths stop. The problem card offers **Put it back** (`restoreIdentity` writes the number back, the sync's one kind of vault write) or **New card** (`releaseIdentity` forgets the number in the manifest; the old card is then offered for removal with its review count). Both decisions recheck the current note and the exact remembered card ID before applying. Without the guard, a dropped property or a bulk rewrite that lost frontmatter would create a fresh card, and the studied card would be cut loose.
+
+**A card made from another note.** A note's `anki_note_id` is trusted only if the card's own source link names that note, a note that no longer exists (a rename or merge; names compare without case, as Android's and Windows' storage do), or no note of this vault. When it names a different note that still exists, updating it would hand that note's review history to this one: the note is skipped as a `foreignCard` problem. **Move card here** (`resolve(reassign:)`) re-checks that the note still claims the card and the card still names the note shown, then updates it.
+
+**Problems are structured.** `AnkiSyncResult.issues` carries each problem that concerns particular notes (`sharedCard`, `foreignCard`, `lostIdentity`, `noteFailed`), with the notes involved and, read from the collection, the card at stake. Every issue's message is also in `errors`. A whole-vault sync rereads every note and still uses recorded IDs for the lost-identity check.
+
+Measured on the phone (2026-11-08, 946 notes): whole-vault sync 5.4 s inside the app (was 5.8 s with the second read), about 7.5 s from the intent; changed sync with nothing changed 0.71–1.02 s inside the app with the Anki-side and link checks (0.54–0.71 s before them), 1.3–1.9 s from the link until AnkiDroid is back in front. Both paths print their phase timings to logcat (`flutter` tag).
 
 The sync logic itself is unchanged from any other trigger; only *how it starts* differs. `AnkiBridge` (the AnkiDroid ContentProvider bridge) is registered on `MainActivity`; `MainActivity.onRequestPermissionsResult` forwards into `AnkiBridge.onRequestPermissionsResult`, so the first-run `READ_WRITE_DATABASE` grant completes through the normal Activity permission flow. `MainActivity` uses `launchMode=singleTop`, so a deep link to a running app arrives via `onNewIntent` rather than relaunching.
 
@@ -134,7 +148,7 @@ Every run starts from one complete `snapshot` of the collection and writes only 
 
 **Collection reconciliation (whole-vault UI syncs only).** An Interest-owned card is one whose front carries this vault's `obsidian://open` source link. An owned card that no current eligible note or collection withdrawal links is either:
 
-- a **duplicate**, when its source note links a different card that is present and the extra card has no more reviews than the linked one. It is retired automatically through the source-guarded `retireNote`; the note keeps its card. An extra card with more history is treated as an orphan instead, because the likelier story is that the note lost its `anki_note_id` and got a fresh card; or
+- an **extra card**, when its source note links a different card that is present. It is shown for confirmation as “This note has a second card” (`AnkiOrphanCard.noteLinks`); or
 - an **orphan**, otherwise: its note was deleted, is no longer a Problem Note, or has not reached this device through Obsidian Sync yet. One device cannot distinguish these, so orphans are offered for confirmation.
 
 A file-bounded run never classifies unreferenced cards, because its notes are a subset of the vault. Confirmations go through `AnkiSyncService.resolve`, which re-reads the vault and the collection: a card that arrived meanwhile is not re-created, and an orphan a current note links again is not removed. Cards without this vault's source link are never touched.
@@ -205,7 +219,7 @@ Standard Markdown collapses a single newline within a block to a space. Before M
 
 ## Obsidian note link in card front
 
-Every card's front field is prepended with a right-aligned `obsidian://` link to the source note (`obsidianUri(vaultPath, noteFilePath)` in `md_utils.dart`). On re-sync the front is rebuilt, so a rename is reflected on the next sync. Anki's HTML renderer fires the href natively on tap; no Flutter code is involved.
+Every card's front field is prepended with a right-aligned `obsidian://` link to the source note (`obsidianUri(vaultPath, noteFilePath)` in `md_utils.dart`). On re-sync the front is rebuilt, so a rename is reflected on the next sync. Anki's HTML renderer fires the href natively on tap; no Flutter code is involved. `Uri.encodeComponent` leaves apostrophes unencoded, so a link is read up to the quote that opened it (`_ownedSource`); reading to the first quote of either kind once took "The Pattern's cause"'s card for "The Pattern"'s.
 
 ## AnkiConnect specifics
 

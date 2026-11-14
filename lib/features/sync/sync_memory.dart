@@ -25,7 +25,7 @@ class LastSync {
     at: DateTime.now(),
     added: result.added,
     updated: result.updated,
-    removed: result.retired + result.duplicatesRetired,
+    removed: result.retired,
     changed: result.changed.take(50).toList(),
   );
 

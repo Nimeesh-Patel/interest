@@ -86,6 +86,7 @@ class FakeTransport extends AnkiTransport {
       back: back,
       tags: tags.toSet(),
       decks: stored[noteId]?.decks ?? const {},
+      reviews: stored[noteId]?.reviews ?? 0, // Anki keeps history on edit
     );
     await afterUpdate?.call();
     return true;
@@ -122,6 +123,7 @@ class FakeTransport extends AnkiTransport {
         back: state.back,
         tags: state.tags,
         decks: {deckName},
+        reviews: state.reviews,
       );
     }
     return moveSucceeds;
@@ -539,7 +541,7 @@ void main() {
     });
 
     test(
-      'whole-vault sync removes a duplicate whose note keeps its linked card',
+      'whole-vault sync offers an extra card; only confirmation removes it',
       () async {
         final transport = FakeTransport();
         final note = await problemNote('Twice');
@@ -553,7 +555,7 @@ void main() {
           scan.notes,
           vault.path,
         );
-        expect(bounded.duplicatesRetired, 0);
+        expect(bounded.orphans, isEmpty);
         expect(transport.retireCalls, isEmpty);
 
         final whole = await AnkiSyncService.syncVault(
@@ -562,10 +564,18 @@ void main() {
           vault.path,
           reconcileCollection: true,
         );
-        expect(whole.duplicatesRetired, 1);
+        expect(whole.orphans.single.ankiNoteId, 77);
+        expect(whole.orphans.single.noteLinks, 1000);
+        expect(transport.retireCalls, isEmpty);
+        final resolved = await AnkiSyncService.resolve(
+          transport,
+          scan.notes,
+          vault.path,
+          retire: whole.orphans,
+        );
+        expect(resolved.retired, 1);
         expect(transport.retireCalls.single.$1, 77);
         expect(transport.existingIds, {1000});
-        expect(whole.orphans, isEmpty);
       },
     );
 
@@ -594,9 +604,9 @@ void main() {
           reconcileCollection: true,
         );
 
-        expect(result.duplicatesRetired, 1);
-        expect(transport.retireCalls.single, (66, legacy));
-        expect(result.orphans, isEmpty);
+        expect(result.orphans.single.ankiNoteId, 66);
+        expect(result.orphans.single.sourceUri, legacy);
+        expect(transport.retireCalls, isEmpty);
       },
     );
 

@@ -16,7 +16,9 @@ import 'settings_screen.dart';
 import 'sync_memory.dart';
 import 'sync_target.dart';
 
-enum _Phase { checking, ready, syncing, unavailable, failed }
+/// [partial]: the run finished, but at least one note did not sync (or, in
+/// a preview, cannot). Green is kept for a run where everything went through.
+enum _Phase { checking, ready, syncing, unavailable, failed, partial }
 
 /// Interest's one screen, ordered like the journey it serves: notes are
 /// written in Obsidian, the sync panel brings Anki in step, the review panel
@@ -145,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     if (!await _ready()) return;
     final result = await AnkiSyncController.sync(_target.transport);
-    if (result != null && result.completed) {
+    if (result != null && result.isSuccessful) {
       await SyncMemory.recordSync(result);
       _last = await SyncMemory.lastSync();
     }
@@ -164,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     if (!await _ready()) return;
     final result = await AnkiSyncController.syncChanged(_target.transport);
-    if (result != null && result.completed) {
+    if (result != null && result.isSuccessful) {
       await SyncMemory.recordSync(result);
       _last = await SyncMemory.lastSync();
     }
@@ -182,8 +184,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _state = result;
       _resolved.clear();
-      _phase =
-          result == null || !result.completed ? _Phase.failed : _Phase.ready;
+      _phase = switch (result) {
+        null => _Phase.failed,
+        _ when !result.completed => _Phase.failed,
+        _ when !result.isSuccessful => _Phase.partial,
+        _ => _Phase.ready,
+      };
     });
     _refreshLoad();
   }
@@ -193,9 +199,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return state != null && state.preview && state.pending > 0;
   }
 
+  /// The problems the newest result reports, one card each.
+  List<Decision> get _problems {
+    final state = _state;
+    if (state == null) return const [];
+    return [
+      for (final issue in state.issues)
+        if (!_resolved.contains(Decision.issue(issue).id))
+          Decision.issue(issue),
+    ];
+  }
+
   List<Decision> get _decisions {
     final state = _state;
-    if (state == null || _phase != _Phase.ready) return const [];
+    if (state == null ||
+        !(_phase == _Phase.ready || _phase == _Phase.partial)) {
+      return const [];
+    }
     return [
       for (final card in state.orphans)
         if (!_kept.contains(card.ankiNoteId) &&
@@ -207,7 +227,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ];
   }
 
+  /// Runs again what produced the newest result, so an answered problem
+  /// carries straight on into the sync it was blocking.
+  Future<void> _again() => _changedOnly ? _syncChanged() : _sync();
+
+  /// A problem's two choices. A lost card number is put back or released;
+  /// a claimed card is moved, or left for now. Everything else is fixed in
+  /// Obsidian, so its card offers no choice.
+  Future<void> _answer(Decision d, {required bool act}) async {
+    final issue = d.issue!;
+    if (issue.kind == AnkiIssueKind.foreignCard && !act) {
+      setState(() => _resolved.add(d.id));
+      return;
+    }
+    setState(() => _busy.add(d.id));
+    String? error;
+    if (issue.kind == AnkiIssueKind.lostIdentity) {
+      error =
+          act
+              ? await AnkiSyncController.restoreIdentity(issue)
+              : await AnkiSyncController.releaseIdentity(issue);
+    } else {
+      final result = await AnkiSyncController.resolve(
+        _target.transport,
+        reassign: [issue],
+      );
+      error =
+          result == null || result.isSuccessful
+              ? null
+              : result.errors.firstOrNull ?? "That didn't work. Try again.";
+    }
+    if (!mounted) return;
+    setState(() => _busy.remove(d.id));
+    if (error != null) {
+      showSnack(context, error, isError: true);
+      return;
+    }
+    setState(() => _resolved.add(d.id));
+    showSnack(context, switch (issue.kind) {
+      AnkiIssueKind.foreignCard => 'Card moved',
+      _ when act => 'Card number put back',
+      _ => 'The note will get a new card',
+    });
+    await _again();
+  }
+
   Future<void> _keep(Decision d) async {
+    if (d.issue != null) return _answer(d, act: false);
     if (d.orphan != null) await SyncMemory.keep(d.id);
     setState(() {
       if (d.orphan != null) _kept.add(d.id);
@@ -216,6 +282,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _act(Decision d) async {
+    if (d.issue != null) return _answer(d, act: true);
     setState(() => _busy.add(d.id));
     final result = await AnkiSyncController.resolve(
       _target.transport,
@@ -272,9 +339,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final decisions = _decisions;
+    final problems = _problems;
     final showReview =
         _readiness == TargetReadiness.ready &&
-        (_phase == _Phase.ready || _phase == _Phase.failed);
+        (_phase == _Phase.ready ||
+            _phase == _Phase.failed ||
+            _phase == _Phase.partial);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Interest'),
@@ -323,6 +393,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     primary: !_changesWaiting && _phase == _Phase.ready,
                     onOpen: _openAnki,
                   ),
+                ),
+              ],
+              if (problems.isNotEmpty) ...[
+                const SizedBox(height: Space.xxl),
+                DecisionPager(
+                  decisions: problems,
+                  busy: _busy,
+                  onKeep: _keep,
+                  onAct: _act,
+                  onOpenNote: _openObsidian,
+                  heading: DecisionPager.problemHeading,
                 ),
               ],
               if (decisions.isNotEmpty) ...[
@@ -378,8 +459,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _Phase.failed => (
         Icons.error_outline_rounded,
         AppColors.danger,
-        "Sync didn't finish",
-        state?.errors.take(3).join('\n') ?? 'No vault is chosen yet.',
+        _stoppedStatement(state),
+        _stoppedDetail(state),
+      ),
+      _Phase.partial => (
+        Icons.warning_amber_rounded,
+        AppColors.warning,
+        _partialStatement(state!),
+        _partialDetail(state),
       ),
       _Phase.ready when _changesWaiting => (
         Icons.pending_outlined,
@@ -468,13 +555,80 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _Phase.failed => 'Try again',
       _ when _changesWaiting =>
         'Sync ${state!.pending} ${state.pending == 1 ? 'change' : 'changes'}',
+      _Phase.partial => 'Try again',
       _ => 'Sync now',
     };
     // Emphasis follows state: syncing is the primary action only when there
     // is something to sync; once in sync, the review panel takes it.
-    return _changesWaiting || _phase == _Phase.failed
+    final emphasise =
+        _changesWaiting || _phase == _Phase.failed || _phase == _Phase.partial;
+    return emphasise
         ? FilledButton(onPressed: busy ? null : _sync, child: Text(label))
         : OutlinedButton(onPressed: busy ? null : _sync, child: Text(label));
+  }
+
+  /// A run that stopped before changing anything: named by its problem when
+  /// every problem is of one kind, so the sentence says what is wrong.
+  static String _stoppedStatement(AnkiSyncResult? s) {
+    final kinds = {for (final issue in s?.issues ?? const []) issue.kind};
+    final n = s?.issues.length ?? 0;
+    if (kinds.length != 1) return "Sync didn't finish";
+    return switch (kinds.single) {
+      AnkiIssueKind.sharedCard =>
+        n == 1 ? 'Two notes claim one card' : '$n cards are claimed twice',
+      AnkiIssueKind.lostIdentity =>
+        n == 1
+            ? 'A note lost its card number'
+            : '$n notes lost their card numbers',
+      _ => "Sync didn't finish",
+    };
+  }
+
+  static String _stoppedDetail(AnkiSyncResult? s) {
+    if (s == null) return 'No vault is chosen yet.';
+    final other = [
+      for (final error in s.errors)
+        if (!s.issues.any((issue) => issue.message == error)) error,
+    ];
+    if (s.issues.isEmpty) return other.take(3).join('\n');
+    final kinds = {for (final issue in s.issues) issue.kind};
+    return [
+      'No cards were changed.',
+      if (kinds.contains(AnkiIssueKind.sharedCard))
+        'Fix the card number in Obsidian, then try again.',
+      if (kinds.contains(AnkiIssueKind.lostIdentity))
+        'Put the number back, or give the note a new card.',
+      ...other.take(2),
+    ].join(' ');
+  }
+
+  /// A run that finished with notes left out. A preview says what cannot
+  /// sync; a sync says what did and what did not.
+  static String _partialStatement(AnkiSyncResult s) {
+    final failed = s.failed;
+    final notes = failed == 1 ? '1 note' : '$failed notes';
+    if (s.preview) return "$notes can't sync";
+    final written = s.added + s.updated + s.retired;
+    if (written == 0) return "$notes didn't sync";
+    return "${written == 1 ? '1 card' : '$written cards'} synced, $failed didn't";
+  }
+
+  String _partialDetail(AnkiSyncResult s) {
+    final other = [
+      for (final error in s.errors)
+        if (!s.issues.any((issue) => issue.message == error)) error,
+    ];
+    final lead =
+        s.preview
+            ? s.pending > 0
+                ? '${s.pending} other ${s.pending == 1 ? 'change is' : 'changes are'} ready to sync.'
+                : 'Everything else is in sync.'
+            : 'Everything else ${_changedOnly ? 'that changed ' : ''}now matches ${_target.name}.';
+    return [
+      lead,
+      if (s.issues.isNotEmpty) 'What went wrong is below.',
+      ...other.take(2),
+    ].join(' ');
   }
 
   static String _changedStatement(AnkiSyncResult? s) {
@@ -490,8 +644,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (s.added > 0) '${s.added} new ${s.added == 1 ? 'card' : 'cards'}',
     if (s.updated > 0)
       '${s.updated} updated ${s.updated == 1 ? 'card' : 'cards'}',
-    if (s.duplicatesRetired > 0)
-      '${s.duplicatesRetired} ${s.duplicatesRetired == 1 ? 'duplicate' : 'duplicates'} to remove',
     if (s.retired > 0) '${s.retired} withdrawn from a collection',
   ].join(', ');
 }

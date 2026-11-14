@@ -2,7 +2,7 @@
 
 Interest keeps Anki in step with an Obsidian vault. Every note with a `***`
 line becomes one card, and Interest keeps the cards matching the notes: it
-adds what is new, updates what changed, removes duplicates, and asks before
+adds what is new, updates what changed, and asks before
 deleting a card whose note is gone or re-creating one that is missing.
 
 It runs on Android (AnkiDroid) and Windows (Anki desktop through AnkiConnect).
@@ -61,7 +61,7 @@ mirror the notes. A linked card that is missing is never re-created
 automatically, because it may still be travelling through AnkiWeb from another
 device. A card whose note is gone is never removed automatically, because the
 note may not have reached this device yet. Both are offered for your
-decision. Duplicates are removed automatically.
+decision. Extra copies also need a decision.
 
 Each card's front links back to its note, and `[[wikilinks]]` in a card open
 in Obsidian. One note is one card, on Anki's Basic model.

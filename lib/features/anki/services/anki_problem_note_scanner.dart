@@ -24,6 +24,10 @@ class AnkiProblemNoteScanResult {
   /// facts a [SyncManifest] keeps and link targets resolve from.
   final Map<String, NoteFacts> facts;
 
+  /// Each `anki_note_id` carried by more than one note, with those notes'
+  /// vault-relative paths (without `.md`). Each is also one of [errors].
+  final Map<String, List<String>> conflicts;
+
   const AnkiProblemNoteScanResult({
     required this.notes,
     this.retirements = const [],
@@ -32,6 +36,7 @@ class AnkiProblemNoteScanResult {
     required this.conflictedRecords,
     this.retirementCandidateCount = 0,
     this.facts = const {},
+    this.conflicts = const {},
   });
 
   bool get isComplete => errors.isEmpty;
@@ -115,12 +120,16 @@ class AnkiProblemNoteScanner {
         throw const FormatException('frontmatter must be a valid YAML mapping');
       }
       final ankiNoteId = yaml?['anki_note_id']?.toString();
-      facts[relativeKey(vaultPath, entry.path)] = NoteFacts(
+      NoteFacts record({List<String> links = const []}) => NoteFacts(
         modified: stat.modified.millisecondsSinceEpoch,
         size: stat.size,
         aliases: parseAliases(split.frontmatter),
-        ankiNoteId: ankiNoteId == null || ankiNoteId.isEmpty ? null : ankiNoteId,
+        ankiNoteId:
+            ankiNoteId == null || ankiNoteId.isEmpty ? null : ankiNoteId,
+        links: links,
       );
+      final key = relativeKey(vaultPath, entry.path);
+      facts[key] = record();
       if (yaml?.containsKey('collection') == true) {
         if (ankiNoteId != null && ankiNoteId.isNotEmpty) {
           retirements.add(
@@ -136,6 +145,18 @@ class AnkiProblemNoteScanner {
       if (yaml != null && yaml['exclude_resurface'] == true) return;
       final fb = splitFrontBack(split.body);
       if (fb == null) return; // not a problem note
+      // A malformed list throws: it must not read as "no open criticisms".
+      final criticisms = CardCriticisms.parse(yaml?[CardCriticisms.property]);
+      // The card shows the criticism links too, so a renamed target must
+      // re-render it like any other link on the card.
+      final links = {
+        for (final target in [
+          ...extractWikilinks('${fb.front}\n${fb.back}'),
+          ...CardCriticisms.targets(criticisms),
+        ])
+          linkKey(target),
+      };
+      facts[key] = record(links: links.toList()..sort());
       notes.add(
         AnkiProblemNote(
           sourcePath: entry.path,
@@ -147,9 +168,8 @@ class AnkiProblemNoteScanner {
               yaml != null && yaml['tags'] is List
                   ? (yaml['tags'] as List).whereType<String>().toList()
                   : const [],
+          criticisms: criticisms,
           ankiNoteId: ankiNoteId,
-          // A malformed list throws: it must not read as "no open criticisms".
-          criticisms: CardCriticisms.parse(yaml?[CardCriticisms.property]),
           sourceContent: content,
         ),
       );
@@ -181,6 +201,7 @@ class AnkiProblemNoteScanner {
     }
 
     final conflictedIds = <String>{};
+    final conflicts = <String, List<String>>{};
     var conflictedRecords = 0;
     final sortedIds = byExternalId.keys.toList()..sort();
     for (final id in sortedIds) {
@@ -192,6 +213,10 @@ class AnkiProblemNoteScanner {
           matches.map((path) => p.relative(path, from: vaultPath)).toList()
             ..sort();
       errors.add('Duplicate active anki_note_id "$id": ${paths.join(', ')}');
+      conflicts[id] = [
+        for (final path in paths)
+          p.withoutExtension(path).replaceAll('\\', '/'),
+      ];
     }
 
     return AnkiProblemNoteScanResult(
@@ -210,6 +235,7 @@ class AnkiProblemNoteScanner {
       conflictedRecords: conflictedRecords,
       retirementCandidateCount: retirements.length,
       facts: facts,
+      conflicts: conflicts,
     );
   }
 

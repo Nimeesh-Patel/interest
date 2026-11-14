@@ -90,6 +90,7 @@ void main() {
       expect(() => CardCriticisms.parse(property('criticisms:\n  - {a: b}\n')), throwsFormatException);
       expect(() => CardCriticisms.parse(property('criticisms:\n  a: b\n')), throwsFormatException);
       expect(() => CardCriticisms.parse(property('criticisms: 3\n')), throwsFormatException);
+      expect(() => CardCriticisms.parse('[[   |label]]'), throwsFormatException);
     });
   });
 

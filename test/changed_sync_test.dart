@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:people_tracker/core/vault_paths.dart';
 import 'package:people_tracker/core/vault_service.dart';
 import 'package:people_tracker/features/anki/services/anki_sync_controller.dart';
+import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
 import 'package:people_tracker/features/anki/services/anki_transport.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,14 +32,11 @@ void main() {
   File note(String name) => File(p.join(vault.path, '$name.md'));
 
   Future<void> write(String name, String body, {String front = ''}) =>
-      note(name).writeAsString(
-        front.isEmpty ? body : '---\n$front---\n$body',
-      );
+      note(name).writeAsString(front.isEmpty ? body : '---\n$front---\n$body');
 
-  Future<String?> idOf(String name) async =>
-      RegExp(r'anki_note_id: (\d+)')
-          .firstMatch(await note(name).readAsString())
-          ?.group(1);
+  Future<String?> idOf(String name) async => RegExp(
+    r'anki_note_id: (\d+)',
+  ).firstMatch(await note(name).readAsString())?.group(1);
 
   Future<void> edit(String name, String from, String to) async {
     final text = await note(name).readAsString();
@@ -72,9 +70,9 @@ void main() {
       'delivers other devices\' timestamps)', () async {
     await settled();
     await edit('Beta', 'B.', 'B, edited on the laptop.');
-    await note('Beta').setLastModified(
-      DateTime.now().subtract(const Duration(days: 1)),
-    );
+    await note(
+      'Beta',
+    ).setLastModified(DateTime.now().subtract(const Duration(days: 1)));
     final result = (await AnkiSyncController.syncChanged(transport))!;
     expect(result.updated, 1);
   });
@@ -95,7 +93,10 @@ void main() {
     expect(result.updated, 2);
     expect(result.unchanged, 0, reason: 'unchanged notes are not re-read');
     final updated = transport.updateCalls.map((c) => c.$1).toSet();
-    expect(updated, {int.parse((await idOf('Alpha'))!), int.parse((await idOf('Gamma'))!)});
+    expect(updated, {
+      int.parse((await idOf('Alpha'))!),
+      int.parse((await idOf('Gamma'))!),
+    });
   });
 
   test('a new note in the vault is created', () async {
@@ -138,7 +139,12 @@ void main() {
     await edit('Gamma', 'anki_note_id: $gamma', 'anki_note_id: $alpha');
     final result = (await AnkiSyncController.syncChanged(transport))!;
     expect(result.completed, isFalse);
-    expect(result.errors.join(), contains('Duplicate active anki_note_id'));
+    final issue = result.issues.single;
+    expect(issue.kind, AnkiIssueKind.sharedCard);
+    expect(issue.notes, ['Alpha', 'Gamma']);
+    expect(issue.cardId, int.parse(alpha!));
+    expect(issue.cardSource, 'Alpha', reason: "the card's own link is shown");
+    expect(result.errors.join(), contains('both have anki_note_id $alpha'));
     expect(transport.updateCalls, isEmpty);
   });
 
@@ -171,7 +177,6 @@ void main() {
       reviews: 12,
     );
     final result = (await AnkiSyncController.sync(transport))!;
-    expect(result.duplicatesRetired, 0);
     expect(result.orphans.map((o) => o.ankiNoteId), [7]);
     expect(transport.retireCalls, isEmpty);
   });
@@ -180,7 +185,10 @@ void main() {
     await settled();
     await edit('Beta', 'B.', 'B, revised.');
     transport.snapshotUnavailable = true;
-    expect((await AnkiSyncController.syncChanged(transport))!.completed, isFalse);
+    expect(
+      (await AnkiSyncController.syncChanged(transport))!.completed,
+      isFalse,
+    );
     transport.snapshotUnavailable = false;
     final result = (await AnkiSyncController.syncChanged(transport))!;
     expect(result.updated, 1);

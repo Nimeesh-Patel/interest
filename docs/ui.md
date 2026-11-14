@@ -44,7 +44,16 @@ references:
    says is what AnkiDroid will show.
 6. **State is a sentence.** The status panel always says one thing ("Everything
    is in sync", "3 changes to sync", "Sync didn't finish") and what it means.
-7. **Decisions are cards, one per page.** The pager shows a peek of the next
+   Green means everything went through. A run that finished with notes left
+   out is amber ("5 cards synced, 1 didn't", "1 note can't sync"); a run that
+   stopped is red, named by its problem when there is one kind ("Two notes
+   claim one card", "A note lost its card number").
+7. **Problems and decisions are cards, one per page.** Problems ("One
+   problem to fix") come before decisions and use the same card: the reason,
+   the card at stake, a plain explanation of what happened and what each
+   choice does, and a link to each note involved. A problem fixed in Obsidian
+   (two notes with one card number, a note that failed) offers no buttons.
+   The pager shows a peek of the next
    card, arrows and a count, and dots. Each card shows the reason, the title,
    deck, review history and creation date, then the problem and conjecture as
    fixed-length previews separated by the `***` divider, the design's one

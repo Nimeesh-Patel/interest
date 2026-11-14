@@ -38,13 +38,12 @@ class CardCriticisms {
           : throw const FormatException(_shape),
     );
     for (final entry in entries) {
-      if (!_wholeLink.hasMatch(entry)) throw const FormatException(_shape);
+      if (_link(entry) == null) throw const FormatException(_shape);
     }
     return entries;
   }
 
-  static const _shape =
-      'criticisms must be links to notes, like "[[Note]]"';
+  static const _shape = 'criticisms must be links to notes, like "[[Note]]"';
 
   static String _entry(Object? item) {
     if (item == null) return '';
@@ -97,13 +96,20 @@ class CardCriticisms {
   }
 
   static final _wholeLink = RegExp(r'^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$');
+  static ({String target, String label})? _link(String entry) {
+    final match = _wholeLink.firstMatch(entry);
+    final target = match?.group(1)?.trim();
+    if (target == null || target.isEmpty) return null;
+    return (target: target, label: match?.group(2)?.trim() ?? target);
+  }
+
+  static Iterable<String> targets(List<String> entries) =>
+      entries.map((entry) => _link(entry)!.target);
+
   static const _escape = HtmlEscape(HtmlEscapeMode.element);
 
   static String _row(String entry, String Function(String target) hrefFor) {
-    // parse() admits only whole links, so the row is always the tap target.
-    final link = _wholeLink.firstMatch(entry)!;
-    final target = link.group(1)!.trim();
-    final label = (link.group(2) ?? target).trim();
+    final (:target, :label) = _link(entry)!;
     return '<a href="${hrefFor(target)}" style="display:flex;'
         'align-items:center;gap:8px;min-height:40px;color:inherit;'
         'text-decoration:none;-webkit-tap-highlight-color:transparent;">'

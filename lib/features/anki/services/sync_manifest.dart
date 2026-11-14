@@ -5,27 +5,53 @@ import '../../../core/vault_paths.dart';
 
 /// What one vault file looked like when it was last read: its modification
 /// time and size (the cheap change signal), the aliases it declares (so link
-/// targets resolve without reading every note) and its `anki_note_id` (so
-/// identities stay checkable vault-wide).
+/// targets resolve without reading every note), its `anki_note_id` (so
+/// identities stay checkable vault-wide), the wikilink targets its card uses
+/// (so a quick sync knows whose card a new or deleted note re-draws), and the
+/// [cardFingerprint] of its card as Anki last received it (so a card changed
+/// on the Anki side is noticed without reading the note).
 class NoteFacts {
   final int modified;
   final int size;
   final List<String> aliases;
   final String? ankiNoteId;
 
+  /// Wikilink targets in the card's two sides, as [linkKey] normalises them.
+  final List<String> links;
+
+  /// Null when Anki has not received this note's card as rendered.
+  final String? card;
+
   const NoteFacts({
     required this.modified,
     required this.size,
     this.aliases = const [],
     this.ankiNoteId,
+    this.links = const [],
+    this.card,
   });
 
+  NoteFacts copyWith({
+    int? modified,
+    int? size,
+    String? Function()? ankiNoteId,
+    String? Function()? card,
+  }) => NoteFacts(
+    modified: modified ?? this.modified,
+    size: size ?? this.size,
+    aliases: aliases,
+    ankiNoteId: ankiNoteId == null ? this.ankiNoteId : ankiNoteId(),
+    links: links,
+    card: card == null ? this.card : card(),
+  );
 
   Map<String, Object> toJson() => {
     'm': modified,
     's': size,
     if (aliases.isNotEmpty) 'a': aliases,
     if (ankiNoteId != null) 'i': ankiNoteId!,
+    if (links.isNotEmpty) 'l': links,
+    if (card != null) 'c': card!,
   };
 
   static NoteFacts? fromJson(Object? raw) {
@@ -35,8 +61,18 @@ class NoteFacts {
       size: raw['s'] as int,
       aliases: raw['a'] is List ? (raw['a'] as List).cast<String>() : const [],
       ankiNoteId: raw['i'] as String?,
+      links: raw['l'] is List ? (raw['l'] as List).cast<String>() : const [],
+      card: raw['c'] as String?,
     );
   }
+}
+
+/// A wikilink target as link resolution looks it up: no `#heading`,
+/// `/`-separated, trimmed, lower case.
+String linkKey(String target) {
+  final hash = target.indexOf('#');
+  final base = hash < 0 ? target : target.substring(0, hash);
+  return base.replaceAll('\\', '/').trim().toLowerCase();
 }
 
 /// The vault as Anki last received it, kept in the device-local `.interest/`
@@ -61,7 +97,16 @@ class SyncManifest {
   /// settled; it is read again next time.
   static const settleMargin = 2000;
 
-  const SyncManifest(this.notes, {required this.startedAt});
+  /// Legacy records can protect card IDs but cannot establish what is current.
+  final bool quickReady;
+
+  static const version = 2;
+
+  const SyncManifest(
+    this.notes, {
+    required this.startedAt,
+    this.quickReady = true,
+  });
 
   /// Whether [stat] shows the file exactly as recorded, and settled.
   bool unchanged(String key, FileStat stat) {
@@ -77,7 +122,10 @@ class SyncManifest {
       final raw = jsonDecode(
         await File(VaultPaths.syncManifest(vaultPath)).readAsString(),
       );
-      if (raw is! Map || raw['notes'] is! Map || raw['startedAt'] is! int) {
+      if (raw is! Map ||
+          (raw.containsKey('v') && raw['v'] != version) ||
+          raw['notes'] is! Map ||
+          raw['startedAt'] is! int) {
         return null;
       }
       final notes = <String, NoteFacts>{};
@@ -86,7 +134,11 @@ class SyncManifest {
         if (entry.key is! String || facts == null) return null;
         notes[entry.key as String] = facts;
       }
-      return SyncManifest(notes, startedAt: raw['startedAt'] as int);
+      return SyncManifest(
+        notes,
+        startedAt: raw['startedAt'] as int,
+        quickReady: raw['v'] == version,
+      );
     } catch (_) {
       return null;
     }
@@ -99,6 +151,7 @@ class SyncManifest {
       final temp = File('${file.path}.tmp');
       await temp.writeAsString(
         jsonEncode({
+          if (quickReady) 'v': version,
           'startedAt': startedAt,
           'notes': {
             for (final entry in notes.entries) entry.key: entry.value.toJson(),

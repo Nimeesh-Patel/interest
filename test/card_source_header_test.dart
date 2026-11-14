@@ -46,40 +46,41 @@ void main() {
     expect(html, contains('A &amp; &lt;B&gt;'));
   });
 
-  test('a card in the old style is updated, not duplicated or orphaned',
-      () async {
-    final path = await write(
-      'Old',
-      '---\nanki_note_id: 42\n---\nOld?\n\n***\n\nYes.\n',
-    );
-    final uri = obsidianUri(vault.path, path);
-    final transport = FakeTransport()..existingIds.add(42);
-    transport.stored[42] = AnkiNoteState(
-      id: 42,
-      front:
-          '<div style="$_legacyStyle"><a href="$uri">Old ↗</a></div><p>Old?</p>',
-      back: '<p>Yes.</p>',
-      tags: const {},
-      decks: const {'Default'},
-      reviews: 30,
-    );
-    final scanned = await AnkiProblemNoteScanner.scan(vault.path);
-    final result = await AnkiSyncService.syncVault(
-      transport,
-      scanned.notes,
-      vault.path,
-      reconcileCollection: true,
-    );
-    expect(result.isSuccessful, isTrue);
-    expect(result.updated, 1);
-    expect(result.orphans, isEmpty);
-    expect(result.duplicatesRetired, 0);
-    expect(transport.addCalls, isEmpty);
-    expect(transport.retireCalls, isEmpty);
-    final front = transport.stored[42]!.front;
-    expect(front, startsWith('<div class="interest-source"'));
-    expect(hasAnkiSourceLink(front, uri), isTrue);
-  });
+  test(
+    'a card in the old style is updated, not duplicated or orphaned',
+    () async {
+      final path = await write(
+        'Old',
+        '---\nanki_note_id: 42\n---\nOld?\n\n***\n\nYes.\n',
+      );
+      final uri = obsidianUri(vault.path, path);
+      final transport = FakeTransport()..existingIds.add(42);
+      transport.stored[42] = AnkiNoteState(
+        id: 42,
+        front:
+            '<div style="$_legacyStyle"><a href="$uri">Old ↗</a></div><p>Old?</p>',
+        back: '<p>Yes.</p>',
+        tags: const {},
+        decks: const {'Default'},
+        reviews: 30,
+      );
+      final scanned = await AnkiProblemNoteScanner.scan(vault.path);
+      final result = await AnkiSyncService.syncVault(
+        transport,
+        scanned.notes,
+        vault.path,
+        reconcileCollection: true,
+      );
+      expect(result.isSuccessful, isTrue);
+      expect(result.updated, 1);
+      expect(result.orphans, isEmpty);
+      expect(transport.addCalls, isEmpty);
+      expect(transport.retireCalls, isEmpty);
+      final front = transport.stored[42]!.front;
+      expect(front, startsWith('<div class="interest-source"'));
+      expect(hasAnkiSourceLink(front, uri), isTrue);
+    },
+  );
 
   test('an orphan in the new style still shows its problem as text', () async {
     final transport = FakeTransport()..existingIds.add(9);

@@ -116,6 +116,39 @@ class AnkiNoteState {
       this.back == back &&
       this.tags.length == tags.toSet().length &&
       this.tags.containsAll(tags);
+
+  /// What this card holds, as [cardFingerprint] summarises it.
+  String get fingerprint => cardFingerprint(front, back, tags, decks);
+}
+
+/// A short, stable summary of a card's content and placement: equal exactly
+/// when [AnkiNoteState.holds] and [AnkiNoteState.isInDeck] would both be
+/// true (tags as a set, decks case-insensitively). The sync manifest keeps
+/// one per card Anki last received, so a quick sync can tell from one
+/// collection read, without opening any note, that a card was edited,
+/// rolled back or removed on the Anki side. FNV-1a over UTF-16 code units,
+/// 64-bit: stable across runs and devices, unlike `hashCode`.
+String cardFingerprint(
+  String front,
+  String back,
+  Iterable<String> tags,
+  Iterable<String> decks,
+) {
+  final sortedTags = tags.toSet().toList()..sort();
+  final sortedDecks =
+      decks.map((d) => d.toLowerCase()).toSet().toList()..sort();
+  final text = [
+    front,
+    back,
+    sortedTags.join('\u001f'),
+    sortedDecks.join('\u001f'),
+  ].join('\u0000');
+  var hash = 0xcbf29ce484222325;
+  for (final unit in text.codeUnits) {
+    hash ^= unit;
+    hash *= 0x100000001b3;
+  }
+  return hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
 }
 
 /// A complete observation of the collection's "Basic" notes, by note id.

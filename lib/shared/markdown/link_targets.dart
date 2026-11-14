@@ -46,7 +46,9 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
       );
       continue;
     }
-    aliasesByNote[relative] = parseAliases(splitFrontmatter(content).frontmatter);
+    aliasesByNote[relative] = parseAliases(
+      splitFrontmatter(content).frontmatter,
+    );
   }
   return LinkTargetBuildResult(
     targets: resolveLinkTargets(aliasesByNote),
@@ -58,7 +60,9 @@ Future<LinkTargetBuildResult> buildLinkTargets(String vaultPath) async {
 /// current note's vault-relative path (with `.md`) to its declared aliases.
 /// Callers that already hold those facts (a scan, the sync manifest) resolve
 /// without reading the vault again.
-Map<String, String> resolveLinkTargets(Map<String, List<String>> aliasesByNote) {
+Map<String, String> resolveLinkTargets(
+  Map<String, List<String>> aliasesByNote,
+) {
   final names = <String, Set<String>>{};
   final aliases = <String, Set<String>>{};
   aliasesByNote.forEach((relative, declared) {
