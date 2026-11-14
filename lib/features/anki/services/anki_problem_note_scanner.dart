@@ -6,6 +6,7 @@ import '../../../shared/markdown/current_vault_content.dart';
 import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
 import '../../../shared/markdown/md_io.dart';
+import 'card_criticisms.dart';
 import 'sync_manifest.dart';
 
 class AnkiProblemNoteScanResult {
@@ -147,6 +148,8 @@ class AnkiProblemNoteScanner {
                   ? (yaml['tags'] as List).whereType<String>().toList()
                   : const [],
           ankiNoteId: ankiNoteId,
+          // A malformed list throws: it must not read as "no open criticisms".
+          criticisms: CardCriticisms.parse(yaml?[CardCriticisms.property]),
           sourceContent: content,
         ),
       );

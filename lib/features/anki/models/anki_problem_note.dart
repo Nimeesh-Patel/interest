@@ -13,6 +13,10 @@ class AnkiProblemNote {
   final String? category;
   final List<String> tags;
 
+  /// Open objections to this note, from its `criticisms:` property: links to
+  /// the notes that hold them, or rough sentences. Shown on the card's back.
+  final List<String> criticisms;
+
   /// Anki collection note id, written back on first sync via the surgical
   /// frontmatter patch (the sync's only vault write).
   final String? ankiNoteId;
@@ -27,6 +31,7 @@ class AnkiProblemNote {
     this.back,
     this.category,
     this.tags = const [],
+    this.criticisms = const [],
     this.ankiNoteId,
     required this.sourceContent,
   });

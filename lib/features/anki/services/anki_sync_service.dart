@@ -10,6 +10,7 @@ import '../../../shared/markdown/md_utils.dart';
 import '../models/anki_problem_note.dart';
 import 'anki_transport.dart';
 import 'anki_sync_lock.dart';
+import 'card_criticisms.dart';
 import 'card_source_header.dart';
 
 /// A linked note whose card is absent from the observed collection. Cards are
@@ -492,7 +493,7 @@ class AnkiSyncService {
               sourceUri: sourceUri,
               noteName: noteName,
               problem: _plainText(state.front),
-              conjecture: _plainText(state.back),
+              conjecture: _plainText(CardCriticisms.withoutSection(state.back)),
               decks: state.decks,
               reviews: state.reviews,
             ),
@@ -742,7 +743,17 @@ class AnkiSyncService {
     final front =
         CardSourceHeader.html(obsUri, noteDisplayName) +
         _markdownToAnkiHtml(note.front ?? '', vaultPath, linkTargets);
-    final back = _markdownToAnkiHtml(note.back ?? '', vaultPath, linkTargets);
+    // The conjecture, then whatever is still open against the note: the
+    // objection is recovered at reveal, after his own first thought.
+    final back =
+        _markdownToAnkiHtml(note.back ?? '', vaultPath, linkTargets) +
+        CardCriticisms.html(
+          note.criticisms,
+          (target) => obsidianUriForName(
+            vaultPath,
+            resolveLinkTarget(target, linkTargets),
+          ),
+        );
     return (front, back);
   }
 
