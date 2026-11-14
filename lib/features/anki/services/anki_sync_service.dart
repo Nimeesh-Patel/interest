@@ -967,14 +967,10 @@ class AnkiSyncService {
       vaultPath,
       linkTargets,
     );
-    final firstParagraphEnd = conjecture.indexOf('</p>');
-    final longForm =
-        firstParagraphEnd >= 0 &&
-        conjecture.indexOf('</p>', firstParagraphEnd + 4) >= 0;
     final back =
-        (longForm
-            ? '<section style="text-align:left;">$conjecture</section>'
-            : conjecture) +
+        (conjecture.trim().isEmpty
+            ? conjecture
+            : '<section style="text-align:left;">$conjecture</section>') +
         CardCriticisms.html(note.criticisms, (target) {
           final resolved = resolveLinkTarget(target, linkTargets);
           final path = resolved.split('#').first.replaceAll('\\', '/');

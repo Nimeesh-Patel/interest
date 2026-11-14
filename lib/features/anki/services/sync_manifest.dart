@@ -101,7 +101,7 @@ class SyncManifest {
   final bool quickReady;
 
   // Re-render existing cards once for the new answer layout and titles.
-  static const version = 3;
+  static const version = 4;
 
   const SyncManifest(
     this.notes, {
@@ -124,7 +124,7 @@ class SyncManifest {
         await File(VaultPaths.syncManifest(vaultPath)).readAsString(),
       );
       if (raw is! Map ||
-          (raw.containsKey('v') && raw['v'] != 2 && raw['v'] != version) ||
+          (raw.containsKey('v') && !const {2, 3, version}.contains(raw['v'])) ||
           raw['notes'] is! Map ||
           raw['startedAt'] is! int) {
         return null;

@@ -159,6 +159,8 @@ void main() {
 
       final card = anki.cards.values.single;
       expect(card.front, isNot(contains('interest-criticisms')));
+      expect(card.front, isNot(contains('text-align:left;')));
+      expect(card.back, startsWith('<section style="text-align:left;">'));
       expect(card.back, contains('<p>Conjecture.</p>'));
       expect(card.back.indexOf('Conjecture.'), lessThan(card.back.indexOf('interest-criticisms')));
       expect(card.back, contains('file=Objection'));

@@ -316,7 +316,7 @@ void main() {
         final card = await cardOf('Beta');
         final file = File(VaultPaths.syncManifest(vault.path));
         final raw = jsonDecode(await file.readAsString()) as Map;
-        raw['v'] = 2;
+        raw['v'] = 3;
         await file.writeAsString(jsonEncode(raw));
         await edit('Beta', 'anki_note_id: $card\n', '');
         final result = (await AnkiSyncController.syncChanged(transport))!;
