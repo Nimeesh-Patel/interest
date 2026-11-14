@@ -57,7 +57,8 @@ class _Anki extends AnkiTransport {
 
 void main() {
   Object? property(String yaml) => (loadYaml(yaml) as YamlMap)['criticisms'];
-  String href(String target) => 'obsidian://open?file=$target';
+  ({String href, String title}) href(String target) =>
+      (href: 'obsidian://open?file=$target', title: target);
 
   group('reading the property', () {
     test('links are kept in order', () {
@@ -102,10 +103,11 @@ void main() {
     test('a link entry is one tappable row to the objection', () {
       final html = CardCriticisms.html(['[[Fads|the fad objection]]'], href);
       expect(html, startsWith('<div class="interest-criticisms"'));
-      expect(html, contains('>Open criticism<'));
+      expect(html, contains('>Open criticism</h2>'));
       expect(html, contains('<a href="obsidian://open?file=Fads"'));
-      expect(html, contains('the fad objection'));
-      expect(html, contains('min-height:40px'));
+      expect(html, contains('>Fads</span>'));
+      expect(html, isNot(contains('the fad objection')));
+      expect(html, contains('min-height:48px'));
       // One div, so readers can cut the section off whole.
       expect('<div'.allMatches(html).length, 1);
     });
@@ -130,6 +132,19 @@ void main() {
     tearDown(() => vault.deleteSync(recursive: true));
 
     File note(String name, String text) => File(p.join(vault.path, '$name.md'))..writeAsStringSync(text);
+
+    test('uses the resolved note title and aligns multi-paragraph answers', () async {
+      note('Challenged', '---\ncriticisms:\n  - "[[Alt|Custom label]]"\n---\nQ\n***\nFirst.\n\nSecond.\n');
+      note('Actual objection', '---\naliases: [Alt]\n---\nObjection details.\n');
+      final anki = _Anki();
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      await AnkiSyncService.syncVault(anki, scan.notes, vault.path);
+      final back = anki.cards.values.single.back;
+      expect(back, startsWith('<section style="text-align:left;">'));
+      expect(back, contains('file=Actual%20objection'));
+      expect(back, contains('>Actual objection</span>'));
+      expect(back, isNot(contains('Custom label')));
+    });
 
     test('the card back lists what is open, and clears when the list empties', () async {
       final file = note(

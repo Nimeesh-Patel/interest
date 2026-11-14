@@ -182,11 +182,11 @@ class Decision {
         conjecture: issue.cardConjecture,
         explanation:
             '$self had card $card when Anki last received it, and now has no '
-            'anki_note_id, so nothing was synced. Put the number back to keep '
-            'the card and its history. Choose a new card only if you removed '
+            'anki_note_id, so nothing was synced. Restoring the link keeps '
+            'this card and its review history. Choose a new card only if you removed '
             'the number on purpose; the old card is then offered for removal.',
         keepLabel: 'New card',
-        actLabel: 'Put it back',
+        actLabel: 'Restore card link',
         destructive: false,
         issue: issue,
         notes: issue.notes,

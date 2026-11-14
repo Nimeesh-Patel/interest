@@ -21,10 +21,6 @@ class CardCriticisms {
   /// conjecture alone cut the back at this marker ([withoutSection]).
   static const marker = 'interest-criticisms';
 
-  /// A red that clears 4.5:1 on both a white and a black card (4.55 and
-  /// 4.62), because a field cannot tell which theme will show it.
-  static const _red = '#d93a3a';
-
   /// The entries as authored, in order. A malformed property is an error,
   /// never an empty list: silently dropping objections would make the card
   /// claim there are none.
@@ -38,7 +34,7 @@ class CardCriticisms {
           : throw const FormatException(_shape),
     );
     for (final entry in entries) {
-      if (_link(entry) == null) throw const FormatException(_shape);
+      if (_target(entry) == null) throw const FormatException(_shape);
     }
     return entries;
   }
@@ -74,46 +70,43 @@ class CardCriticisms {
   /// The section appended to the card's back, or '' when nothing is open.
   ///
   /// It holds no nested `div`, so [withoutSection] and `_plainText` can cut
-  /// it off whole. Links take the card's own colour; only the label and the
-  /// rule are red. Each link is a 40 px tall target.
+  /// it off whole. The heading and links take the card's foreground colour.
   static String html(
     List<String> entries,
-    String Function(String target) hrefFor,
+    ({String href, String title}) Function(String target) destination,
   ) {
     if (entries.isEmpty) return '';
     final rows = StringBuffer();
     for (final entry in entries) {
-      rows.write(_row(entry, hrefFor));
+      rows.write(_row(destination(_target(entry)!)));
     }
-    return '<div class="$marker" style="margin:28px 0 4px;'
-        'padding:12px 14px 8px 16px;border-left:3px solid $_red;'
-        'border-radius:3px 12px 12px 3px;background:rgba(217,58,58,0.10);'
-        'text-align:left;font-size:16px;line-height:1.4;">'
-        '<span style="display:block;margin:0 0 6px;font-size:13px;'
-        'font-weight:600;color:$_red;">'
-        '${entries.length == 1 ? 'Open criticism' : 'Open criticisms'}</span>'
+    return '<div class="$marker" style="margin:24px 0 4px;'
+        'padding:12px 0 0;border-top:1px solid currentColor;'
+        'text-align:left;font-size:16px;line-height:1.4;color:inherit;">'
+        '<h2 style="margin:0 0 4px;font-size:0.875em;font-weight:600;'
+        'color:inherit;">'
+        '${entries.length == 1 ? 'Open criticism' : 'Open criticisms'}</h2>'
         '$rows</div>';
   }
 
   static final _wholeLink = RegExp(r'^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$');
-  static ({String target, String label})? _link(String entry) {
-    final match = _wholeLink.firstMatch(entry);
-    final target = match?.group(1)?.trim();
+  static String? _target(String entry) {
+    final target = _wholeLink.firstMatch(entry)?.group(1)?.trim();
     if (target == null || target.isEmpty) return null;
-    return (target: target, label: match?.group(2)?.trim() ?? target);
+    return target;
   }
 
   static Iterable<String> targets(List<String> entries) =>
-      entries.map((entry) => _link(entry)!.target);
+      entries.map((entry) => _target(entry)!);
 
   static const _escape = HtmlEscape(HtmlEscapeMode.element);
 
-  static String _row(String entry, String Function(String target) hrefFor) {
-    final (:target, :label) = _link(entry)!;
-    return '<a href="${hrefFor(target)}" style="display:flex;'
-        'align-items:center;gap:8px;min-height:40px;color:inherit;'
-        'text-decoration:none;-webkit-tap-highlight-color:transparent;">'
-        '<span style="flex:1;">${_escape.convert(label)}</span>$_arrow</a>';
+  static String _row(({String href, String title}) link) {
+    return '<a href="${link.href}" style="display:flex;'
+        'align-items:center;gap:8px;min-height:48px;color:inherit;'
+        'text-decoration:underline;text-underline-offset:3px;">'
+        '<span style="flex:1;min-width:0;overflow-wrap:anywhere;">'
+        '${_escape.convert(link.title)}</span>$_arrow</a>';
   }
 
   /// The card's back without the criticisms section: the conjecture alone.

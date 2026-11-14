@@ -109,6 +109,9 @@ class AnkiSyncResult {
   /// True when nothing was written: the counts describe what a sync would do.
   final bool preview;
 
+  /// Discovery covered the whole vault and checked unreferenced cards.
+  final bool checkedWholeVault;
+
   final List<String> errors;
   final bool completed;
 
@@ -136,6 +139,7 @@ class AnkiSyncResult {
     this.orphans = const [],
     this.changed = const [],
     this.preview = false,
+    this.checkedWholeVault = false,
     required this.errors,
     this.completed = true,
     this.issues = const [],
@@ -585,6 +589,7 @@ class AnkiSyncService {
       orphans: orphans,
       changed: changed,
       preview: preview,
+      checkedWholeVault: reconcileCollection,
       errors: errors,
       completed: completed,
       issues: issues,
@@ -957,17 +962,33 @@ class AnkiSyncService {
     final front =
         CardSourceHeader.html(obsUri, noteDisplayName) +
         _markdownToAnkiHtml(note.front ?? '', vaultPath, linkTargets);
-    // The conjecture, then whatever is still open against the note: the
-    // objection is recovered at reveal, after his own first thought.
+    final conjecture = _markdownToAnkiHtml(
+      note.back ?? '',
+      vaultPath,
+      linkTargets,
+    );
+    final firstParagraphEnd = conjecture.indexOf('</p>');
+    final longForm =
+        firstParagraphEnd >= 0 &&
+        conjecture.indexOf('</p>', firstParagraphEnd + 4) >= 0;
     final back =
-        _markdownToAnkiHtml(note.back ?? '', vaultPath, linkTargets) +
-        CardCriticisms.html(
-          note.criticisms,
-          (target) => obsidianUriForName(
-            vaultPath,
-            resolveLinkTarget(target, linkTargets),
-          ),
-        );
+        (longForm
+            ? '<section style="text-align:left;">$conjecture</section>'
+            : conjecture) +
+        CardCriticisms.html(note.criticisms, (target) {
+          final resolved = resolveLinkTarget(target, linkTargets);
+          final path = resolved.split('#').first.replaceAll('\\', '/');
+          final title = p.posix.basename(path);
+          final directory = p.posix.dirname(path);
+          final titleIsUnique = linkTargets?[title.toLowerCase()] == path;
+          return (
+            href: obsidianUriForName(vaultPath, resolved),
+            title:
+                directory == '.' || titleIsUnique
+                    ? title
+                    : '$title ($directory)',
+          );
+        });
     return (front, back);
   }
 

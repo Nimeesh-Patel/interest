@@ -316,7 +316,7 @@ void main() {
         final card = await cardOf('Beta');
         final file = File(VaultPaths.syncManifest(vault.path));
         final raw = jsonDecode(await file.readAsString()) as Map;
-        raw.remove('v');
+        raw['v'] = 2;
         await file.writeAsString(jsonEncode(raw));
         await edit('Beta', 'anki_note_id: $card\n', '');
         final result = (await AnkiSyncController.syncChanged(transport))!;
@@ -327,11 +327,14 @@ void main() {
           await AnkiSyncController.restoreIdentity(result.issues.single),
           isNull,
         );
-        expect(
-          (await AnkiSyncController.syncChanged(transport))!.isSuccessful,
-          isTrue,
-        );
+        final rebuilt = (await AnkiSyncController.syncChanged(transport))!;
+        expect(rebuilt.isSuccessful, isTrue);
+        expect(rebuilt.checkedWholeVault, isTrue);
         expect((await SyncManifest.load(vault.path))!.quickReady, isTrue);
+        expect(
+          (await AnkiSyncController.syncChanged(transport))!.checkedWholeVault,
+          isFalse,
+        );
       },
     );
   });

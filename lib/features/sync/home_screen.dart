@@ -340,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final decisions = _decisions;
     final problems = _problems;
+    final needsAttention = problems.isNotEmpty || decisions.isNotEmpty;
     final showReview =
         _readiness == TargetReadiness.ready &&
         (_phase == _Phase.ready ||
@@ -383,18 +384,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: AppTextStyles.small,
                 ),
               ),
-              _Gutter(child: _syncPanel()),
-              if (showReview) ...[
-                const SizedBox(height: Space.md),
-                _Gutter(
-                  child: _ReviewPanel(
-                    target: _target.name,
-                    load: _load,
-                    primary: !_changesWaiting && _phase == _Phase.ready,
-                    onOpen: _openAnki,
-                  ),
-                ),
-              ],
+              _Gutter(child: _syncPanel(needsAttention: needsAttention)),
               if (problems.isNotEmpty) ...[
                 const SizedBox(height: Space.xxl),
                 DecisionPager(
@@ -416,10 +406,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onOpenNote: _openObsidian,
                 ),
               ],
-              if (_last != null) ...[
+              if (showReview) ...[
+                const SizedBox(height: Space.md),
+                _Gutter(
+                  child: _ReviewPanel(
+                    target: _target.name,
+                    load: _load,
+                    primary:
+                        !needsAttention &&
+                        !_changesWaiting &&
+                        _phase == _Phase.ready,
+                    onOpen: _openAnki,
+                  ),
+                ),
+              ],
+              if (_last case final last?
+                  when last.added + last.updated + last.removed > 0) ...[
                 const SizedBox(height: Space.xxl),
                 _Gutter(
-                  child: _LastSyncPanel(last: _last!, onOpen: _openObsidian),
+                  child: _LastSyncNotes(last: last, onOpen: _openObsidian),
                 ),
               ],
             ],
@@ -429,8 +434,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _syncPanel() {
+  Widget _syncPanel({required bool needsAttention}) {
     final state = _state;
+    final matchedCards =
+        state == null ? 0 : state.unchanged + state.added + state.updated;
     final (icon, tone, statement, detail) = switch (_phase) {
       _Phase.checking => (
         Icons.hourglass_top_rounded,
@@ -443,7 +450,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         AppColors.accent,
         'Syncing',
         _changedOnly
-            ? 'Reading only the notes changed since the last sync.'
+            ? 'Checking for changes since the last sync.'
             : 'Writing only the cards that changed.',
       ),
       _Phase.unavailable => (
@@ -476,20 +483,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : '${state.pending} changes to sync',
         _changeSummary(state),
       ),
-      _Phase.ready when _changedOnly => (
+      _Phase.ready when needsAttention => (
+        Icons.warning_amber_rounded,
+        AppColors.warning,
+        'Cards need your decision',
+        'Review the affected cards below.',
+      ),
+      _Phase.ready when state?.checkedWholeVault != true => (
         Icons.check_circle_outline_rounded,
         AppColors.success,
-        _changedStatement(state),
-        'Every note changed since the last sync now matches ${_target.name}. '
-            'Pull down to check the whole vault.',
+        'Changed notes are up to date',
+        'Pull down to check the whole vault.',
       ),
       _Phase.ready => (
         Icons.check_circle_outline_rounded,
         AppColors.success,
-        'Everything is in sync',
-        state == null
-            ? ''
-            : '${state.unchanged + state.added + state.updated} cards match your notes.',
+        'Vault is up to date',
+        matchedCards == 1
+            ? '1 card matches your notes.'
+            : '$matchedCards cards match your notes.',
       ),
     };
     final busy = _phase == _Phase.checking || _phase == _Phase.syncing;
@@ -514,6 +526,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (detail.isNotEmpty) ...[
           const SizedBox(height: Space.sm),
           Text(detail, style: AppTextStyles.bodyMuted),
+        ],
+        if (_last case final last?) ...[
+          const SizedBox(height: Space.sm),
+          Text(
+            'Last successful sync · ${_when(last.at)}',
+            style: AppTextStyles.small,
+          ),
         ],
         if (_changesWaiting && changed.isNotEmpty) ...[
           const SizedBox(height: Space.sm),
@@ -629,15 +648,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (s.issues.isNotEmpty) 'What went wrong is below.',
       ...other.take(2),
     ].join(' ');
-  }
-
-  static String _changedStatement(AnkiSyncResult? s) {
-    final written = s == null ? 0 : s.added + s.updated + s.retired;
-    return switch (written) {
-      0 => 'Nothing had changed',
-      1 => '1 card synced',
-      _ => '$written cards synced',
-    };
   }
 
   String _changeSummary(AnkiSyncResult s) => [
@@ -780,10 +790,10 @@ class _NoteLink extends StatelessWidget {
   );
 }
 
-class _LastSyncPanel extends StatelessWidget {
+class _LastSyncNotes extends StatelessWidget {
   final LastSync last;
   final void Function(String path) onOpen;
-  const _LastSyncPanel({required this.last, required this.onOpen});
+  const _LastSyncNotes({required this.last, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
@@ -795,37 +805,29 @@ class _LastSyncPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Last sync', style: AppTextStyles.heading),
+        Text('Last sync changes', style: AppTextStyles.heading),
         const SizedBox(height: Space.xs),
-        Text(_when(last.at), style: AppTextStyles.bodyMuted),
-        const SizedBox(height: Space.xs),
-        Text(
-          parts.isEmpty ? 'Nothing needed changing.' : '${parts.join(', ')}.',
-          style: AppTextStyles.body,
-        ),
-        if (last.changed.isNotEmpty) ...[
-          const SizedBox(height: Space.xs),
-          for (final path in last.changed.take(8))
-            _NoteLink(path: path, onOpen: onOpen),
-          if (last.changed.length > 8)
-            Text(
-              'and ${last.changed.length - 8} more',
-              style: AppTextStyles.small,
-            ),
-        ],
+        Text(parts.join(', '), style: AppTextStyles.body),
+        for (final path in last.changed.take(8))
+          _NoteLink(path: path, onOpen: onOpen),
+        if (last.changed.length > 8)
+          Text(
+            'and ${last.changed.length - 8} more',
+            style: AppTextStyles.small,
+          ),
       ],
     );
   }
+}
 
-  static String _when(DateTime at) {
-    final now = DateTime.now();
-    final time =
-        '${at.hour % 12 == 0 ? 12 : at.hour % 12}:${at.minute.toString().padLeft(2, '0')} ${at.hour < 12 ? 'am' : 'pm'}';
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(at.year, at.month, at.day);
-    final diff = today.difference(day).inDays;
-    if (diff == 0) return 'Today at $time';
-    if (diff == 1) return 'Yesterday at $time';
-    return '${at.day}/${at.month}/${at.year} at $time';
-  }
+String _when(DateTime at) {
+  final now = DateTime.now();
+  final time =
+      '${at.hour % 12 == 0 ? 12 : at.hour % 12}:${at.minute.toString().padLeft(2, '0')} ${at.hour < 12 ? 'am' : 'pm'}';
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(at.year, at.month, at.day);
+  final diff = today.difference(day).inDays;
+  if (diff == 0) return 'Today at $time';
+  if (diff == 1) return 'Yesterday at $time';
+  return '${at.day}/${at.month}/${at.year} at $time';
 }

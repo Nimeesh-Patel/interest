@@ -35,15 +35,18 @@ references:
    journey is Obsidian (write) → sync → Anki (review), so the home screen
    stacks a sync panel above a review panel. Exactly one button is filled: Sync
    while changes are waiting or a sync failed; "Review in AnkiDroid" once
-   everything is in sync and cards are due. Obsidian, the step you came from,
+   everything is in sync and cards are due. Decisions take precedence over
+   the review panel. Obsidian, the step you came from,
    is reached through links on specific notes (changed notes, a missing card's
    note) plus a header icon, not a competing button.
 5. **Counts match the app they describe.** The review panel's numbers are
    AnkiDroid's own deck counts with daily limits ("192 cards due: 100 to
    review, 85 new, 7 learning"), summed over top-level decks, so what Interest
    says is what AnkiDroid will show.
-6. **State is a sentence.** The status panel always says one thing ("Everything
-   is in sync", "3 changes to sync", "Sync didn't finish") and what it means.
+6. **State is a sentence.** The status panel describes the scope and outcome
+   ("Changed notes are up to date", "Vault is up to date", "Sync didn't finish").
+   Put the last successful sync time in the same panel and show a separate
+   change summary only when the last sync wrote something.
    Green means everything went through. A run that finished with notes left
    out is amber ("5 cards synced, 1 didn't", "1 note can't sync"); a run that
    stopped is red, named by its problem when there is one kind ("Two notes

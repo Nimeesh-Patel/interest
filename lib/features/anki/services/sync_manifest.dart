@@ -100,7 +100,8 @@ class SyncManifest {
   /// Legacy records can protect card IDs but cannot establish what is current.
   final bool quickReady;
 
-  static const version = 2;
+  // Re-render existing cards once for the new answer layout and titles.
+  static const version = 3;
 
   const SyncManifest(
     this.notes, {
@@ -123,7 +124,7 @@ class SyncManifest {
         await File(VaultPaths.syncManifest(vaultPath)).readAsString(),
       );
       if (raw is! Map ||
-          (raw.containsKey('v') && raw['v'] != version) ||
+          (raw.containsKey('v') && raw['v'] != 2 && raw['v'] != version) ||
           raw['notes'] is! Map ||
           raw['startedAt'] is! int) {
         return null;
