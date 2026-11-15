@@ -44,7 +44,7 @@ references:
    review, 85 new, 7 learning"), summed over top-level decks, so what Interest
    says is what AnkiDroid will show.
 6. **State is a sentence.** The status panel describes the scope and outcome
-   ("Changed notes are up to date", "Vault is up to date", "Sync didn't finish").
+   ("Changed notes are up to date", "Anki is up to date", "Sync didn't finish").
    Put the last successful sync time in the same panel and show a separate
    change summary only when the last sync wrote something.
    Green means everything went through. A run that finished with notes left

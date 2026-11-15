@@ -498,7 +498,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _Phase.ready => (
         Icons.check_circle_outline_rounded,
         AppColors.success,
-        'Vault is up to date',
+        'Anki is up to date',
         matchedCards == 1
             ? '1 card matches your notes.'
             : '$matchedCards cards match your notes.',
