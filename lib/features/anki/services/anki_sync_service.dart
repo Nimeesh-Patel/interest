@@ -11,6 +11,7 @@ import '../models/anki_problem_note.dart';
 import 'anki_transport.dart';
 import 'anki_sync_lock.dart';
 import 'card_criticisms.dart';
+import 'card_relations.dart';
 import 'card_source_header.dart';
 import 'sync_issue.dart';
 
@@ -185,11 +186,15 @@ class AnkiSyncPlan extends AnkiDiscovery {
   final List<AnkiProblemNote> notes;
   final List<AnkiNoteRetirement> retirements;
   final Map<String, String> linkTargets;
+
+  /// What the cards show of other notes; see [CardRelations].
+  final CardRelations relations;
   final bool reconcileCollection;
   const AnkiSyncPlan({
     required this.notes,
     required this.retirements,
     required this.linkTargets,
+    this.relations = CardRelations.none,
     this.reconcileCollection = false,
   });
 }
@@ -204,7 +209,11 @@ class AnkiSyncStop extends AnkiDiscovery {
 /// each source is current, the wikilink targets, and one complete observation
 /// of the collection.
 typedef _Prepared =
-    ({Map<String, String> linkTargets, Map<int, AnkiNoteState> present});
+    ({
+      Map<String, String> linkTargets,
+      CardRelations relations,
+      Map<int, AnkiNoteState> present,
+    });
 
 /// Transport-agnostic sync core: problem notes → Anki cards, one-way.
 /// Owns everything both transports must agree on — front/back rendering,
@@ -229,6 +238,7 @@ class AnkiSyncService {
     bool reconcileCollection = false,
     bool preview = false,
     Map<String, String>? linkTargets,
+    CardRelations relations = CardRelations.none,
   }) => _leased(
     vaultPath,
     problemNotes.length + retirements.length,
@@ -240,6 +250,7 @@ class AnkiSyncService {
       reconcileCollection: reconcileCollection,
       preview: preview,
       suppliedTargets: linkTargets,
+      relations: relations,
     ),
   );
 
@@ -270,6 +281,7 @@ class AnkiSyncService {
       reconcileCollection: plan.reconcileCollection,
       preview: preview,
       suppliedTargets: plan.linkTargets,
+      relations: plan.relations,
       observed: observed,
     );
     if (!preview) await record?.call(result);
@@ -295,6 +307,7 @@ class AnkiSyncService {
     List<AnkiSyncIssue> reassign = const [],
     Future<void> Function(AnkiSyncResult)? record,
     Map<String, String>? linkTargets,
+    CardRelations relations = CardRelations.none,
   }) => _leased(
     vaultPath,
     recreate.length + retire.length + reassign.length,
@@ -308,6 +321,7 @@ class AnkiSyncService {
         retire: retire,
         reassign: reassign,
         linkTargets: linkTargets,
+        relations: relations,
       );
       await record?.call(result);
       return result;
@@ -349,6 +363,7 @@ class AnkiSyncService {
     String vaultPath,
     int operations, {
     Map<String, String>? linkTargets,
+    CardRelations relations = CardRelations.none,
     AnkiCollectionSnapshot? observed,
   }) async {
     final ineligible =
@@ -395,7 +410,14 @@ class AnkiSyncService {
     }
     try {
       final snapshot = observed ?? await transport.snapshot();
-      return ((linkTargets: targets, present: Map.of(snapshot.notes)), null);
+      return (
+        (
+          linkTargets: targets,
+          relations: relations,
+          present: Map.of(snapshot.notes),
+        ),
+        null,
+      );
     } on AnkiSyncAbort catch (error) {
       return (
         null,
@@ -415,6 +437,7 @@ class AnkiSyncService {
     required bool reconcileCollection,
     required bool preview,
     Map<String, String>? suppliedTargets,
+    CardRelations relations = CardRelations.none,
     AnkiCollectionSnapshot? observed,
   }) async {
     final (prepared, stopped) = await _prepare(
@@ -424,6 +447,7 @@ class AnkiSyncService {
       vaultPath,
       problemNotes.length + retirements.length,
       linkTargets: suppliedTargets,
+      relations: relations,
       observed: observed,
     );
     if (stopped != null) return stopped;
@@ -473,7 +497,12 @@ class AnkiSyncService {
     for (var index = 0; index < problemNotes.length; index++) {
       final note = problemNotes[index];
       try {
-        final (front, back) = _renderCard(note, vaultPath, linkTargets);
+        final (front, back) = _renderCard(
+          note,
+          vaultPath,
+          linkTargets,
+          prepared.relations,
+        );
         final deckName = note.category ?? 'Default';
         final tags = note.tags;
         final idText = note.ankiNoteId;
@@ -660,6 +689,7 @@ class AnkiSyncService {
     required List<AnkiOrphanCard> retire,
     required List<AnkiSyncIssue> reassign,
     Map<String, String>? linkTargets,
+    CardRelations relations = CardRelations.none,
   }) async {
     final (prepared, stopped) = await _prepare(
       transport,
@@ -668,6 +698,7 @@ class AnkiSyncService {
       vaultPath,
       recreate.length + retire.length + reassign.length,
       linkTargets: linkTargets,
+      relations: relations,
     );
     if (stopped != null) return stopped;
     final present = prepared!.present;
@@ -707,6 +738,7 @@ class AnkiSyncService {
           note,
           vaultPath,
           prepared.linkTargets,
+          prepared.relations,
         );
         await _writeProjection(transport, note, state, front, back);
         updated++;
@@ -738,6 +770,7 @@ class AnkiSyncService {
           note,
           vaultPath,
           prepared.linkTargets,
+          prepared.relations,
         );
         await _addAndLink(
           transport,
@@ -956,6 +989,7 @@ class AnkiSyncService {
     AnkiProblemNote note,
     String vaultPath, [
     Map<String, String>? linkTargets,
+    CardRelations relations = CardRelations.none,
   ]) {
     final noteDisplayName = p.basenameWithoutExtension(note.sourcePath);
     final obsUri = obsidianUri(vaultPath, note.sourcePath);
@@ -973,19 +1007,33 @@ class AnkiSyncService {
             : '<section style="text-align:left;">$conjecture</section>') +
         CardCriticisms.html(note.criticisms, (target) {
           final resolved = resolveLinkTarget(target, linkTargets);
-          final path = resolved.split('#').first.replaceAll('\\', '/');
-          final title = p.posix.basename(path);
-          final directory = p.posix.dirname(path);
-          final titleIsUnique = linkTargets?[title.toLowerCase()] == path;
           return (
             href: obsidianUriForName(vaultPath, resolved),
-            title:
-                directory == '.' || titleIsUnique
-                    ? title
-                    : '$title ($directory)',
+            title: _noteTitle(resolved, linkTargets),
           );
-        });
+        }) +
+        CardCriticisms.raisedAgainstHtml([
+          for (final path in relations.challengedBy(
+            CardRelations.pathOf(
+              p.relative(note.sourcePath, from: vaultPath).replaceAll(r'\', '/'),
+            ),
+          ))
+            (
+              href: obsidianUriForName(vaultPath, path),
+              title: _noteTitle(path, linkTargets),
+            ),
+        ]);
     return (front, back);
+  }
+
+  /// A note's title for display, qualified by its folder when another note
+  /// shares the name.
+  static String _noteTitle(String resolved, Map<String, String>? linkTargets) {
+    final path = resolved.split('#').first.replaceAll(r'\', '/');
+    final title = p.posix.basename(path);
+    final directory = p.posix.dirname(path);
+    final titleIsUnique = linkTargets?[title.toLowerCase()] == path;
+    return directory == '.' || titleIsUnique ? title : '$title ($directory)';
   }
 
   /// Converts card Markdown to HTML. Wikilinks become `obsidian://open` links

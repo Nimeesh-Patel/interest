@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:people_tracker/features/anki/services/anki_connect_transport.dart';
 import 'package:people_tracker/features/anki/services/anki_problem_note_scanner.dart';
+import 'package:people_tracker/features/anki/services/card_relations.dart';
 import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
 
 const _usage = '''
@@ -110,6 +111,9 @@ Future<void> main(List<String> args) async {
     selected,
     vault.path,
     retirements: selectedRetirements,
+    // The whole vault was scanned, so the chosen cards show the same
+    // "Raised against" lines as a whole-vault sync would.
+    relations: CardRelations.of(scanned.facts),
   );
   stdout.writeln(
     'synced ${selected.length} notes '
@@ -130,6 +134,7 @@ Future<void> main(List<String> args) async {
       vault.path,
       retirements: rescanned.retirements,
       recreate: result.missing,
+      relations: CardRelations.of(rescanned.facts),
     );
     stdout.writeln(
       're-created ${result.added} of $missingCount missing cards '

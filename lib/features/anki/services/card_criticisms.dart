@@ -101,17 +101,42 @@ class CardCriticisms {
 
   static const _escape = HtmlEscape(HtmlEscapeMode.element);
 
-  static String _row(({String href, String title}) link) {
-    return '<a href="${link.href}" style="display:flex;'
-        'align-items:center;gap:8px;min-height:48px;color:inherit;'
-        'text-decoration:underline;text-underline-offset:3px;">'
-        '<span style="flex:1;min-width:0;overflow-wrap:anywhere;">'
-        '${_escape.convert(link.title)}</span>$_arrow</a>';
+  static String _row(({String href, String title}) link) =>
+      '<a href="${link.href}" style="display:flex;'
+      'align-items:center;gap:8px;min-height:48px;padding:6px 0;'
+      'color:inherit;text-decoration:none;">'
+      '<span style="flex:1;min-width:0;overflow-wrap:anywhere;'
+      'text-decoration:underline;text-underline-offset:3px;">'
+      '${_escape.convert(link.title)}</span>$_arrow</a>';
+
+  /// Class of the line that says which notes this one is raised against.
+  static const raisedMarker = 'interest-raised';
+
+  /// The relation read from the objection's side: the notes that list this
+  /// one in their `criticisms:`. Derived, so nothing is authored twice.
+  static String raisedAgainstHtml(List<({String href, String title})> notes) {
+    if (notes.isEmpty) return '';
+    final links = notes
+        .map(
+          (note) =>
+              '<a href="${note.href}" style="color:inherit;'
+              'text-decoration:underline;text-underline-offset:3px;">'
+              '${_escape.convert(note.title)}</a>',
+        )
+        .join(', ');
+    return '<div class="$raisedMarker" style="margin:20px 0 4px;'
+        'text-align:left;font-size:0.8125em;line-height:1.5;opacity:0.72;'
+        'color:inherit;">Raised against: $links</div>';
   }
 
   /// The card's back without the criticisms section: the conjecture alone.
   static String withoutSection(String back) {
-    final at = back.indexOf('<div class="$marker"');
-    return at < 0 ? back : back.substring(0, at);
+    final cuts = [
+      for (final name in [marker, raisedMarker])
+        back.indexOf('<div class="$name"'),
+    ].where((at) => at >= 0);
+    return cuts.isEmpty
+        ? back
+        : back.substring(0, cuts.reduce((a, b) => a < b ? a : b));
   }
 }

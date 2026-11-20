@@ -11,6 +11,7 @@ import 'anki_problem_note_scanner.dart';
 import 'anki_sync_lock.dart';
 import 'anki_sync_service.dart';
 import 'anki_transport.dart';
+import 'card_relations.dart';
 import 'sync_manifest.dart';
 
 class AnkiSyncController {
@@ -68,6 +69,7 @@ class AnkiSyncController {
               notes: scanned.notes,
               retirements: scanned.retirements,
               linkTargets: resolveLinkTargets(_aliases(facts)),
+              relations: CardRelations.of(facts),
               reconcileCollection: true,
             );
           }
@@ -127,9 +129,21 @@ class AnkiSyncController {
           };
           final before = resolveLinkTargets(manifest.aliases);
           var after = resolveLinkTargets(_aliases({...kept, ...scanned.facts}));
+          // A card also shows which notes it is raised against. When that
+          // changed, its own file did not, so it is read again like a
+          // relinked note.
+          final shownBefore = CardRelations.from(manifest.notes, before);
+          final shownAfter = CardRelations.from({
+            ...kept,
+            ...scanned.facts,
+          }, after);
           final relinked = [
             for (final entry in kept.entries)
-              if (entry.value.links.any((link) => before[link] != after[link]))
+              if (entry.value.links.any(
+                    (link) => before[link] != after[link],
+                  ) ||
+                  shownBefore.signature(entry.key) !=
+                      shownAfter.signature(entry.key))
                 entry.key,
           ];
           if (relinked.isNotEmpty) {
@@ -170,6 +184,7 @@ class AnkiSyncController {
             notes: scanned.notes,
             retirements: scanned.retirements,
             linkTargets: after,
+            relations: CardRelations.from({...kept, ...scanned.facts}, after),
           );
         },
         preview: preview,
@@ -463,6 +478,7 @@ class AnkiSyncController {
         retire: retire,
         reassign: reassign,
         linkTargets: resolveLinkTargets(_aliases(scanned.facts)),
+        relations: CardRelations.of(scanned.facts),
         record: (result) {
           if (result.linked.isEmpty) return Future.value();
           return _record(

@@ -6,6 +6,8 @@ import 'package:people_tracker/features/anki/services/anki_problem_note_scanner.
 import 'package:people_tracker/features/anki/services/anki_sync_service.dart';
 import 'package:people_tracker/features/anki/services/anki_transport.dart';
 import 'package:people_tracker/features/anki/services/card_criticisms.dart';
+import 'package:people_tracker/features/anki/services/card_relations.dart';
+import 'package:people_tracker/features/anki/services/sync_manifest.dart';
 import 'package:yaml/yaml.dart';
 
 // Open criticisms: an objection recorded on the challenged note must reach
@@ -189,6 +191,79 @@ void main() {
       expect(scan.notes, isEmpty);
       expect(scan.errors.single, contains('Damaged.md'));
       expect(scan.errors.single, contains('criticisms must be links'));
+    });
+  });
+
+  group('what a card shows of other notes', () {
+    late Directory vault;
+    setUp(() => vault = Directory.systemTemp.createTempSync('relations'));
+    tearDown(() => vault.deleteSync(recursive: true));
+
+    File note(String name, String text) => File(p.join(vault.path, '$name.md'))..writeAsStringSync(text);
+
+    Future<_Anki> sync(_Anki anki) async {
+      final scan = await AnkiProblemNoteScanner.scan(vault.path);
+      expect(scan.errors, isEmpty);
+      await AnkiSyncService.syncVault(
+        anki,
+        scan.notes,
+        vault.path,
+        relations: CardRelations.of(scan.facts),
+      );
+      return anki;
+    }
+
+    String backOf(_Anki anki, String title) =>
+        anki.cards.values.firstWhere((card) => card.front.contains('file=$title')).back;
+
+    test('a criticism row shows the linked note\'s title only', () async {
+      note('Challenged', '---\ncriticisms:\n  - "[[Objection]]"\n---\nQ\n***\nA.\n');
+      note('Objection', 'Why does this fail for hubs?\n***\nBecause.\n');
+      final back = backOf(await sync(_Anki()), 'Challenged');
+      expect(back, contains('>Objection</span>'));
+      expect(back, isNot(contains('Why does this fail')));
+    });
+
+    test('the objection\'s own card says what it is raised against', () async {
+      note('Challenged', '---\ncriticisms:\n  - "[[Objection]]"\n---\nQ\n***\nA.\n');
+      note('Second', '---\ncriticisms:\n  - "[[Objection]]"\n---\nQ2\n***\nA2.\n');
+      note('Objection', 'Why?\n***\nBecause.\n');
+      final anki = await sync(_Anki());
+      final back = backOf(anki, 'Objection');
+      expect(back, contains('class="interest-raised"'));
+      expect(back, contains('Raised against: '));
+      expect(back, contains('file=Challenged'));
+      expect(back, contains('file=Second'));
+      expect(backOf(anki, 'Challenged'), isNot(contains('interest-raised')));
+      // The conjecture alone is still recoverable.
+      expect(CardCriticisms.withoutSection(back), isNot(contains('Raised against')));
+    });
+
+    test('removing the link clears the line on the objection\'s card', () async {
+      final challenged = note('Challenged', '---\ncriticisms:\n  - "[[Objection]]"\n---\nQ\n***\nA.\n');
+      note('Objection', 'Why?\n***\nBecause.\n');
+      final anki = await sync(_Anki());
+      // The sync wrote the card number into the note; keep it.
+      challenged.writeAsStringSync(
+        challenged.readAsStringSync().replaceFirst('criticisms:\n  - "[[Objection]]"', 'criticisms: []'),
+      );
+      await sync(anki);
+      expect(backOf(anki, 'Objection'), isNot(contains('interest-raised')));
+      expect(backOf(anki, 'Challenged'), isNot(contains('interest-criticisms')));
+    });
+
+    test('a card\'s signature changes when its "Raised against" line does', () {
+      NoteFacts facts([List<String> criticisms = const []]) =>
+          NoteFacts(modified: 1, size: 1, criticisms: criticisms);
+      final before = {'A.md': facts(['b']), 'B.md': facts()};
+      final unlinked = {'A.md': facts(), 'B.md': facts()};
+      const targets = {'a': 'A', 'b': 'B'};
+      String sig(Map<String, NoteFacts> all, String key) =>
+          CardRelations.from(all, targets).signature(key);
+      // A dropped the link: B's "Raised against" line must go.
+      expect(sig(before, 'B.md'), isNot(sig(unlinked, 'B.md')));
+      // A shows nothing of B, so B's edits never touch A's card.
+      expect(sig(before, 'A.md'), sig(unlinked, 'A.md'));
     });
   });
 }

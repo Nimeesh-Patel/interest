@@ -19,6 +19,9 @@ class NoteFacts {
   /// Wikilink targets in the card's two sides, as [linkKey] normalises them.
   final List<String> links;
 
+  /// Targets of the note's `criticisms:` links, as [linkKey] normalises them.
+  final List<String> criticisms;
+
   /// Null when Anki has not received this note's card as rendered.
   final String? card;
 
@@ -28,6 +31,7 @@ class NoteFacts {
     this.aliases = const [],
     this.ankiNoteId,
     this.links = const [],
+    this.criticisms = const [],
     this.card,
   });
 
@@ -42,6 +46,7 @@ class NoteFacts {
     aliases: aliases,
     ankiNoteId: ankiNoteId == null ? this.ankiNoteId : ankiNoteId(),
     links: links,
+    criticisms: criticisms,
     card: card == null ? this.card : card(),
   );
 
@@ -51,6 +56,7 @@ class NoteFacts {
     if (aliases.isNotEmpty) 'a': aliases,
     if (ankiNoteId != null) 'i': ankiNoteId!,
     if (links.isNotEmpty) 'l': links,
+    if (criticisms.isNotEmpty) 'k': criticisms,
     if (card != null) 'c': card!,
   };
 
@@ -62,6 +68,8 @@ class NoteFacts {
       aliases: raw['a'] is List ? (raw['a'] as List).cast<String>() : const [],
       ankiNoteId: raw['i'] as String?,
       links: raw['l'] is List ? (raw['l'] as List).cast<String>() : const [],
+      criticisms:
+          raw['k'] is List ? (raw['k'] as List).cast<String>() : const [],
       card: raw['c'] as String?,
     );
   }
@@ -100,8 +108,9 @@ class SyncManifest {
   /// Legacy records can protect card IDs but cannot establish what is current.
   final bool quickReady;
 
-  // Re-render existing cards once for the new answer layout and titles.
-  static const version = 4;
+  // Re-read every note once so each records its criticisms, and every card
+  // with a criticism is rendered again with titles only.
+  static const version = 6;
 
   const SyncManifest(
     this.notes, {
@@ -124,7 +133,7 @@ class SyncManifest {
         await File(VaultPaths.syncManifest(vaultPath)).readAsString(),
       );
       if (raw is! Map ||
-          (raw.containsKey('v') && !const {2, 3, version}.contains(raw['v'])) ||
+          (raw.containsKey('v') && !const {2, 3, 4, 5, version}.contains(raw['v'])) ||
           raw['notes'] is! Map ||
           raw['startedAt'] is! int) {
         return null;

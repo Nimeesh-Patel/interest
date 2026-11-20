@@ -120,13 +120,17 @@ class AnkiProblemNoteScanner {
         throw const FormatException('frontmatter must be a valid YAML mapping');
       }
       final ankiNoteId = yaml?['anki_note_id']?.toString();
-      NoteFacts record({List<String> links = const []}) => NoteFacts(
+      NoteFacts record({
+        List<String> links = const [],
+        List<String> criticisms = const [],
+      }) => NoteFacts(
         modified: stat.modified.millisecondsSinceEpoch,
         size: stat.size,
         aliases: parseAliases(split.frontmatter),
         ankiNoteId:
             ankiNoteId == null || ankiNoteId.isEmpty ? null : ankiNoteId,
         links: links,
+        criticisms: criticisms,
       );
       final key = relativeKey(vaultPath, entry.path);
       facts[key] = record();
@@ -156,7 +160,13 @@ class AnkiProblemNoteScanner {
         ])
           linkKey(target),
       };
-      facts[key] = record(links: links.toList()..sort());
+      facts[key] = record(
+        links: links.toList()..sort(),
+        criticisms: [
+          for (final target in CardCriticisms.targets(criticisms))
+            linkKey(target),
+        ],
+      );
       notes.add(
         AnkiProblemNote(
           sourcePath: entry.path,
